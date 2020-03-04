@@ -21,6 +21,10 @@ class ExampleModule(Module):
         output) and publishes data on the "example_module:spam" channel. The channel size is limited by the integer (10) after 
         the output name, to avoid buffer overflows. This number should be fairly small for streams of 
         large objects (i.e. a pointcloud) and can be larger for small objects (i.e. a single float). All Queues are FiFo.
+        
+        The init function should be as lightweight as possible as these are run sequentially for all models in the main process. The                   
+        self.start method is called in an extra process for each module. Costly initializations should therefore be made in self.start and not in 
+        self.init.
         """
     def start(self):
         while True:
@@ -32,4 +36,12 @@ class ExampleModule(Module):
             # get the oldest numpy array from the input queue with name "echo_module:echo"
             data = self.get("echo_module:echo") 
             self.logger.info(f"Received Echo with shape {data.shape} ")
+            
+   def cleanup(self):
+       # any cleanup code (i.e. closing serial connections etc.) should be put here. This function is called even if an exception occurrs.
+       pass
+       
 ```
+
+## Logging
+Every time you run your pipeline a new log directory is created with todays time and date in the logs folder. There are logfiles for each module and the pipeline itself. All Modules have a self.logger member which can be used to log to the console and to a file. 
