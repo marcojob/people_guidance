@@ -20,18 +20,13 @@ class DriversModule(Module):
 
         self.bus = smbus.SMBus(1)
         self.bus.write_byte_data(address, power_mgmt_1, 0)
-
+        
+        registers = [(0x43, rot_x), (0x45, rot_y), (0x47, rot_z), (0x3b, acc_x), (0x3d, acc_y), (0x3f, acc_z)]
+        
         while True:
             sleep(0.5)
-            rot_x = self.read_word_2c(0x43)
-            rot_y = self.read_word_2c(0x45)
-            rot_z = self.read_word_2c(0x47)
-
-            acc_x = self.read_word_2c(0x3b)
-            acc_y = self.read_word_2c(0x3d)
-            acc_z = self.read_word_2c(0x3f)
-            self.logger.info("rot_x: {}, rot_y: {}, rot_z: {}, acc_x: {}, acc_y: {}, acc_z: {}".format(
-                rot_x, rot_y, rot_z, acc_x, acc_y, acc_z))
+            values = {name: self.read_word_2c(reg) for (reg, name) in registers}
+            self.logger.info(values)
 
     def read_byte(self, reg):
         return self.bus.read_byte_data(address, reg)
