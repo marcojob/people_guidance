@@ -1,9 +1,35 @@
 # people_guidance
 
 ## Adding Modules
-To add a module simply create a folder in the people_guidance/modules directory. Your Module must be a class that inherits from the Module class found in people_guidance/modules/module.py. The constructor for your class *must* take three arguments: 
-- input_queue
-- output_queue 
-- log_dir
+To add a module simply create a folder in the people_guidance/modules directory. Your Module must be a class that inherits from the Module class found in people_guidance/modules/module.py. The constructor for your class *must* take just one argument: log_dir which will be passed to it by the Pipeline which creates the model. The Module Class (which your Module Class must inherit from) sets up some basic things like the logger and the input/output queues through which your module can send/receive data.
 
-All of these arguments are passed to your Module by the pipeline class. The Module class needs these arguments to set up some basic utilities for your module such as logging and your input and output queues, through which you will recieve data from modules that come before or after you in the pipeline.
+**To run your Model you must add it to the Pipeline. You can do so by importing your class in main.py and simply adding:**
+```python
+from xxx import MyModule
+pipeline.add_module(MyModule)
+```
+
+### Example Module
+```python
+class ExampleModule(Module):
+
+    def __init__(self, log_dir: pathlib.Path):
+        super(ExampleModule, self).__init__(name="example_module", outputs=[("spam", 10)], 
+        input_topics=["echo_module:echo"], log_dir=log_dir)
+        """
+        this will create a model that can get data from the "echo_module:echo" (which is the "echo" output from the "echo_module"
+        output) and publishes data on the "example_module:spam" channel. The channel size is limited by the integer (10) after 
+        the output name, to avoid buffer overflows. This number should be fairly small for streams of 
+        large objects (i.e. a pointcloud) and can be larger for small objects (i.e. a single float). All Queues are FiFo.
+        """
+    def start(self):
+        while True:
+            time.sleep(1)
+            self.logger.info("Spamming...")
+            spam = np.random.random((20, 20, 3))
+            # put the newly generated numpy array into the output queue with name "spam".
+            self.outputs["spam"].put(spam)
+            # get the oldest numpy array from the input queue with name "echo_module:echo"
+            data = self.get("echo_module:echo") 
+            self.logger.info(f"Received Echo with shape {data.shape} ")
+```
