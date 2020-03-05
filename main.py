@@ -1,14 +1,12 @@
+from people_guidance.modules.spam_module import SpamModule
+from people_guidance.modules.echo_module import EchoModule
 from people_guidance.pipeline import Pipeline
 from people_guidance.utils import init_logging
-
-from people_guidance.modules.drivers_module import DriversModule
 
 if __name__ == '__main__':
     init_logging()
 
     pipeline = Pipeline()
-
-    # Handles hardware drivers and interfaces
-    pipeline.add_module(DriversModule)
-
+    pipeline.add_module(SpamModule)
+    pipeline.add_module(EchoModule)
     pipeline.start()
