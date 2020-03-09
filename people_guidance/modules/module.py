@@ -2,8 +2,9 @@ import multiprocessing as mp
 import pathlib
 import logging
 import traceback
+import time
+
 from typing import Optional, Any, Dict, List, Tuple
-from time import time
 
 from ..utils import get_logger
 
@@ -28,27 +29,29 @@ class Module:
         if self.outputs[topic].full():
             self.outputs[topic].get()
             self.logger.warning(
-                'Publish queue of {} was full!'.format(self.name))
+                'Output queue {} of {} is full!'.format(topic, self.name))
 
         # In any case add the item to the queue
         self.outputs[topic].put(
-            {'data': data, 'timestamp': get_time(), 'validity': validity})
+            {'data': data, 'timestamp': timestamp, 'validity': validity})
 
     def get(self, topic: str) -> Dict:
         # If the queue is empty we return an empty dict, error handling should be done after
         if self.inputs[topic].empty():
-            self.logger.warning('Get queue of {} is full!'.format(self.name))
-            return Dict()
+            self.logger.warning(
+                'Input queue {} of {} is empty!'.format(topic, self.name))
+            return dict()
 
         # Go through the queue until you find data that is still valid
         while not self.inputs[topic].empty():
             out = self.inputs[topic].get()
             # If data is valid return it
-            if out['timstamp'] + out['validity'] < self.get_time_ms():
+            if out['timestamp'] + out['validity'] < self.get_time_ms():
+                self.logger.warning("{} data not valid anymore".format(topic))
                 return out
 
         # The queue is officially empty and nothing is valid :(
-        return Dict()
+        return dict()
 
     def start(self):
         raise NotImplementedError
