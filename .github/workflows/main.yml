@@ -24,5 +24,5 @@ jobs:
           args: --recursive --in-place --aggressive --aggressive . --max-line-length 120
 
     - name: Fail if autopep8 made changes
-        if: steps.autopep8.outputs.exit-code == 2
-        run: exit 1
+      if: steps.autopep8.outputs.exit-code == 2
+      run: exit 1
