@@ -23,6 +23,9 @@ jobs:
       with:
           args: --recursive --in-place --aggressive --aggressive . --max-line-length 120
 
+    - name: Debug out pep exit code
+      run: echo steps.autopep8.outputs.exit-code
+
     - name: Fail if autopep8 made changes
       if: steps.autopep8.outputs.exit-code == 2
       run: exit 1
