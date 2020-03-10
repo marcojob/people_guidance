@@ -1,7 +1,8 @@
 import pathlib
 
+from time import sleep
 
-from ..module import Module
+from people_guidance.modules.module import Module
 
 
 class EchoModule(Module):
@@ -11,7 +12,11 @@ class EchoModule(Module):
                                          input_topics=["spam_module:spam"], log_dir=log_dir)
 
     def start(self):
+        self.logger.info("Starting echo module...")
         while True:
-            data = self.get("spam_module:spam")
-            self.logger.info(f"Received data {data.shape} from spam module.")
-            self.publish("echo", data)
+            sleep(1)
+            # Get data from spam module and check if data is not empty
+            data_dict = self.get("spam_module:spam")
+            if data_dict:
+                self.logger.info(f"Received data {data_dict['data'].shape} from spam module.")
+                self.publish("echo", data_dict['data'], 2000)

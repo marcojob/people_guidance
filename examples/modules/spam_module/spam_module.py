@@ -1,9 +1,9 @@
-import time
 import pathlib
-
 import numpy as np
 
-from ..module import Module
+from time import sleep
+
+from people_guidance.modules.module import Module
 
 
 class SpamModule(Module):
@@ -13,11 +13,16 @@ class SpamModule(Module):
                                          input_topics=["echo_module:echo"], log_dir=log_dir)
 
     def start(self):
+        self.logger.info("Starting spam module...")
         while True:
-            time.sleep(1)
-            self.logger.info("Spamming...")
-            spam = np.random.random((20, 20, 3))
-            self.outputs["spam"].put(spam)
-            data = self.get("echo_module:echo")
-            self.logger.info(f"Received Echo with shape {data.shape} ")
+            sleep(1)
+            self.logger.warning("Spamming...")
 
+            # Publish data with validity of 100 ms
+            spam = np.random.random((20, 20, 3))
+            self.publish("spam", spam, 2000)
+
+            # Get data from echo module and check is data is not empty
+            data_dict = self.get("echo_module:echo")
+            if data_dict:
+                self.logger.info(f"Received Echo with shape {data_dict['data'].shape} ")

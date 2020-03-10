@@ -39,7 +39,7 @@ class Module:
         # If the queue is empty we return an empty dict, error handling should be done after
         if self.inputs[topic].empty():
             self.logger.warning(
-                "Input queue {topic} of {self.name} is empty!")
+                f"Input queue {topic} of {self.name} is empty!")
             return dict()
 
         # Go through the queue until you find data that is still valid
@@ -48,6 +48,7 @@ class Module:
             # If data is valid return it
             if out['timestamp'] + out['validity'] < self.get_time_ms():
                 self.logger.warning(f"{topic} data not valid anymore")
+            else:
                 return out
 
         # The queue is officially empty and nothing is valid :(
