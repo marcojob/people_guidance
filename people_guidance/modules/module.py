@@ -29,7 +29,7 @@ class Module:
         if self.outputs[topic].full():
             self.outputs[topic].get()
             self.logger.warning(
-                'Output queue {} of {} is full!'.format(topic, self.name))
+                f"Output queue {topic} of {self.name} is full!")
 
         # In any case add the item to the queue
         self.outputs[topic].put(
@@ -39,7 +39,7 @@ class Module:
         # If the queue is empty we return an empty dict, error handling should be done after
         if self.inputs[topic].empty():
             self.logger.warning(
-                'Input queue {} of {} is empty!'.format(topic, self.name))
+                "Input queue {topic} of {self.name} is empty!")
             return dict()
 
         # Go through the queue until you find data that is still valid
@@ -47,7 +47,7 @@ class Module:
             out = self.inputs[topic].get()
             # If data is valid return it
             if out['timestamp'] + out['validity'] < self.get_time_ms():
-                self.logger.warning("{} data not valid anymore".format(topic))
+                self.logger.warning(f"{topic} data not valid anymore")
                 return out
 
         # The queue is officially empty and nothing is valid :(
