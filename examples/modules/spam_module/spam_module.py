@@ -18,11 +18,11 @@ class SpamModule(Module):
             sleep(1)
             self.logger.warning("Spamming...")
 
-            # Publish data with validity of 100 ms
+            # Publish data with validity of 2000 ms
             spam = np.random.random((20, 20, 3))
             self.publish("spam", spam, 2000)
 
-            # Get data from echo module and check is data is not empty
+            # Get data from echo module and check if data is not empty
             data_dict = self.get("echo_module:echo")
             if data_dict:
                 self.logger.info(f"Received Echo with shape {data_dict['data'].shape} ")
