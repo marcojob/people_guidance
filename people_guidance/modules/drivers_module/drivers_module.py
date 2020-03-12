@@ -1,6 +1,10 @@
+import io
 import smbus
+
+from picamera import mmal, mmalobj
 from pathlib import Path
 from time import sleep
+from queue import Queue
 
 from ..module import Module
 from .utils import *
@@ -14,20 +18,72 @@ class DriversModule(Module):
     def start(self):
         self.logger.info("Starting drivers")
 
-        self.bus = smbus.SMBus(1)
-        self.bus.write_byte_data(ADDR, PWR_MGMT_1, 0)
+        # CAMERA INITS
+        self.camera = mmalobj.MMALCamera()
+        self.encoder = mmalobj.MMALImageEncoder()
+        self.q_img = Queue()
 
+        # IMU INITS
+        self.bus = smbus.SMBus(1)
+
+        # CAMERA SETUP
+        self.camera_pipeline_setup()
+        self.camera_start()
+
+        # IMU SETUP
+        self.bus.write_byte_data(ADDR, PWR_MGMT_1, 0)
         self.set_accel_range()
         self.set_gyro_range()
 
-        if DO_CALIB is True:
-            self.imu_calibration()
+        # TODO: handle calibration case
 
         while(True):
-            # Test prints
-            self.logger.info("AX: {}, AY: {}, AZ: {}".format(
-                self.get_accel_x(), self.get_accel_y(), self.get_accel_z()))
-            sleep(1)
+            # We want to forward image data as fast and often as possible
+            if not self.q_img.empty():
+                # Get next img from queue
+                data_dict = self.q.get()
+                data = data_dict['data']
+                timestamp = data['timestamp']
+
+
+
+    def camera_pipeline_setup(self):
+        # Camera output setup
+        self.camera.outputs[0].format = mmal.MMAL_ENCODING_RGB24
+        self.camera.outputs[0].framesize = self.framesize
+        self.camera.outputs[0].framerate = 30
+        self.camera.outputs[0].commit()
+
+        # Encoder input setup
+        self.encoder.inputs[0].format = mmal.MMAL_ENCODING_RGB24
+        self.encoder.inputs[0].framesize = self.framesize
+        self.encoder.inputs[0].commit()
+
+        # Encoder output setup
+        self.encoder.outputs[0].copy_from(self.encoder.inputs[0])
+        self.encoder.outputs[0].format = mmal.MMAL_ENCODING_JPEG
+        self.encoder.outputs[0].params[mmal.MMAL_PARAMETER_JPEG_Q_FACTOR] = 90
+        self.encoder.outputs[0].commit()
+
+        # Connect encoder input to camera output
+        self.encoder.connect(self.camera.outputs[0])
+        self.encoder.connection.enable()
+
+    def image_callback(self, port, buf):
+        # Is called in separate thread
+        self.q.put({'data': buf.data,
+                    'timestamp': self.get_time_ms()})
+        return False
+
+    def get_time_ms(self):
+        # https://www.python.org/dev/peps/pep-0418/#time-monotonic
+        return int(round(monotonic() * 1000))
+
+    def camera_start(self):
+        self.encoder.outputs[0].enable(self.image_callback)
+
+    def camera_stop(self):
+        self.encoder.connection.disable()
 
     def set_accel_range(self):
         # Get current config
