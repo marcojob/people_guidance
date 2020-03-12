@@ -45,24 +45,22 @@ class DriversModule(Module):
                 data = data_dict['data']
                 timestamp = data['timestamp']
 
-
-
     def camera_pipeline_setup(self):
         # Camera output setup
         self.camera.outputs[0].format = mmal.MMAL_ENCODING_RGB24
-        self.camera.outputs[0].framesize = self.framesize
-        self.camera.outputs[0].framerate = 30
+        self.camera.outputs[0].framesize = CAMERA_FRAMESIZE
+        self.camera.outputs[0].framerate = CAMERA_FRAMERATE
         self.camera.outputs[0].commit()
 
         # Encoder input setup
         self.encoder.inputs[0].format = mmal.MMAL_ENCODING_RGB24
-        self.encoder.inputs[0].framesize = self.framesize
+        self.encoder.inputs[0].framesize = CAMERA_FRAMESIZE
         self.encoder.inputs[0].commit()
 
         # Encoder output setup
         self.encoder.outputs[0].copy_from(self.encoder.inputs[0])
         self.encoder.outputs[0].format = mmal.MMAL_ENCODING_JPEG
-        self.encoder.outputs[0].params[mmal.MMAL_PARAMETER_JPEG_Q_FACTOR] = 90
+        self.encoder.outputs[0].params[mmal.MMAL_PARAMETER_JPEG_Q_FACTOR] = CAMERA_JPEG_QUALITY
         self.encoder.outputs[0].commit()
 
         # Connect encoder input to camera output
