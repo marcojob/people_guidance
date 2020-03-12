@@ -2,6 +2,8 @@ import multiprocessing as mp
 import pathlib
 import logging
 import traceback
+import time
+
 from typing import Optional, Any, Dict, List, Tuple
 
 from ..utils import get_logger
@@ -18,14 +20,46 @@ class Module:
     def subscribe(self, topic: str, queue: mp.Queue):
         return self.inputs.update({topic: queue})
 
-    def publish(self, topic: str, data: Any) -> None:
-        self.outputs[topic].put(data)
+    def publish(self, topic: str, data: Any, validity: int, timestamp=None) -> None:
+        # We need to set the timestamp if not set explicitly
+        if timestamp is None:
+            timestamp = self.get_time_ms()
 
-    def get(self, topic: str) -> Any:
-        return self.inputs[topic].get()
+        # If the queue is full we need to clear one slot for newer data
+        if self.outputs[topic].full():
+            self.outputs[topic].get()
+            self.logger.warning(
+                f"Output queue {topic} of {self.name} is full!")
+
+        # In any case add the item to the queue
+        self.outputs[topic].put(
+            {'data': data, 'timestamp': timestamp, 'validity': validity})
+
+    def get(self, topic: str) -> Dict:
+        # If the queue is empty we return an empty dict, error handling should be done after
+        if self.inputs[topic].empty():
+            self.logger.warning(
+                f"Input queue {topic} of {self.name} is empty!")
+            return dict()
+
+        # Go through the queue until you find data that is still valid
+        while not self.inputs[topic].empty():
+            out = self.inputs[topic].get()
+            # If data is valid return it
+            if out['timestamp'] + out['validity'] < self.get_time_ms():
+                self.logger.warning(f"{topic} data not valid anymore")
+            else:
+                return out
+
+        # The queue is officially empty and nothing is valid :(
+        return dict()
 
     def start(self):
         raise NotImplementedError
+
+    def get_time_ms(self):
+        # https://www.python.org/dev/peps/pep-0418/#time-monotonic
+        return int(round(time.monotonic() * 1000))
 
     def __enter__(self):
         self.logger: logging.Logger = get_logger(f"module_{self.name}", self.log_dir)
@@ -39,4 +73,3 @@ class Module:
 
     def cleanup(self):
         pass
-
