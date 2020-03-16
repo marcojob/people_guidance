@@ -12,7 +12,7 @@ from .utils import *
 
 class DriversModule(Module):
     def __init__(self, log_dir: Path):
-        super(DriversModule, self).__init__(name="drivers_module", outputs=[],
+        super(DriversModule, self).__init__(name="drivers_module", outputs=[("images", 10), ("accelerations", 100)],
                                             input_topics=[], log_dir=log_dir)
 
     def start(self):
@@ -25,6 +25,7 @@ class DriversModule(Module):
 
         # IMU INITS
         self.bus = smbus.SMBus(1)
+        self.imu_next_sample_ms = self.get_time_ms()
 
         # CAMERA SETUP
         self.camera_pipeline_setup()
@@ -38,12 +39,25 @@ class DriversModule(Module):
         # TODO: handle calibration case
 
         while(True):
+            if self.get_time_ms() > self.imu_next_sample_ms:
+                timestamp = self.get_time_ms()
+                self.imu_next_sample_ms = timestamp + IMU_SAMPLE_TIME_MS
+                data_dict = {'accel_x': self.get_accel_x(),
+                             'accel_y': self.get_accel_y(),
+                             'accel_z': self.get_accel_z(),
+                             'gyro_x': self.get_gyro_x(),
+                             'gyro_y': self.get_gyro_y(),
+                             'gyro_z': self.get_gyro_z()
+                             }
+                self.publish("accelerations", data_dict, IMU_VALIDITY_MS, timestamp)
+
             # We want to forward image data as fast and often as possible
             if not self.q_img.empty():
                 # Get next img from queue
                 data_dict = self.q_img.get()
                 data = data_dict['data']
                 timestamp = data_dict['timestamp']
+                self.publish("images", data, IMAGES_VALIDITY_MS, timestamp)
 
     def camera_pipeline_setup(self):
         # Camera output setup
