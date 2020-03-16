@@ -1,13 +1,21 @@
 import io
 import smbus
+import platform
+import re
 
-from picamera import mmal, mmalobj
-from pathlib import Path
-from time import sleep, monotonic
-from queue import Queue
-
-from ..module import Module
 from .utils import *
+from ..module import Module
+from queue import Queue
+from time import sleep, monotonic
+from pathlib import Path
+
+if platform.uname().machine == 'armv7l':
+    RPI = True
+else:
+    RPI = False
+
+if RPI:
+    from picamera import mmal, mmalobj
 
 
 class DriversModule(Module):
@@ -27,23 +35,26 @@ class DriversModule(Module):
         self.RECORD_MODE = False
         self.REPLAY_MODE = False
 
-        # CAMERA INITS
-        self.camera = mmalobj.MMALCamera()
-        self.encoder = mmalobj.MMALImageEncoder()
-        self.q_img = Queue()
-
         # IMU INITS
-        self.bus = smbus.SMBus(1)
         self.imu_next_sample_ms = self.get_time_ms()
 
-        # CAMERA SETUP
-        self.camera_pipeline_setup()
-        self.camera_start()
+        if RPI:
+            # CAMERA INITS
+            self.camera = mmalobj.MMALCamera()
+            self.encoder = mmalobj.MMALImageEncoder()
+            self.q_img = Queue()
 
-        # IMU SETUP
-        self.bus.write_byte_data(ADDR, PWR_MGMT_1, 0)
-        self.set_accel_range()
-        self.set_gyro_range()
+            # CAMERA SETUP
+            self.camera_pipeline_setup()
+            self.camera_start()
+
+            # IMU INITS
+            self.bus = smbus.SMBus(1)
+
+            # IMU SETUP
+            self.bus.write_byte_data(ADDR, PWR_MGMT_1, 0)
+            self.set_accel_range()
+            self.set_gyro_range()
 
         # TODO: handle calibration case
 
@@ -52,10 +63,32 @@ class DriversModule(Module):
 
         while(True):
             if self.REPLAY_MODE:
-                pass
+                if not self.imu_timestamp:
+                    imu_str = self.imu_data.readline()
+                    out = re.search(IMU_RE_MASK, imu_str)
+
+                    if out:
+                        self.imu_timestamp = int(out.group(1))
+
+                        if not self.imu_first_timestamp:
+                            self.imu_first_timestamp = self.imu_timestamp
+
+                        self.imu_data_dict = {'accel_x': out.group(2),
+                                              'accel_y': out.group(3),
+                                              'accel_z': out.group(4),
+                                              'gyro_x': out.group(5),
+                                              'gyro_y': out.group(6),
+                                              'gyro_z': out.group(7)
+                                              }
+                if self.get_time_ms() - self.replay_start_timestamp > \
+                        self.imu_timestamp - self.imu_first_timestamp:
+                    self.publish("accelerations", self.imu_data_dict,
+                                 IMU_VALIDITY_MS, self.imu_timestamp)
+                    self.imu_timestamp = None
             else:
                 if self.get_time_ms() > self.imu_next_sample_ms:
                     timestamp = self.get_time_ms()
+
                     self.imu_next_sample_ms = timestamp + IMU_SAMPLE_TIME_MS
                     data_dict = {'accel_x': self.get_accel_x(),
                                  'accel_y': self.get_accel_y(),
@@ -78,8 +111,7 @@ class DriversModule(Module):
                                      IMU_VALIDITY_MS, timestamp)
 
                 # We want to forward image data as fast and often as possible
-                if not self.q_img.empty():
-                    print(self.q_img.qsize())
+                if not self.REPLAY_MODE and not self.q_img.empty():
                     # Get next img from queue
                     data_dict = self.q_img.get()
                     data = data_dict['data']
@@ -99,6 +131,9 @@ class DriversModule(Module):
                     else:
                         self.publish("images", data,
                                      IMAGES_VALIDITY_MS, timestamp)
+                else:
+                    pass
+
 
     def camera_pipeline_setup(self):
         # Camera output setup
@@ -237,6 +272,19 @@ class DriversModule(Module):
         if self.args.replay:
             self.REPLAY_MODE = True
             self.files_dir = Path(self.args.replay)
+
+            self.replay_start_timestamp = self.get_time_ms()
+
+
+            # IMU inits
+            self.imu_data = (self.files_dir / 'imu_data.txt').open(mode='r')
+            self.imu_data_dict = None
+            self.imu_timestamp = None
+            self.imu_first_timestamp = None
+
+
+            # Camera inits
+            self.img_data = (self.files_dir / 'img_data.txt').open(mode='r')
 
         elif self.args.record:
             self.RECORD_MODE = True

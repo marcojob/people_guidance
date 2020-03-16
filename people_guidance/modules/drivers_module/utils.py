@@ -62,7 +62,7 @@ GYRO_RANGE = 250
 ACCEL_COEFF = ACCEL_RANGE/IMU_MAX_VAL
 GYRO_COEFF = GYRO_RANGE/IMU_MAX_VAL
 
-#Calibrations values
+# Calibrations values
 ACCEL_CALIB_X = 0
 ACCEL_CALIB_Y = 0
 ACCEL_CALIB_Z = 0
@@ -70,3 +70,10 @@ ACCEL_CALIB_Z = 0
 GYRO_CALIB_X = 0
 GYRO_CALIB_Y = 0
 GYRO_CALIB_Z = 0
+
+IMU_RE_MASK = r'([0-9]*): accel_x: ([0-9.-]*), ' + \
+    'accel_y: ([0-9.-]*), ' + \
+    'accel_z: ([0-9.-]*), ' + \
+    'gyro_x: ([0-9.-]*), ' + \
+    'gyro_y: ([0-9.-]*), ' + \
+    'gyro_z: ([0-9.-]*)'
