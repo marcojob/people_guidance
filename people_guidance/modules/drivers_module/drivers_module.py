@@ -62,34 +62,16 @@ class DriversModule(Module):
         self.setup_hardware_configuration()
 
         while(True):
-            if self.REPLAY_MODE:
-                if not self.imu_timestamp:
-                    imu_str = self.imu_data.readline()
-                    out = re.search(IMU_RE_MASK, imu_str)
-
-                    if out:
-                        self.imu_timestamp = int(out.group(1))
-
-                        if not self.imu_first_timestamp:
-                            self.imu_first_timestamp = self.imu_timestamp
-
-                        self.imu_data_dict = {'accel_x': out.group(2),
-                                              'accel_y': out.group(3),
-                                              'accel_z': out.group(4),
-                                              'gyro_x': out.group(5),
-                                              'gyro_y': out.group(6),
-                                              'gyro_z': out.group(7)
-                                              }
-                if self.get_time_ms() - self.replay_start_timestamp > \
-                        self.imu_timestamp - self.imu_first_timestamp:
-                    self.publish("accelerations", self.imu_data_dict,
-                                 IMU_VALIDITY_MS, self.imu_timestamp)
-                    self.imu_timestamp = None
-            else:
+            # Not replay mode, either normal or record mode
+            if not self.REPLAY_MODE:
+                # IMU gets sampled at a fixed frequency
                 if self.get_time_ms() > self.imu_next_sample_ms:
                     timestamp = self.get_time_ms()
 
+                    # Schedule the next sample time
                     self.imu_next_sample_ms = timestamp + IMU_SAMPLE_TIME_MS
+
+                    # Dict of IMU data
                     data_dict = {'accel_x': self.get_accel_x(),
                                  'accel_y': self.get_accel_y(),
                                  'accel_z': self.get_accel_z(),
@@ -97,21 +79,61 @@ class DriversModule(Module):
                                  'gyro_y': self.get_gyro_y(),
                                  'gyro_z': self.get_gyro_z()
                                  }
+
                     if self.RECORD_MODE:
-                        self.imu_data.write(f"{timestamp}: ")
-                        self.imu_data.write(f"accel_x: {data_dict['accel_x']}, ")
-                        self.imu_data.write(f"accel_y: {data_dict['accel_y']}, ")
-                        self.imu_data.write(f"accel_z: {data_dict['accel_z']}, ")
-                        self.imu_data.write(f"gyro_x: {data_dict['gyro_x']}, ")
-                        self.imu_data.write(f"gyro_y: {data_dict['gyro_y']}, ")
-                        self.imu_data.write(f"gyro_z: {data_dict['gyro_z']}\n")
+                        # In record mode, we want to write data into the open file
+                        self.imu_data.write(f"{timestamp}: " +
+                                            f"accel_x: {data_dict['accel_x']}, " +
+                                            f"accel_y: {data_dict['accel_y']}, " +
+                                            f"accel_z: {data_dict['accel_z']}, " +
+                                            f"gyro_x: {data_dict['gyro_x']}, " +
+                                            f"gyro_y: {data_dict['gyro_y']}, " +
+                                            f"gyro_z: {data_dict['gyro_z']}\n")
                         self.imu_data.flush()
                     else:
+                        # In normal mode, we just publish the data
                         self.publish("accelerations", data_dict,
                                      IMU_VALIDITY_MS, timestamp)
+            else:
+                # We are in replay mode
+                if not self.imu_timestamp:
+                    # We read one line of data
+                    imu_str = self.imu_data.readline()
+                    # If the file is empty, we exit the program
+                    if not imu_str:
+                        self.logger.warning("Replay file empty, exiting")
+                        exit(0)
 
-                # We want to forward image data as fast and often as possible
-                if not self.REPLAY_MODE and not self.q_img.empty():
+                    # Look for data in the right format
+                    out = re.search(IMU_RE_MASK, imu_str)
+                    if out:
+                        # Find timestamp of data
+                        self.imu_timestamp = int(out.group(1))
+
+                        if not self.imu_first_timestamp:
+                            self.imu_first_timestamp = self.imu_timestamp
+
+                        # Populate dict with data, as if it was sampled normally
+                        self.imu_data_dict = {'accel_x': out.group(2),
+                                              'accel_y': out.group(3),
+                                              'accel_z': out.group(4),
+                                              'gyro_x': out.group(5),
+                                              'gyro_y': out.group(6),
+                                              'gyro_z': out.group(7)
+                                              }
+
+                # If the relative time is correct, we publish the data
+                if self.get_time_ms() - self.replay_start_timestamp > \
+                        self.imu_timestamp - self.imu_first_timestamp:
+                    self.publish("accelerations", self.imu_data_dict,
+                                 IMU_VALIDITY_MS, self.imu_timestamp)
+                    # Reset the timestamp so that a new dataset is read
+                    self.imu_timestamp = None
+
+            # We want to forward image data as fast and often as possible
+            # Not replay mode, either normal or record mode
+            if not self.REPLAY_MODE:
+                if not self.q_img.empty():
                     # Get next img from queue
                     data_dict = self.q_img.get()
                     data = data_dict['data']
@@ -124,16 +146,47 @@ class DriversModule(Module):
                         self.img_data.flush()
 
                         # Write image
-                        img = (self.files_dir / 'imgs' / f"img_{self.img_counter:04d}.jpg")
+                        img = self.files_dir / 'imgs' / f"img_{self.img_counter:04d}.jpg"
                         img_f = io.open(img, 'wb')
                         img_f.write(data)
                         img_f.close()
                     else:
+                        # In normal mode we just publish the image
                         self.publish("images", data,
                                      IMAGES_VALIDITY_MS, timestamp)
-                else:
-                    pass
+            else:
+                # We are in replay mode
+                if not self.img_timestamp:
+                    # Read from the file that keeps track of timestamps
+                    img_str = self.img_data.readline()
 
+                    # No more imgs, exit
+                    if not img_str:
+                        self.logger.warning("Replay file empty, exiting")
+                        exit(0)
+
+                    out = re.search(r'([0-9]*): ([0-9]*)', img_str)
+                    if out:
+                        self.img_timestamp = int(out.group(2))
+
+                        if not self.img_first_timestamp:
+                            self.img_first_timestamp = self.img_timestamp
+
+                        # Read the image corresponding to the counter and timestamp
+                        img_filename = f"img_{int(out.group(1)):04d}.jpg"
+                        img_file_path = self.files_dir / 'imgs' / img_filename
+
+                        img_f = io.open(img_file_path, 'rb')
+                        self.img_data_file = img_f.read()
+                        img_f.close()
+
+                # If the relative time is correct, we publish the data
+                if self.get_time_ms() - self.replay_start_timestamp > \
+                        self.img_timestamp - self.img_first_timestamp:
+                    self.publish("images", self.img_data_file,
+                                 IMAGES_VALIDITY_MS, self.img_timestamp)
+                    # Reset the timestamp so that a new dataset is read
+                    self.img_timestamp = None
 
     def camera_pipeline_setup(self):
         # Camera output setup
@@ -275,16 +328,18 @@ class DriversModule(Module):
 
             self.replay_start_timestamp = self.get_time_ms()
 
-
             # IMU inits
             self.imu_data = (self.files_dir / 'imu_data.txt').open(mode='r')
+
             self.imu_data_dict = None
             self.imu_timestamp = None
             self.imu_first_timestamp = None
 
-
             # Camera inits
             self.img_data = (self.files_dir / 'img_data.txt').open(mode='r')
+            self.img_data_file = None
+            self.img_timestamp = None
+            self.img_first_timestamp = None
 
         elif self.args.record:
             self.RECORD_MODE = True
