@@ -12,11 +12,12 @@ from .modules import Module
 
 class Pipeline:
 
-    def __init__(self):
+    def __init__(self, args=None):
         self.log_dir: pathlib.Path = self.create_log_dir()
         self.logger: logging.Logger = get_logger("pipeline", self.log_dir)
         self.modules: Dict[Module] = {}
         self.processes: List[mp.Process] = []
+        self.args = args
 
     def start(self):
         self.connect_modules()
@@ -41,7 +42,7 @@ class Pipeline:
             module.start()
 
     def add_module(self, constructor: Callable):
-        module = constructor(log_dir=self.log_dir)
+        module = constructor(log_dir=self.log_dir, args=self.args)
         if module.name in self.modules:
             raise RuntimeError(f"Could not create a module with name {module.name} "
                                "because another module had the same name. Module names must be unique!")

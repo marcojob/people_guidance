@@ -11,12 +11,21 @@ from .utils import *
 
 
 class DriversModule(Module):
-    def __init__(self, log_dir: Path):
+    def __init__(self, log_dir: Path, args=None):
         super(DriversModule, self).__init__(name="drivers_module", outputs=[("images", 10), ("accelerations", 100)],
                                             input_topics=[], log_dir=log_dir)
+        self.args = args
 
     def start(self):
         self.logger.info("Starting drivers")
+
+        # General inits
+        self.files_dir = None
+        self.imu_data = None
+        self.img_data = None
+        self.img_counter = 0
+        self.RECORD_MODE = False
+        self.REPLAY_MODE = False
 
         # CAMERA INITS
         self.camera = mmalobj.MMALCamera()
@@ -38,26 +47,58 @@ class DriversModule(Module):
 
         # TODO: handle calibration case
 
-        while(True):
-            if self.get_time_ms() > self.imu_next_sample_ms:
-                timestamp = self.get_time_ms()
-                self.imu_next_sample_ms = timestamp + IMU_SAMPLE_TIME_MS
-                data_dict = {'accel_x': self.get_accel_x(),
-                             'accel_y': self.get_accel_y(),
-                             'accel_z': self.get_accel_z(),
-                             'gyro_x': self.get_gyro_x(),
-                             'gyro_y': self.get_gyro_y(),
-                             'gyro_z': self.get_gyro_z()
-                             }
-                self.publish("accelerations", data_dict, IMU_VALIDITY_MS, timestamp)
+        # Get hardware configuration mode
+        self.setup_hardware_configuration()
 
-            # We want to forward image data as fast and often as possible
-            if not self.q_img.empty():
-                # Get next img from queue
-                data_dict = self.q_img.get()
-                data = data_dict['data']
-                timestamp = data_dict['timestamp']
-                self.publish("images", data, IMAGES_VALIDITY_MS, timestamp)
+        while(True):
+            if self.REPLAY_MODE:
+                pass
+            else:
+                if self.get_time_ms() > self.imu_next_sample_ms:
+                    timestamp = self.get_time_ms()
+                    self.imu_next_sample_ms = timestamp + IMU_SAMPLE_TIME_MS
+                    data_dict = {'accel_x': self.get_accel_x(),
+                                 'accel_y': self.get_accel_y(),
+                                 'accel_z': self.get_accel_z(),
+                                 'gyro_x': self.get_gyro_x(),
+                                 'gyro_y': self.get_gyro_y(),
+                                 'gyro_z': self.get_gyro_z()
+                                 }
+                    if self.RECORD_MODE:
+                        self.imu_data.write(f"{timestamp}: ")
+                        self.imu_data.write(f"accel_x: {data_dict['accel_x']}, ")
+                        self.imu_data.write(f"accel_y: {data_dict['accel_y']}, ")
+                        self.imu_data.write(f"accel_z: {data_dict['accel_z']}, ")
+                        self.imu_data.write(f"gyro_x: {data_dict['gyro_x']}, ")
+                        self.imu_data.write(f"gyro_y: {data_dict['gyro_y']}, ")
+                        self.imu_data.write(f"gyro_z: {data_dict['gyro_z']}\n")
+                        self.imu_data.flush()
+                    else:
+                        self.publish("accelerations", data_dict,
+                                     IMU_VALIDITY_MS, timestamp)
+
+                # We want to forward image data as fast and often as possible
+                if not self.q_img.empty():
+                    print(self.q_img.qsize())
+                    # Get next img from queue
+                    data_dict = self.q_img.get()
+                    data = data_dict['data']
+                    timestamp = data_dict['timestamp']
+
+                    if self.RECORD_MODE:
+                        self.img_counter += 1
+                        # Keep track of image counter and timestamp
+                        self.img_data.write(f"{self.img_counter}: {timestamp}\n")
+                        self.img_data.flush()
+
+                        # Write image
+                        img = (self.files_dir / 'imgs' / f"img_{self.img_counter:04d}.jpg")
+                        img_f = io.open(img, 'wb')
+                        img_f.write(data)
+                        img_f.close()
+                    else:
+                        self.publish("images", data,
+                                     IMAGES_VALIDITY_MS, timestamp)
 
     def camera_pipeline_setup(self):
         # Camera output setup
@@ -85,7 +126,6 @@ class DriversModule(Module):
         # Is called in separate thread
         self.q_img.put({'data': buf.data,
                         'timestamp': self.get_time_ms()})
-        buf.release()
         return False
 
     def get_time_ms(self):
@@ -187,3 +227,24 @@ class DriversModule(Module):
 
         self.logger.warning("AX: {}, AY: {}, AZ: {}, GX: {}, GY: {}, GZ: {}".format(
             ACCEL_CALIB_X, ACCEL_CALIB_Y, ACCEL_CALIB_Z, GYRO_CALIB_X, GYRO_CALIB_Y, GYRO_CALIB_Z))
+
+    def setup_hardware_configuration(self):
+        # Cannot replay and record at the same time
+        if self.args.replay and self.args.record:
+            self.logger.error("Specified replay and record, exiting")
+            exit()
+
+        if self.args.replay:
+            self.REPLAY_MODE = True
+            self.files_dir = Path(self.args.replay)
+
+        elif self.args.record:
+            self.RECORD_MODE = True
+            self.files_dir = Path(self.args.record)
+
+            # IMU files
+            self.imu_data = (self.files_dir / 'imu_data.txt').open(mode='w')
+
+            # Camera files
+            self.img_data = (self.files_dir / 'img_data.txt').open(mode='w')
+            (self.files_dir / 'imgs').mkdir(parents=True, exist_ok=True)
