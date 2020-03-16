@@ -3,7 +3,7 @@ import smbus
 
 from picamera import mmal, mmalobj
 from pathlib import Path
-from time import sleep
+from time import sleep, monotonic
 from queue import Queue
 
 from ..module import Module
@@ -41,9 +41,9 @@ class DriversModule(Module):
             # We want to forward image data as fast and often as possible
             if not self.q_img.empty():
                 # Get next img from queue
-                data_dict = self.q.get()
+                data_dict = self.q_img.get()
                 data = data_dict['data']
-                timestamp = data['timestamp']
+                timestamp = data_dict['timestamp']
 
     def camera_pipeline_setup(self):
         # Camera output setup
@@ -69,8 +69,9 @@ class DriversModule(Module):
 
     def image_callback(self, port, buf):
         # Is called in separate thread
-        self.q.put({'data': buf.data,
-                    'timestamp': self.get_time_ms()})
+        self.q_img.put({'data': buf.data,
+                        'timestamp': self.get_time_ms()})
+        buf.release()
         return False
 
     def get_time_ms(self):
