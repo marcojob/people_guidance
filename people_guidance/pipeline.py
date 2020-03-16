@@ -4,6 +4,7 @@ import logging
 import pathlib
 import datetime
 from typing import Callable, Optional, List, Dict
+from psutil import cpu_percent, virtual_memory
 
 from .utils import get_logger, ROOT_LOG_DIR, init_logging
 from .modules import Module
@@ -31,7 +32,7 @@ class Pipeline:
                     self.logger.exception("Found dead child process. Pipeline will terminate all children and exit.")
                     exit()
                 else:
-                    self.logger.info("Pipeline is alive.")
+                    self.logger.info(f"Pipeline alive: CPU: {cpu_percent()}, Memory: {virtual_memory()._asdict()['percent']}")
 
     @staticmethod
     def start_module(module: Module):
