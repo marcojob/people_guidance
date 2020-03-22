@@ -4,6 +4,7 @@ import logging
 import pathlib
 import datetime
 from typing import Callable, Optional, List, Dict
+from psutil import cpu_percent, virtual_memory
 
 from .utils import get_logger, ROOT_LOG_DIR, init_logging
 from .modules import Module
@@ -11,11 +12,12 @@ from .modules import Module
 
 class Pipeline:
 
-    def __init__(self):
+    def __init__(self, args=None):
         self.log_dir: pathlib.Path = self.create_log_dir()
         self.logger: logging.Logger = get_logger("pipeline", self.log_dir)
         self.modules: Dict[Module] = {}
         self.processes: List[mp.Process] = []
+        self.args = args
 
     def start(self):
         self.connect_modules()
@@ -31,7 +33,7 @@ class Pipeline:
                     self.logger.exception("Found dead child process. Pipeline will terminate all children and exit.")
                     exit()
                 else:
-                    self.logger.info("Pipeline is alive.")
+                    self.logger.info(f"Pipeline alive: CPU: {cpu_percent()}, Memory: {virtual_memory()._asdict()['percent']}")
 
     @staticmethod
     def start_module(module: Module):
@@ -40,7 +42,7 @@ class Pipeline:
             module.start()
 
     def add_module(self, constructor: Callable):
-        module = constructor(log_dir=self.log_dir)
+        module = constructor(log_dir=self.log_dir, args=self.args)
         if module.name in self.modules:
             raise RuntimeError(f"Could not create a module with name {module.name} "
                                "because another module had the same name. Module names must be unique!")

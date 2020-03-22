@@ -1,2 +1,4 @@
 coloredlogs
 numpy
+psutil
+smbus

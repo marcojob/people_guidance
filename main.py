@@ -1,16 +1,28 @@
+from argparse import ArgumentParser
+
 from people_guidance.pipeline import Pipeline
 from people_guidance.utils import init_logging
 
-# Only example, remove this for own implementation
-from examples.modules.spam_module import SpamModule
-from examples.modules.echo_module import EchoModule
+from people_guidance.modules.drivers_module import DriversModule
 
 if __name__ == '__main__':
     init_logging()
 
-    pipeline = Pipeline()
-    # Only example, remove this for own implementation
-    pipeline.add_module(SpamModule)
-    pipeline.add_module(EchoModule)
+    # Arguments for different hardware configuration cases
+    parser = ArgumentParser()
+    parser.add_argument('--record', '-c',
+                        help='Path of folder where to record dataset to',
+                        type=str,
+                        default='')
+    parser.add_argument('--replay', '-p',
+                        help='Path of folder where to replay dataset from',
+                        type=str,
+                        default='')
+    args = parser.parse_args()
+
+    pipeline = Pipeline(args)
+
+    # Handles hardware drivers and interfaces
+    pipeline.add_module(DriversModule)
 
     pipeline.start()
