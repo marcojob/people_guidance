@@ -20,8 +20,7 @@ if __name__ == '__main__':
                         default='')
     parser.add_argument('--deploy', '-d',
                         help='Deploy the pipeline on a raspberry pi.',
-                        type=str,
-                        default='')
+                        action='store_true')
     args = parser.parse_args()
 
     pipeline = Pipeline(args)
