@@ -29,7 +29,7 @@ class Module:
         while True:
             try:
                 self.outputs[topic].put_nowait({'data': data, 'timestamp': timestamp, 'validity': validity})
-                return None
+                break
             except queue.Full:
                 self.outputs[topic].get_nowait()
 
