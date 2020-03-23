@@ -319,8 +319,9 @@ class DriversModule(Module):
 
     def setup_hardware_configuration(self):
         # Cannot replay and record at the same time
-        if self.args.replay and self.args.record:
-            self.logger.error("Specified replay and record, exiting")
+
+        if len([arg for arg in (self.args.replay, self.args.record, self.args.deploy) if arg]) > 1:
+            self.logger.error("arguments replay, record and deploy are mutually exclusive. exiting...")
             exit()
 
         if self.args.record:
@@ -333,6 +334,9 @@ class DriversModule(Module):
             # Camera files
             self.img_data = (self.files_dir / 'img_data.txt').open(mode='w')
             (self.files_dir / 'imgs').mkdir(parents=True, exist_ok=True)
+
+        elif self.args.deploy:
+            pass
 
         else:
             # Replay Mode is the default.
