@@ -59,6 +59,7 @@ class FrameHandler():
         self.camera.outputs[0].format = mmal.MMAL_ENCODING_RGB24
         self.camera.outputs[0].framesize = self.framesize
         self.camera.outputs[0].framerate = 30
+        self.camera.outputs[0].params[mmal.MMAL_PARAMETER_ROTATION] = 180
         self.camera.outputs[0].commit()
 
         # Encoder input setup
