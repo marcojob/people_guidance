@@ -3,6 +3,7 @@ import pathlib
 import logging
 import traceback
 import time
+import queue
 
 from typing import Optional, Any, Dict, List, Tuple
 
@@ -28,31 +29,38 @@ class Module:
         # If the queue is full we need to clear one slot for newer data
         if self.outputs[topic].full():
             self.outputs[topic].get()
-            self.logger.warning(
-                f"Output queue {topic} of {self.name} is full!")
+            #self.logger.warning( f"Output queue {topic} of {self.name} is full!")
 
         # In any case add the item to the queue
-        self.outputs[topic].put(
-            {'data': data, 'timestamp': timestamp, 'validity': validity})
+        self.outputs[topic].put({'data': data, 'timestamp': timestamp, 'validity': validity}, timeout=0)
 
     def get(self, topic: str) -> Dict:
         # If the queue is empty we return an empty dict, error handling should be done after
         if self.inputs[topic].empty():
-            self.logger.warning(
-                f"Input queue {topic} of {self.name} is empty!")
+            # self.logger.warning(f"Input queue {topic} of {self.name} is empty!")
             return dict()
 
         # Go through the queue until you find data that is still valid
         while not self.inputs[topic].empty():
-            out = self.inputs[topic].get()
-            # If data is valid return it
-            if out['timestamp'] + out['validity'] < self.get_time_ms():
-                self.logger.warning(f"{topic} data not valid anymore")
-            else:
-                return out
+            out = self.get_from_queue_nowait(self.inputs[topic])
+            if out is not None:
+                # If data is valid return it
+                if out['timestamp'] + out['validity'] < self.get_time_ms():
+                    # self.logger.warning(f"{topic} data not valid anymore")
+                    return out
+                else:
+                    return out
 
         # The queue is officially empty and nothing is valid :(
+
         return dict()
+
+    @staticmethod
+    def get_from_queue_nowait(queue_obj: mp.Queue) -> Optional[Dict]:
+        try:
+            return queue_obj.get(block=False)
+        except queue.Empty:
+            return None
 
     def start(self):
         raise NotImplementedError
