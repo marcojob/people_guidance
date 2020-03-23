@@ -18,6 +18,9 @@ if __name__ == '__main__':
                         help='Path of folder where to replay dataset from',
                         type=str,
                         default='')
+    parser.add_argument('--deploy', '-d',
+                        help='Deploy the pipeline on a raspberry pi.',
+                        action='store_true')
     args = parser.parse_args()
 
     pipeline = Pipeline(args)

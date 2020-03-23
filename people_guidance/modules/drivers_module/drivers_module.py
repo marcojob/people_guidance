@@ -1,13 +1,13 @@
 import io
-import smbus
 import platform
 import re
-
-from .utils import *
-from ..module import Module
 from queue import Queue
 from time import sleep, monotonic
 from pathlib import Path
+
+from .utils import *
+from ..module import Module
+from ...utils import DEFAULT_DATASET
 
 if platform.uname().machine == 'armv7l':
     RPI = True
@@ -15,6 +15,7 @@ else:
     RPI = False
 
 if RPI:
+    import smbus
     from picamera import mmal, mmalobj
 
 
@@ -318,13 +319,42 @@ class DriversModule(Module):
 
     def setup_hardware_configuration(self):
         # Cannot replay and record at the same time
-        if self.args.replay and self.args.record:
-            self.logger.error("Specified replay and record, exiting")
+
+        if len([arg for arg in (self.args.replay, self.args.record, self.args.deploy) if arg]) > 1:
+            self.logger.error("arguments replay, record and deploy are mutually exclusive. exiting...")
             exit()
 
-        if self.args.replay:
+        if self.args.record:
+            self.RECORD_MODE = True
+            self.files_dir = Path(self.args.record)
+
+            # IMU files
+            self.imu_data = (self.files_dir / 'imu_data.txt').open(mode='w')
+
+            # Camera files
+            self.img_data = (self.files_dir / 'img_data.txt').open(mode='w')
+            (self.files_dir / 'imgs').mkdir(parents=True, exist_ok=True)
+
+        elif self.args.deploy:
+            assert RPI, f"The drivers_module can only be deployed to a Raspberry PI. Please choose the --replay flag"
+
+        else:
+            # Replay Mode is the default.
             self.REPLAY_MODE = True
-            self.files_dir = Path(self.args.replay)
+
+            self.files_dir: Path
+
+            if self.args.replay:
+                self.files_dir = Path(self.args.replay)
+                self.logger.info("Replaying dataset from {self.files_dir}")
+            else:
+                self.logger.info(f"No arguments specified. Will replay default dataset from {DEFAULT_DATASET}")
+                if not DEFAULT_DATASET.is_dir():
+                    raise FileNotFoundError(f"Could not find a dataset at the default location {DEFAULT_DATASET}. "
+                                            f"Please move your dataset to the correct location or specify a custom location"
+                                            f" dataset using the --replay command line argument.")
+
+                self.files_dir = DEFAULT_DATASET
 
             self.replay_start_timestamp = self.get_time_ms()
 
@@ -341,13 +371,3 @@ class DriversModule(Module):
             self.img_timestamp = None
             self.img_first_timestamp = None
 
-        elif self.args.record:
-            self.RECORD_MODE = True
-            self.files_dir = Path(self.args.record)
-
-            # IMU files
-            self.imu_data = (self.files_dir / 'imu_data.txt').open(mode='w')
-
-            # Camera files
-            self.img_data = (self.files_dir / 'img_data.txt').open(mode='w')
-            (self.files_dir / 'imgs').mkdir(parents=True, exist_ok=True)

@@ -3,6 +3,16 @@
 ## Adding Modules
 To add a module simply create a folder in the people_guidance/modules directory. Your Module must be a class that inherits from the Module class found in people_guidance/modules/module.py. The constructor for your class *must* take just one argument: log_dir which will be passed to it by the Pipeline which creates the model. The Module Class (which your Module Class must inherit from) sets up some basic things like the logger and the input/output queues through which your module can send/receive data.
 
+To replay from the DEFAULT_DATASET path found in path_learning/utils.py:
+```shell
+python main.py
+// Make sure that you move the dataset to the correct location after downloading it. Otherwise this will fail.
+```
+To replay other datasets:
+```shell
+python main.py --replay data/test_dataset
+```
+
 **To run your Model you must add it to the Pipeline. You can do so by importing your class in main.py and simply adding:**
 ```python
 from xxx import MyModule
