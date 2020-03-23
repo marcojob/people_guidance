@@ -1,5 +1,4 @@
 import io
-import smbus
 import platform
 import re
 
@@ -15,6 +14,7 @@ else:
     RPI = False
 
 if RPI:
+    import smbus
     from picamera import mmal, mmalobj
 
 
