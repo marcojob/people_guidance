@@ -336,7 +336,7 @@ class DriversModule(Module):
             (self.files_dir / 'imgs').mkdir(parents=True, exist_ok=True)
 
         elif self.args.deploy:
-            pass
+            assert RPI, f"The drivers_module can only be deployed to a Raspberry PI. Please choose the --replay flag"
 
         else:
             # Replay Mode is the default.
