@@ -194,6 +194,7 @@ class DriversModule(Module):
         self.camera.outputs[0].format = mmal.MMAL_ENCODING_RGB24
         self.camera.outputs[0].framesize = CAMERA_FRAMESIZE
         self.camera.outputs[0].framerate = CAMERA_FRAMERATE
+        self.camera.outputs[0].params[mmal.MMAL_PARAMETER_ROTATION] = CAMERA_ROTATION
         self.camera.outputs[0].commit()
 
         # Encoder input setup
