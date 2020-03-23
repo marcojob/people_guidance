@@ -4,6 +4,7 @@ from people_guidance.pipeline import Pipeline
 from people_guidance.utils import init_logging
 
 from people_guidance.modules.drivers_module import DriversModule
+from people_guidance.modules.fps_logger_module import FPSLoggerModule
 
 if __name__ == '__main__':
     init_logging()
@@ -27,5 +28,6 @@ if __name__ == '__main__':
 
     # Handles hardware drivers and interfaces
     pipeline.add_module(DriversModule)
+    pipeline.add_module(FPSLoggerModule)
 
     pipeline.start()

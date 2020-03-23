@@ -2,6 +2,7 @@
 /logs/
 /.idea/
 /data/
+/sandbox.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
