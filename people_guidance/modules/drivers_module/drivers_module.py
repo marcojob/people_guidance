@@ -351,7 +351,7 @@ class DriversModule(Module):
                 self.logger.info(f"No arguments specified. Will replay default dataset from {DEFAULT_DATASET}")
                 if not DEFAULT_DATASET.is_dir():
                     raise FileNotFoundError(f"Could not find a dataset at the default location {DEFAULT_DATASET}. "
-                                            f"Please move your dataset to the correct location or specify a specific"
+                                            f"Please move your dataset to the correct location or specify a custom location"
                                             f" dataset using the --replay command line argument.")
 
                 self.files_dir = DEFAULT_DATASET
@@ -370,5 +370,4 @@ class DriversModule(Module):
             self.img_data_file = None
             self.img_timestamp = None
             self.img_first_timestamp = None
-
 
