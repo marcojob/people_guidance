@@ -6,7 +6,7 @@ with open("README.md", "r") as fh:
 setuptools.setup(
     name="people_guidance",
     version="0.0.1",
-    author="Theo Roizard, Adrian Schneebeli, Marco Job, Lorenz Hetzel",
+    author="Theophile Messin Roizard, Adrian Schneebeli, Marco Job, Lorenz Hetzel",
     author_email="hetzell@student.ethz.ch",
     description="Monocular Object detection for the visually impaired.",
     long_description=long_description,
