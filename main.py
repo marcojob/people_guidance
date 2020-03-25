@@ -29,6 +29,9 @@ if __name__ == '__main__':
 
     # Handles hardware drivers and interfaces
     pipeline.add_module(DriversModule)
-    pipeline.add_module(FPSLoggerModule)
     pipeline.add_module(VisualizationModule)
+
+    # Disable FPS logger module in standard mode
+    # pipeline.add_module(FPSLoggerModule)
+
     pipeline.start()

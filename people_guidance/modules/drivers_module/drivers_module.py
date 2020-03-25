@@ -21,7 +21,9 @@ if RPI:
 
 class DriversModule(Module):
     def __init__(self, log_dir: Path, args=None):
-        super(DriversModule, self).__init__(name="drivers_module", outputs=[("images", 10), ("accelerations", 100)],
+        super(DriversModule, self).__init__(name="drivers_module", 
+                                            outputs=[("images", 10), ("preview", 10),
+                                                     ("accelerations", 100), ("accelerations_vis", 100)],
                                             input_topics=[], log_dir=log_dir)
         self.args = args
 
@@ -95,6 +97,10 @@ class DriversModule(Module):
                         # In normal mode, we just publish the data
                         self.publish("accelerations", data_dict,
                                      IMU_VALIDITY_MS, timestamp)
+
+                        # Visualisation needs a copy
+                        self.publish("accelerations_vis", data_dict,
+                                     IMU_VALIDITY_MS, timestamp)
             else:
                 # We are in replay mode
                 if not self.imu_timestamp:
@@ -127,6 +133,10 @@ class DriversModule(Module):
                 if self.get_time_ms() - self.replay_start_timestamp > \
                         self.imu_timestamp - self.imu_first_timestamp:
                     self.publish("accelerations", self.imu_data_dict,
+                                 IMU_VALIDITY_MS, self.imu_timestamp)
+
+                    # Visualisation needs a copy
+                    self.publish("accelerations_vis", self.imu_data_dict,
                                  IMU_VALIDITY_MS, self.imu_timestamp)
                     # Reset the timestamp so that a new dataset is read
                     self.imu_timestamp = None
