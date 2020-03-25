@@ -34,6 +34,7 @@ class Module:
                 try:
                     self.outputs[topic].get_nowait()
                 except queue.Empty:
+                    # queue was already emptied by another module in the meantime, nothing to do anymore
                     continue
 
 
