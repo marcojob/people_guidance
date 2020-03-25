@@ -18,8 +18,8 @@ class Module:
         self.inputs: Dict[str, Optional[mp.Queue]] = {}
         self.outputs: Dict[str, mp.Queue] = {name: mp.Queue(maxsize=maxsize) for (name, maxsize) in outputs}
 
-    def subscribe(self, topic: str, queue: mp.Queue):
-        return self.inputs.update({topic: queue})
+    def subscribe(self, topic: str, queue_obj: mp.Queue):
+        return self.inputs.update({topic: queue_obj})
 
     def publish(self, topic: str, data: Any, validity: int, timestamp=None) -> None:
         if timestamp is None:
@@ -31,7 +31,10 @@ class Module:
                 self.outputs[topic].put_nowait({'data': data, 'timestamp': timestamp, 'validity': validity})
                 break
             except queue.Full:
-                self.outputs[topic].get_nowait()
+                try:
+                    self.outputs[topic].get_nowait()
+                except queue.Empty:
+                    pass
 
     def get(self, topic: str) -> Dict:
         # If the queue is empty we return an empty dict, error handling should be done after
