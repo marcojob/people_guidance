@@ -31,7 +31,11 @@ class Module:
                 self.outputs[topic].put_nowait({'data': data, 'timestamp': timestamp, 'validity': validity})
                 break
             except queue.Full:
-                self.outputs[topic].get_nowait()
+                try:
+                    self.outputs[topic].get_nowait()
+                except queue.Empty:
+                    continue
+
 
     def get(self, topic: str) -> Dict:
         # If the queue is empty we return an empty dict, error handling should be done after
