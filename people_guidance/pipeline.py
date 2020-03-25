@@ -3,7 +3,7 @@ import time
 import logging
 import pathlib
 import datetime
-from typing import Callable, Optional, List, Dict
+from typing import Callable, Optional, List, Dict, Tuple
 from psutil import cpu_percent, virtual_memory
 
 from .utils import get_logger, ROOT_LOG_DIR, init_logging
@@ -20,7 +20,8 @@ class Pipeline:
         self.args = args
 
     def start(self):
-        self.connect_modules()
+        self.connect_subscriptions()
+        self.connect_services()
         with self:
             for module in self.modules.values():
                 p = mp.Process(target=self.start_module, kwargs={"module": module}, daemon=True)
@@ -48,7 +49,7 @@ class Pipeline:
                                "because another module had the same name. Module names must be unique!")
         self.modules.update({module.name: module})
 
-    def connect_modules(self):
+    def connect_subscriptions(self):
         for module in self.modules.values():
             try:
                 for topic_name in module.input_topics:
@@ -56,6 +57,27 @@ class Pipeline:
                     module.subscribe(topic_name, topic)
             except KeyError:
                 raise KeyError(f"Could not subscribe module {module.name}")
+
+    def connect_services(self):
+        for module in self.modules.values():
+            try:
+                for request_topic in module.requests:
+                    request_queue, response_queue = self.get_service(request_topic)
+                    module.add_request_target(request_topic, request_queue, response_queue)
+            except KeyError:
+                raise KeyError(f"Could not link service for module {module.name}")
+
+    def get_service(self, request_topic) -> Tuple[mp.Queue, mp.Queue]:
+        module_name, service_name = request_topic.split(":")
+        if module_name not in self.modules:
+            raise KeyError(
+                f"Cannot link request {request_topic}: Unknown module {module_name}. Must be one of {self.modules.keys()}")
+
+        services = self.modules[module_name].services
+        if service_name not in services:
+            raise KeyError(f"Cannot link request {request_topic}: Unknown service {service_name} in "
+                           f"module {module_name}. Must be one of {services.keys()}")
+        return services[service_name].requests, services[service_name].responses
 
     def get_topic(self, topic_name):
         module_name, output_name = topic_name.split(":")

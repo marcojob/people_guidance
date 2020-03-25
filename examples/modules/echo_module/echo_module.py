@@ -7,16 +7,17 @@ from people_guidance.modules.module import Module
 
 class EchoModule(Module):
 
-    def __init__(self, log_dir: pathlib.Path):
-        super(EchoModule, self).__init__(name="echo_module", outputs=[("echo", 10)],
-                                         input_topics=["spam_module:spam"], log_dir=log_dir)
+    def __init__(self, log_dir: pathlib.Path, args=None):
+        super(EchoModule, self).__init__(name="echo_module", outputs=[],
+                                         input_topics=[], log_dir=log_dir,
+                                         services=["echo"], requests=[])
 
     def start(self):
         self.logger.info("Starting echo module...")
+        self.services["echo"].register_handler(self.create_echo)
         while True:
             sleep(1)
-            # Get data from spam module and check if data is not empty
-            data_dict = self.get("spam_module:spam")
-            if data_dict:
-                self.logger.info(f"Received data {data_dict['data'].shape} from spam module.")
-                self.publish("echo", data_dict['data'], 2000)
+            self.handle_requests()
+
+    def create_echo(self, request):
+        return {"id": request["id"], "payload": request["payload"]}
