@@ -27,41 +27,45 @@ class ModuleService:
 
 
 class Module:
-    def __init__(self, name: str, log_dir: pathlib.Path, outputs: List[Tuple[str, int]], input_topics: List[str],
-                 services: List[str], requests: List[str]):
+    def __init__(self, name: str, log_dir: pathlib.Path, outputs: List[Tuple[str, int]] = None,
+                 inputs: List[str] = None, services: List[str] = None, requests: List[str] = None):
+
         self.name: str = name
         self.log_dir: pathlib.Path = log_dir
-        self.input_topics: List[str] = input_topics
-        self.inputs: Dict[str, Optional[mp.Queue]] = {}
-        self.outputs: Dict[str, mp.Queue] = {name: mp.Queue(maxsize=maxsize) for (name, maxsize) in outputs}
 
-        self.requests: List[str] = requests
-        self.request_targets: Dict[str, Dict[str, mp.Queue]] = {}
+        self.inputs: Dict[str, Optional[mp.Queue]] = {} if inputs is None else {channel: None for channel in inputs}
+        self.outputs: Dict[str, mp.Queue] = {} if outputs is None else \
+            {name: mp.Queue(maxsize=maxsize) for (name, maxsize) in outputs}
 
-        self.services: Dict[str, ModuleService] = {name: ModuleService(name) for name in services}
+        self.requests: Dict[str, Dict[str, mp.Queue]] = {} if requests is None else \
+            {channel: {} for channel in requests}
+        self.services: Dict[str, ModuleService] = {} if services is None \
+            else {name: ModuleService(name) for name in services}
 
-    def subscribe(self, topic: str, queue_obj: mp.Queue):
-        return self.inputs.update({topic: queue_obj})
+        self.request_timeout = 5  # seconds
 
-    def add_request_target(self, request_topic, request_queue, response_queue):
-        self.request_targets.update({request_topic: {"requests": request_queue, "responses": response_queue}})
+    def subscribe(self, channel: str, queue_obj: mp.Queue):
+        return self.inputs.update({channel: queue_obj})
 
-    def publish(self, topic: str, data: Any, validity: int, timestamp=None) -> None:
+    def add_request_target(self, request_channel, request_queue, response_queue):
+        self.requests.update({request_channel: {"requests": request_queue, "responses": response_queue}})
+
+    def publish(self, channel: str, data: Any, validity: int, timestamp=None) -> None:
         if timestamp is None:
             # We need to set the timestamp if not set explicitly
             timestamp = self.get_time_ms()
 
         while True:
             try:
-                self.outputs[topic].put_nowait({'data': data, 'timestamp': timestamp, 'validity': validity})
+                self.outputs[channel].put_nowait({'data': data, 'timestamp': timestamp, 'validity': validity})
                 break
             except queue.Full:
                 try:
-                    self.outputs[topic].get_nowait()
+                    self.outputs[channel].get_nowait()
                 except queue.Empty:
                     pass
 
-    def get(self, topic: str) -> Dict:
+    def get(self, channel: str) -> Dict:
         # If the queue is empty we return an empty dict, error handling should be done after
 
         def is_valid(payload_obj: Dict):
@@ -72,7 +76,7 @@ class Module:
             while True:
                 # get objects from the queue until it is either empty or a valid payload is found.
                 # if the queue is empty queue.Empty will be raised.
-                payload = self.inputs[topic].get_nowait()
+                payload = self.inputs[channel].get_nowait()
                 if is_valid(payload):
                     return payload
         except queue.Empty:
@@ -81,9 +85,9 @@ class Module:
     def make_request(self, target_name, request_payload: Dict):
         full_exc = queue.Full(f"You made another request to {target_name} before it finished the first request."
                               f"You must use await_response to wait for the response first.")
-        if not self.request_targets[target_name]["requests"].full():
+        if not self.requests[target_name]["requests"].full():
             try:
-                self.request_targets[target_name]["requests"].put_nowait(request_payload)
+                self.requests[target_name]["requests"].put_nowait(request_payload)
             except queue.Full:
                 raise full_exc
         else:
@@ -91,7 +95,7 @@ class Module:
 
     def await_response(self, target_name) -> Any:
         # this call blocks until a response is received.
-        return self.request_targets[target_name]["responses"].get()
+        return self.requests[target_name]["responses"].get(timeout=self.request_timeout)
 
     def handle_requests(self):
         for service_name in self.services:

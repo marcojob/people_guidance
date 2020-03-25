@@ -8,9 +8,7 @@ from people_guidance.modules.module import Module
 class EchoModule(Module):
 
     def __init__(self, log_dir: pathlib.Path, args=None):
-        super(EchoModule, self).__init__(name="echo_module", outputs=[],
-                                         input_topics=[], log_dir=log_dir,
-                                         services=["echo"], requests=[])
+        super(EchoModule, self).__init__(name="echo_module",  log_dir=log_dir, services=["echo"])
 
     def start(self):
         self.logger.info("Starting echo module...")

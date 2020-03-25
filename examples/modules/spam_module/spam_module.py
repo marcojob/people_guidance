@@ -9,9 +9,7 @@ from people_guidance.modules.module import Module
 class SpamModule(Module):
 
     def __init__(self, log_dir: pathlib.Path, args=None):
-        super(SpamModule, self).__init__(name="spam_module", outputs=[],
-                                         input_topics=[], log_dir=log_dir,
-                                         services=[], requests=["echo_module:echo"])
+        super(SpamModule, self).__init__(name="spam_module", log_dir=log_dir, requests=["echo_module:echo"])
 
     def start(self):
         self.logger.info("Starting spam module...")

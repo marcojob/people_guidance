@@ -52,42 +52,42 @@ class Pipeline:
     def connect_subscriptions(self):
         for module in self.modules.values():
             try:
-                for topic_name in module.input_topics:
-                    topic = self.get_topic(topic_name)
-                    module.subscribe(topic_name, topic)
+                for channel_name in module.inputs:
+                    channel = self.get_channel(channel_name)
+                    module.subscribe(channel_name, channel)
             except KeyError:
                 raise KeyError(f"Could not subscribe module {module.name}")
 
     def connect_services(self):
         for module in self.modules.values():
             try:
-                for request_topic in module.requests:
-                    request_queue, response_queue = self.get_service(request_topic)
-                    module.add_request_target(request_topic, request_queue, response_queue)
+                for request_channel in module.requests:
+                    request_queue, response_queue = self.get_service(request_channel)
+                    module.add_request_target(request_channel, request_queue, response_queue)
             except KeyError:
                 raise KeyError(f"Could not link service for module {module.name}")
 
-    def get_service(self, request_topic) -> Tuple[mp.Queue, mp.Queue]:
-        module_name, service_name = request_topic.split(":")
+    def get_service(self, request_channel) -> Tuple[mp.Queue, mp.Queue]:
+        module_name, service_name = request_channel.split(":")
         if module_name not in self.modules:
             raise KeyError(
-                f"Cannot link request {request_topic}: Unknown module {module_name}. Must be one of {self.modules.keys()}")
+                f"Cannot link request {request_channel}: Unknown module {module_name}. Must be one of {self.modules.keys()}")
 
         services = self.modules[module_name].services
         if service_name not in services:
-            raise KeyError(f"Cannot link request {request_topic}: Unknown service {service_name} in "
+            raise KeyError(f"Cannot link request {request_channel}: Unknown service {service_name} in "
                            f"module {module_name}. Must be one of {services.keys()}")
         return services[service_name].requests, services[service_name].responses
 
-    def get_topic(self, topic_name):
-        module_name, output_name = topic_name.split(":")
+    def get_channel(self, channel_name):
+        module_name, output_name = channel_name.split(":")
         if module_name not in self.modules:
             raise KeyError(
-                f"Cannot subscribe to {topic_name}: Unknown module {module_name}. Must be one of {self.modules.keys()}")
+                f"Cannot subscribe to {channel_name}: Unknown module {module_name}. Must be one of {self.modules.keys()}")
 
         outputs = self.modules[module_name].outputs
         if output_name not in outputs:
-            raise KeyError(f"Cannot subscribe to {topic_name}: Unknown output {output_name}. "
+            raise KeyError(f"Cannot subscribe to {channel_name}: Unknown output {output_name}. "
                            f"Must be one of {outputs.keys()}")
         return outputs[output_name]
 
