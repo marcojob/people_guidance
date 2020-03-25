@@ -2,6 +2,7 @@ import multiprocessing as mp
 import pathlib
 import logging
 import traceback
+import queue
 import time
 
 from typing import Optional, Any, Dict, List, Tuple
@@ -17,42 +18,40 @@ class Module:
         self.inputs: Dict[str, Optional[mp.Queue]] = {}
         self.outputs: Dict[str, mp.Queue] = {name: mp.Queue(maxsize=maxsize) for (name, maxsize) in outputs}
 
-    def subscribe(self, topic: str, queue: mp.Queue):
-        return self.inputs.update({topic: queue})
+    def subscribe(self, topic: str, queue_obj: mp.Queue):
+        return self.inputs.update({topic: queue_obj})
 
     def publish(self, topic: str, data: Any, validity: int, timestamp=None) -> None:
-        # We need to set the timestamp if not set explicitly
         if timestamp is None:
+            # We need to set the timestamp if not set explicitly
             timestamp = self.get_time_ms()
 
-        # If the queue is full we need to clear one slot for newer data
-        if self.outputs[topic].full():
-            self.outputs[topic].get()
-            self.logger.warning(
-                f"Output queue {topic} of {self.name} is full!")
-
-        # In any case add the item to the queue
-        self.outputs[topic].put(
-            {'data': data, 'timestamp': timestamp, 'validity': validity})
+        while True:
+            try:
+                self.outputs[topic].put_nowait({'data': data, 'timestamp': timestamp, 'validity': validity})
+                break
+            except queue.Full:
+                try:
+                    self.outputs[topic].get_nowait()
+                except queue.Empty:
+                    pass
 
     def get(self, topic: str) -> Dict:
         # If the queue is empty we return an empty dict, error handling should be done after
-        if self.inputs[topic].empty():
-            self.logger.warning(
-                f"Input queue {topic} of {self.name} is empty!")
+
+        def is_valid(payload_obj: Dict):
+            return payload is not None and payload_obj['timestamp'] + payload_obj['validity'] < self.get_time_ms()
+
+        try:
+            payload = None
+            while True:
+                # get objects from the queue until it is either empty or a valid payload is found.
+                # if the queue is empty queue.Empty will be raised.
+                payload = self.inputs[topic].get_nowait()
+                if is_valid(payload):
+                    return payload
+        except queue.Empty:
             return dict()
-
-        # Go through the queue until you find data that is still valid
-        while not self.inputs[topic].empty():
-            out = self.inputs[topic].get()
-            # If data is valid return it
-            if out['timestamp'] + out['validity'] < self.get_time_ms():
-                self.logger.warning(f"{topic} data not valid anymore")
-            else:
-                return out
-
-        # The queue is officially empty and nothing is valid :(
-        return dict()
 
     def start(self):
         raise NotImplementedError

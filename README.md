@@ -55,3 +55,7 @@ class ExampleModule(Module):
 
 ## Logging
 Every time you run your pipeline a new log directory is created with todays time and date in the logs folder. There are logfiles for each module and the pipeline itself. All Modules have a self.logger member which can be used to log to the console and to a file. 
+
+
+## Hardware
+![image](https://drive.google.com/uc?export=view&id=11cMik0i9ZNh5w1cX8dclopbUNa-1bG0d)

@@ -5,6 +5,8 @@ from people_guidance.utils import init_logging
 
 from people_guidance.modules.drivers_module import DriversModule
 from people_guidance.modules.position_estimation_module import PositionEstimationModule
+from people_guidance.modules.fps_logger_module import FPSLoggerModule
+from people_guidance.modules.visualization_module import VisualizationModule
 
 if __name__ == '__main__':
     init_logging()
@@ -30,5 +32,8 @@ if __name__ == '__main__':
     pipeline.add_module(DriversModule)
     # Handles IMU data to compute a position estimation
     pipeline.add_module(PositionEstimationModule)
+
+    pipeline.add_module(FPSLoggerModule)
+    pipeline.add_module(VisualizationModule)
 
     pipeline.start()
