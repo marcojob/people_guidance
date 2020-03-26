@@ -7,8 +7,6 @@ from people_guidance.modules.drivers_module import DriversModule
 from people_guidance.modules.fps_logger_module import FPSLoggerModule
 from people_guidance.modules.visualization_module import VisualizationModule
 
-from examples.modules.echo_module import EchoModule
-from examples.modules.spam_module import SpamModule
 
 if __name__ == '__main__':
     init_logging()
@@ -31,6 +29,8 @@ if __name__ == '__main__':
     pipeline = Pipeline(args)
 
     # Handles hardware drivers and interfaces
-    pipeline.add_module(EchoModule)
-    pipeline.add_module(SpamModule)
+    pipeline.add_module(DriversModule)
+    pipeline.add_module(FPSLoggerModule)
+
+    pipeline.add_module(VisualizationModule)
     pipeline.start()
