@@ -17,10 +17,10 @@ class FeatureTrackingModule(Module):
                                                     log_dir=log_dir)
 
     def start(self):
-        self.old_img_timestamp = None
-        self.old_img_keypoints = None
-        self.old_img_descriptors = None
-        self.old_img_pose = None
+        self.old_timestamp = None
+        self.old_keypoints = None
+        self.old_descriptors = None
+        self.old_pose = None
 
         self.request_counter = 0
 
@@ -33,88 +33,88 @@ class FeatureTrackingModule(Module):
         self.matcher = cv2.BFMatcher_create(cv2.NORM_HAMMING, crossCheck=True)
 
         while True:
-            new_img_dict = self.get("drivers_module:images")
+            img_dict = self.get("drivers_module:images")
 
-            if not new_img_dict:
+            if not img_dict:
                 sleep(1)
             else:
                 # extract the image data and time stamp
-                new_img_encoded = new_img_dict["data"]
-                new_img_timestamp = new_img_dict["timestamp"]
+                img_encoded = img_dict["data"]
+                timestamp = img_dict["timestamp"]
                 """
                 # request the pose of the camera at this time stamp from the position_estimation_module
-                self.make_request("position_estimation_module:pose", {"id" : self.request_counter, "payload": new_img_timestamp})
+                self.make_request("position_estimation_module:pose", {"id" : self.request_counter, "payload": timestamp})
                 self.request_counter += 1
                 """
-                self.logger.debug(
-                    f"Processing image with timestamp {new_img_timestamp} ...")
-                # read the image jpg into an opencv matrix
-                new_img = cv2.imdecode(np.frombuffer(
-                    new_img_encoded, dtype=np.int8), flags=cv2.IMREAD_COLOR)
+                self.logger.debug(f"Processing image with timestamp {timestamp} ...")
 
-                # first detect the ORB keypoints and then compute the feature descriptors of those points
-                new_img_keypoints = self.orb.detect(new_img, None)
-                new_img_keypoints, new_img_descriptors = self.orb.compute(
-                    new_img, new_img_keypoints)
-                self.logger.debug(
-                    f"Found {len(new_img_keypoints)} feautures in this image")
+                keypoints, descriptors = self.extract_feature_descriptors(img_encoded)
+
                 """
                 # get the new pose and compute the difference to the old one
                 pose_response = self.await_response("position_estimation_module:pose")
-                new_img_pose = pose_response["payload"]
+                pose = pose_response["payload"]
                 """
-                new_img_pose = 0
+                pose = 0
                 
-
                 # only do feature matching if there were keypoints found in the new image, discard it otherwise
-                if len(new_img_keypoints) == 0:
-                    self.logger.warn(
-                        f"Didn't find any features in image with timestamp {new_img_timestamp}, skipping...")
+                if len(keypoints) == 0:
+                    self.logger.warn(f"Didn't find any features in image with timestamp {timestamp}, skipping...")
                 else:
-                    if self.old_img_descriptors is not None:  # skip the matching step for the first image
+                    if self.old_descriptors is not None:  # skip the matching step for the first image
                         # match the feature descriptors of the old and new image
-                        matches = self.matcher.match(new_img_descriptors,
-                                                     self.old_img_descriptors)
 
-                        if len(matches) == 0:
+                        matches = self.match_features(keypoints, descriptors)
+                        if matches.shape[0] == 0:
                             # there were 0 matches found, print a warning
                             self.logger.warn("Couldn't find any matching features in the images with timestamps: " +
-                                             f"{old_img_timestamp} and {new_img_timestamp}")
-
+                                             f"{old_timestamp} and {timestamp}")
                         else:
-                            # sort the matches by shortest distance first
-                            matches_sorted = sorted(
-                                matches, key=lambda x: x.distance)
-
-                            # assemble the coordinates of the matched features into a numpy matrix for each image
-                            new_img_match_points = np.float32(
-                                [new_img_keypoints[match.queryIdx].pt for match in matches_sorted])
-                            old_img_match_points = np.float32(
-                                [self.old_img_keypoints[match.trainIdx].pt for match in matches_sorted])
-
-                            # add the two matrixes together and publish the data, first dimension are all the matches,
-                            # second dimension is image 1 and 2, thrid dimension is x and y
-                            # e.g. 4th match, 1st image, y-coordinate: matches_paired[3][0][1]
-                            #      8th match, 2nd image, x-coordinate: matches_paired[7][1][0]
-                            matches_paired = np.concatenate(
-                                (old_img_match_points.reshape(-1, 1, 2),
-                                 new_img_match_points.reshape(-1, 1, 2)),
-                                 axis=1)
-
-                            delta_pose = self.compute_delta_pose(new_img_pose)
+                            delta_pose = self.compute_delta_pose(pose)
                             self.publish("feature_point_pairs",
-                                         {"timestamps": (self.old_img_timestamp, new_img_timestamp), 
-                                          "matches": matches_paired, "delta_pose": delta_pose},
-                                         1000, new_img_timestamp)
+                                         {"timestamps": (self.old_timestamp, timestamp), 
+                                          "matches": matches, "delta_pose": delta_pose},
+                                         1000)
 
                     # store the date of the new image as old_img... for the next iteration
                     # If there are no features found in the new image this step is skipped
                     # This means that the next image will be compared witht he same old image again
-                    self.old_img_timestamp = new_img_timestamp
-                    self.old_img_keypoints = new_img_keypoints
-                    self.old_img_descriptors = new_img_descriptors
-                    self.old_img_pose = new_img_pose
+                    self.old_timestamp = timestamp
+                    self.old_keypoints = keypoints
+                    self.old_descriptors = descriptors
+                    self.old_pose = pose
 
-    def compute_delta_pose(self, new_pose):
+    def extract_feature_descriptors(self, img_data: bytes) -> (list, np.ndarray):
+        img = cv2.imdecode(np.frombuffer(img_data, dtype=np.int8), flags=cv2.IMREAD_COLOR)
+
+        # first detect the ORB keypoints and then compute the feature descriptors of those points
+        keypoints = self.orb.detect(img, None)
+        keypoints, descriptors = self.orb.compute(img, keypoints)
+        self.logger.debug(f"Found {len(keypoints)} feautures")
+
+        return (keypoints, descriptors)
+    
+    def match_features(self, keypoints: list, descriptors: np.ndarray) -> np.ndarray:
+        matches = self.matcher.match(self.old_descriptors, descriptors)
+
+        # sort the matches by shortest distance first
+        matches_sorted = sorted(matches, key=lambda x: x.distance)
+
+        # assemble the coordinates of the matched features into a numpy matrix for each image
+        old_match_points = np.float32([self.old_keypoints[match.queryIdx].pt for match in matches_sorted])
+        match_points = np.float32([keypoints[match.trainIdx].pt for match in matches_sorted])
+
+        # add the two matrixes together, first dimension are all the matches,
+        # second dimension is image 1 and 2, thrid dimension is x and y
+        # e.g. 4th match, 1st image, y-coordinate: matches_paired[3][0][1]
+        #      8th match, 2nd image, x-coordinate: matches_paired[7][1][0]
+        matches_paired = np.concatenate(
+            (old_match_points.reshape(-1, 1, 2),
+             match_points.reshape(-1, 1, 2)),
+             axis=1)
+
+        return matches_paired
+
+    def compute_delta_pose(self, pose):
         # Do some fancy calculations here but in the end it's just
-        return new_pose - self.old_img_pose # anyway
+        return pose - self.old_pose # anyway
