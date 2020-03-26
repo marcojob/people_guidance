@@ -8,9 +8,9 @@ from ..module import Module
 
 class VisualizationModule(Module):
     def __init__(self, log_dir: pathlib.Path, args=None):
-        super(VisualizationModule, self).__init__(name="visualization_module", outputs=[],
-                                                  input_topics=["drivers_module:images", "drivers_module:accelerations"]
-                                                  , log_dir=log_dir)
+        super(VisualizationModule, self).__init__(name="visualization_module",
+                                                  inputs=["drivers_module:images", "drivers_module:accelerations"],
+                                                  log_dir=log_dir)
 
         self.display_fps = 0.0
 
