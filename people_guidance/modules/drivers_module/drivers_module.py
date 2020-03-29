@@ -23,7 +23,7 @@ class DriversModule(Module):
     def __init__(self, log_dir: Path, args=None):
         super(DriversModule, self).__init__(name="drivers_module",
                                             outputs=[("images", 10), ("preview", 1000),
-                                                     ("accelerations", 100), ("accelerations_vis", 100)],
+                                                     ("accelerations", 100), ("accelerations_vis", 1000)],
                                             input_topics=[], log_dir=log_dir)
         self.args = args
 
@@ -167,6 +167,9 @@ class DriversModule(Module):
                         # In normal mode we just publish the image
                         self.publish("images", data,
                                      IMAGES_VALIDITY_MS, timestamp)
+
+                        # Publish preview
+                        self.publish("preview", img_pr, IMAGES_VALIDITY_MS, self.img_timestamp)
             else:
                 # We are in replay mode
                 if not self.img_timestamp:

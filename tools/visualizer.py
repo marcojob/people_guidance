@@ -11,7 +11,7 @@ import matplotlib.animation as animation
 
 HOST = "127.0.0.1"  # Host IP
 PORT = 65432  # Port
-TOPIC_LIST = ["accel_x", "accel_y", "accel_z", "preview"]  # All topics
+TOPIC_LIST = ["pos_x", "pos_y", "pos_z", "preview"]  # All topics
 
 
 # Dictionary for all data
@@ -26,7 +26,7 @@ ax_list = dict()
 def animate_pos():
     ax_list["pos"].clear()
     ax_list["pos"].set_title("pos")
-    ax_list["pos"].scatter(data["accel_x"], data["accel_y"], data["accel_z"])
+    ax_list["pos"].scatter(data_dict["pos_x"], data_dict["pos_y"], data_dict["pos_z"])
     ax_list["pos"].figure.canvas.draw()
 
 
@@ -70,6 +70,20 @@ def socket_main():
 
                         data_dict["preview"][0] = img_dec
                         animate_preview()
+
+                elif data_id_int == 1:
+                    data_len = conn.recv(4)
+                    data_len_int = int.from_bytes(data_len, byteorder='little')
+
+                    if data_len_int > 0:
+                        buf = conn.recv(data_len_int)
+
+                        pos_data = np.frombuffer(buf, dtype=np.float32)
+                        data_dict["pos_x"].append(pos_data[0])
+                        data_dict["pos_y"].append(pos_data[1])
+                        data_dict["pos_z"].append(pos_data[2])
+
+                        animate_pos()
 
 
 def main():
