@@ -23,13 +23,19 @@ if __name__ == '__main__':
     parser.add_argument('--deploy', '-d',
                         help='Deploy the pipeline on a raspberry pi.',
                         action='store_true')
+
+    parser.add_argument('--visualize', '-v',
+                        help='Turn on visualisation',
+                        action='store_true')
     args = parser.parse_args()
 
     pipeline = Pipeline(args)
 
     # Handles hardware drivers and interfaces
     pipeline.add_module(DriversModule)
-    pipeline.add_module(VisualizationModule)
+
+    if args.visualize:
+        pipeline.add_module(VisualizationModule)
 
     # Disable FPS logger module in standard mode
     # pipeline.add_module(FPSLoggerModule)

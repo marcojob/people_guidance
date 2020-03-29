@@ -21,8 +21,8 @@ if RPI:
 
 class DriversModule(Module):
     def __init__(self, log_dir: Path, args=None):
-        super(DriversModule, self).__init__(name="drivers_module", 
-                                            outputs=[("images", 10), ("preview", 10),
+        super(DriversModule, self).__init__(name="drivers_module",
+                                            outputs=[("images", 10), ("preview", 1000),
                                                      ("accelerations", 100), ("accelerations_vis", 100)],
                                             input_topics=[], log_dir=log_dir)
         self.args = args
@@ -45,6 +45,8 @@ class DriversModule(Module):
             # CAMERA INITS
             self.camera = mmalobj.MMALCamera()
             self.encoder = mmalobj.MMALImageEncoder()
+
+            # Queues
             self.q_img = Queue()
 
             # CAMERA SETUP
@@ -191,11 +193,18 @@ class DriversModule(Module):
                         self.img_data_file = img_f.read()
                         img_f.close()
 
+                        # Copy preview images
+                        img_pr = self.img_data_file
+
                 # If the relative time is correct, we publish the data
                 if self.get_time_ms() - self.replay_start_timestamp > \
                         self.img_timestamp - self.img_first_timestamp:
+                    # Publish images
                     self.publish("images", self.img_data_file,
                                  IMAGES_VALIDITY_MS, self.img_timestamp)
+                    # Publish preview
+                    self.publish("preview", img_pr, IMAGES_VALIDITY_MS, self.img_timestamp)
+
                     # Reset the timestamp so that a new dataset is read
                     self.img_timestamp = None
 
@@ -218,9 +227,12 @@ class DriversModule(Module):
         self.encoder.outputs[0].params[mmal.MMAL_PARAMETER_JPEG_Q_FACTOR] = CAMERA_JPEG_QUALITY
         self.encoder.outputs[0].commit()
 
-        # Connect encoder input to camera output
+        # Connect main encoder input to camera output
         self.encoder.connect(self.camera.outputs[0])
         self.encoder.connection.enable()
+
+        # Rename main output
+        self.main_output = self.encoder.outputs[0]
 
     def image_callback(self, port, buf):
         # Is called in separate thread
@@ -233,7 +245,7 @@ class DriversModule(Module):
         return int(round(monotonic() * 1000))
 
     def camera_start(self):
-        self.encoder.outputs[0].enable(self.image_callback)
+        self.main_output.enable(self.image_callback)
 
     def camera_stop(self):
         self.encoder.connection.disable()
@@ -332,7 +344,8 @@ class DriversModule(Module):
         # Cannot replay and record at the same time
 
         if len([arg for arg in (self.args.replay, self.args.record, self.args.deploy) if arg]) > 1:
-            self.logger.error("arguments replay, record and deploy are mutually exclusive. exiting...")
+            self.logger.error(
+                "arguments replay, record and deploy are mutually exclusive. exiting...")
             exit()
 
         if self.args.record:
@@ -381,4 +394,3 @@ class DriversModule(Module):
             self.img_data_file = None
             self.img_timestamp = None
             self.img_first_timestamp = None
-
