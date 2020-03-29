@@ -66,10 +66,14 @@ def socket_main():
 
                     if data_len_int > 0:
                         buf = conn.recv(data_len_int)
-                        img_dec = cv2.imdecode(np.frombuffer(buf, dtype=np.int8), flags=cv2.IMREAD_COLOR)
 
-                        data_dict["preview"][0] = img_dec
-                        animate_preview()
+                        try:
+                            img_dec = cv2.imdecode(np.frombuffer(buf, dtype=np.int8), flags=cv2.IMREAD_COLOR)
+
+                            data_dict["preview"][0] = img_dec
+                            animate_preview()
+                        except Exception as e:
+                            print(e)
 
                 elif data_id_int == 1:
                     data_len = conn.recv(4)
@@ -78,12 +82,15 @@ def socket_main():
                     if data_len_int > 0:
                         buf = conn.recv(data_len_int)
 
-                        pos_data = np.frombuffer(buf, dtype=np.float32)
-                        data_dict["pos_x"].append(pos_data[0])
-                        data_dict["pos_y"].append(pos_data[1])
-                        data_dict["pos_z"].append(pos_data[2])
+                        try:
+                            pos_data = np.frombuffer(buf, dtype=np.float32)
+                            data_dict["pos_x"].append(pos_data[0])
+                            data_dict["pos_y"].append(pos_data[1])
+                            data_dict["pos_z"].append(pos_data[2])
+                            animate_pos()
 
-                        animate_pos()
+                        except Exception as e:
+                            print(e)
 
 
 def main():
