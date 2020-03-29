@@ -18,7 +18,7 @@ PREVIEW_PLOT_HZ = 20  # Discard before plotting
 class VisualizationModule(Module):
     def __init__(self, log_dir: pathlib.Path, args=None):
         super(VisualizationModule, self).__init__(name="visualization_module", outputs=[],
-                                                  input_topics=["drivers_module:preview", "drivers_module:accelerations_vis"], log_dir=log_dir)
+                                                  inputs=["drivers_module:preview", "drivers_module:accelerations_vis", "feature_tracking_module:feature_point_pairs_vis"], log_dir=log_dir)
 
     def start(self):
         self.logger.info("Starting visualization module...")

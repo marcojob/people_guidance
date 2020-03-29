@@ -1,3 +1,4 @@
 coloredlogs
 numpy
+opencv-python
 psutil

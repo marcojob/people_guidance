@@ -24,7 +24,7 @@ class DriversModule(Module):
         super(DriversModule, self).__init__(name="drivers_module",
                                             outputs=[("images", 10), ("preview", 1000),
                                                      ("accelerations", 100), ("accelerations_vis", 1000)],
-                                            input_topics=[], log_dir=log_dir)
+                                            inputs=[], log_dir=log_dir)
         self.args = args
 
     def start(self):
@@ -195,9 +195,6 @@ class DriversModule(Module):
                         img_f = io.open(img_file_path, 'rb')
                         self.img_data_file = img_f.read()
                         img_f.close()
-
-                        # Copy preview images
-                        img_pr = self.img_data_file
 
                 # If the relative time is correct, we publish the data
                 if self.get_time_ms() - self.replay_start_timestamp > \

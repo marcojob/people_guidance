@@ -4,8 +4,9 @@ from people_guidance.pipeline import Pipeline
 from people_guidance.utils import init_logging
 
 from people_guidance.modules.drivers_module import DriversModule
-from people_guidance.modules.fps_logger_module import FPSLoggerModule
+from people_guidance.modules.feature_tracking_module import FeatureTrackingModule
 from people_guidance.modules.visualization_module import VisualizationModule
+
 
 if __name__ == '__main__':
     init_logging()
@@ -33,6 +34,7 @@ if __name__ == '__main__':
 
     # Handles hardware drivers and interfaces
     pipeline.add_module(DriversModule)
+    pipeline.add_module(FeatureTrackingModule)
 
     if args.visualize:
         pipeline.add_module(VisualizationModule)
