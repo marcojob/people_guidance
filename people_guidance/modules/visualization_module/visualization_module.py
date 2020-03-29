@@ -11,7 +11,7 @@ from ..module import Module
 HOST = "127.0.0.1"  # Host IP
 PORT = 65432  # Port
 PREVIEW_FRAMESIZE = (640, 480)
-POS_PLOT_HZ = 1  # Discard before plotting
+POS_PLOT_HZ = 20  # Discard before plotting
 PREVIEW_PLOT_HZ = 20  # Discard before plotting
 
 
