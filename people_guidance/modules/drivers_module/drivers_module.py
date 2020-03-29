@@ -169,7 +169,7 @@ class DriversModule(Module):
                                      IMAGES_VALIDITY_MS, timestamp)
 
                         # Publish preview
-                        self.publish("preview", img_pr, IMAGES_VALIDITY_MS, self.img_timestamp)
+                        self.publish("preview", data, IMAGES_VALIDITY_MS, timestamp)
             else:
                 # We are in replay mode
                 if not self.img_timestamp:
@@ -206,7 +206,7 @@ class DriversModule(Module):
                     self.publish("images", self.img_data_file,
                                  IMAGES_VALIDITY_MS, self.img_timestamp)
                     # Publish preview
-                    self.publish("preview", img_pr, IMAGES_VALIDITY_MS, self.img_timestamp)
+                    self.publish("preview", self.img_data_file, IMAGES_VALIDITY_MS, self.img_timestamp)
 
                     # Reset the timestamp so that a new dataset is read
                     self.img_timestamp = None

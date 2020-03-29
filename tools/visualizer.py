@@ -9,7 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
-HOST = "127.0.0.1"  # Host IP
+HOST = ""  # Host IP
 PORT = 65432  # Port
 TOPIC_LIST = ["pos_x", "pos_y", "pos_z", "preview"]  # All topics
 
