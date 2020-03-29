@@ -28,6 +28,12 @@ if __name__ == '__main__':
     parser.add_argument('--visualize', '-v',
                         help='Turn on visualisation',
                         action='store_true')
+
+    parser.add_argument('--save_visualization','-s',
+                        help='Save visualization to file',
+                        type=str,
+                        default='')
+
     args = parser.parse_args()
 
     pipeline = Pipeline(args)
