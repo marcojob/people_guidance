@@ -9,18 +9,18 @@ from ..module import Module
 class FPSLoggerModule(Module):
 
     def __init__(self, log_dir: pathlib.Path, args=None):
-        super(FPSLoggerModule, self).__init__(name="fps_logger_module", outputs=[],
-                                              input_topics=["drivers_module:accelerations"], log_dir=log_dir)
+        super(FPSLoggerModule, self).__init__(name="fps_logger_module",
+                                              inputs=["drivers_module:accelerations"], log_dir=log_dir)
 
     def start(self):
-        payload_idxs: Dict = {input_name: 0 for input_name in self.input_topics}
-        start_times: Dict = {input_name: 0 for input_name in self.input_topics}
+        payload_idxs: Dict = {input_name: 0 for input_name in self.inputs}
+        start_times: Dict = {input_name: 0 for input_name in self.inputs}
 
-        smoothed_fps: Dict[str, List] = {input_name: [] for input_name in self.input_topics}
+        smoothed_fps: Dict[str, List] = {input_name: [] for input_name in self.inputs}
 
         while True:
 
-            for input_name in self.input_topics:
+            for input_name in self.inputs:
 
                 if len(smoothed_fps[input_name]) > 10:
                     self.logger.info(f"Smoothed fps for input {input_name}: {np.mean(smoothed_fps[input_name])}")
