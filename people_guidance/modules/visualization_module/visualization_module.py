@@ -20,7 +20,10 @@ PREVIEW_PLOT_HZ = 20  # Discard before plotting
 class VisualizationModule(Module):
     def __init__(self, log_dir: pathlib.Path, args=None):
         super(VisualizationModule, self).__init__(name="visualization_module", outputs=[],
-                                                  inputs=["drivers_module:preview", "drivers_module:accelerations_vis", "feature_tracking_module:feature_point_pairs_vis"], log_dir=log_dir)
+                                                  inputs=["drivers_module:preview",
+                                                          "position_estimation_module:position_vis",
+                                                          "feature_tracking_module:feature_point_pairs_vis"],
+                                                  log_dir=log_dir)
         self.args = args
 
     def start(self):
@@ -39,84 +42,110 @@ class VisualizationModule(Module):
                 self.files_dir / 'vis_data.txt').open(mode='w')
             self.pos_data = (self.files_dir / 'pos_data.txt').open(mode='w')
 
-        pos_last_ms = self.get_time_ms()
-        preview_last_ms = self.get_time_ms()
+        pos_last_ms = None
+        vis_pos_last_ms = self.get_time_ms()
+        preview_last_ms = None
+        vis_preview_last_ms = self.get_time_ms()
 
         features_dict = dict()
 
         while True:
-            sleep(0.01)
+            sleep(1.0/PREVIEW_PLOT_HZ)
             # POS DATA HANDLING
-            pos_vis = self.get("drivers_module:accelerations_vis")
-            if pos_vis and self.get_time_ms() > pos_last_ms + 1000/POS_PLOT_HZ:
-                pos_last_ms = self.get_time_ms()
+            if pos_last_ms is None:
+                pos_vis = self.get("position_estimation_module:position_vis")
 
-                # Encode position data
-                pos_buf = np.array([pos_vis["data"]["accel_x"], pos_vis["data"]
-                                     ["accel_y"], pos_vis["data"]["accel_z"]], dtype='float32').tobytes()
-                # Len of pos_data
-                buf_len = np.array([len(pos_buf)], dtype='uint32')
-                # Encode id to uint8
-                buf_id = np.array([1], dtype='uint8')
+                pos_last_ms = pos_vis.get("timestamp", None)
+                vis_pos_last_ms = self.get_time_ms()
+            else:
+                pos_vis = self.get("position_estimation_module:position_vis")
+                if pos_vis and self.get_time_ms() - vis_pos_last_ms > 1000/POS_PLOT_HZ and pos_vis["timestamp"] - pos_last_ms > 1000/POS_PLOT_HZ:
+                    pos_last_ms = pos_vis["timestamp"]
+                    vis_pos_last_ms = self.get_time_ms()
 
-                if not self.args.save_visualization:
-                    # Send ID first
-                    s.sendall(buf_id)
-                    # Send the image length beforehand
-                    s.sendall(buf_len)
-                    # Send data
-                    s.sendall(pos_buf)
-                else:
-                    self.pos_data.write(f"{pos_vis['timestamp']}: " +
-                                   f"pos_x: {pos_vis['data']['accel_x']}, " +
-                                   f"pos_y: {pos_vis['data']['accel_y']}, " +
-                                   f"pos_z: {pos_vis['data']['accel_z']}\n")
-                    self.pos_data.flush()
+                    # Encode position data
+                    pos_buf = np.array([pos_vis["data"]["pos_x"],
+                                        pos_vis["data"]["pos_y"],
+                                        pos_vis["data"]["pos_z"],
+                                        pos_vis["data"]["angle_x"],
+                                        pos_vis["data"]["angle_y"],
+                                        pos_vis["data"]["angle_z"]], dtype='float32').tobytes()
+                    # Len of pos_data
+                    buf_len = np.array([len(pos_buf)], dtype='uint32')
+
+                    # Encode id to uint8
+                    buf_id = np.array([1], dtype='uint8')
+
+                    if not self.args.save_visualization:
+                        # Send ID first
+                        s.sendall(buf_id)
+                        # Send the image length beforehand
+                        s.sendall(buf_len)
+                        # Send data
+                        s.sendall(pos_buf)
+                    else:
+                        self.pos_data.write(f"{pos_vis['timestamp']}: " +
+                                            f"pos_x: {pos_vis['data']['pos_x']}, " +
+                                            f"pos_y: {pos_vis['data']['pos_y']}, " +
+                                            f"pos_z: {pos_vis['data']['pos_z']}, " +
+                                            f"angle_x: {pos_vis['data']['angle_x']}, " +
+                                            f"angle_y: {pos_vis['data']['angle_y']}, " +
+                                            f"angle_z: {pos_vis['data']['angle_z']}\n")
+                        self.pos_data.flush()
 
             # PREVIEW IMAGE HANDLING
-            preview = self.get("drivers_module:preview")
-            if preview and self.get_time_ms() > preview_last_ms + 1000/PREVIEW_PLOT_HZ:
-                preview_last_ms = self.get_time_ms()
+            if preview_last_ms is None:
+                preview = self.get("drivers_module:preview")
 
-                # Decode img to bytes
-                img_dec = cv2.imdecode(np.frombuffer(
-                    preview["data"], dtype=np.int8), flags=cv2.IMREAD_COLOR)
+                preview_last_ms = preview.get("timestamp", None)
+                vis_preview_last_ms = self.get_time_ms()
+            else:
+                preview = self.get("drivers_module:preview")
+                if preview and self.get_time_ms() - vis_preview_last_ms > 1000/PREVIEW_PLOT_HZ \
+                        and preview["timestamp"] - preview_last_ms > 1000/PREVIEW_PLOT_HZ:
+                    preview_last_ms = preview["timestamp"]
+                    vis_preview_last_ms = self.get_time_ms()
 
-                # Draw matches onto image
-                matches = features_dict.get(preview["timestamp"], None)
-                img_dec = self.draw_matches(img_dec, matches)
+                    # Decode img to bytes
+                    img_dec = cv2.imdecode(np.frombuffer(
+                        preview["data"], dtype=np.int8), flags=cv2.IMREAD_COLOR)
 
-                # Resize image
-                img_rs = self.resize_image(img_dec)
-                # Encode len in uint32
-                buf_len = np.array([len(img_rs)], dtype='uint32')
-                # Encode id to uint8
-                buf_id = np.array([0], dtype='uint8')
+                    # Draw matches onto image
+                    matches = features_dict.get(preview["timestamp"], None)
+                    img_dec = self.draw_matches(img_dec, matches)
 
-                if not self.args.save_visualization:
-                    # Send ID first
-                    s.sendall(buf_id)
-                    # Send the image length beforehand
-                    s.sendall(buf_len)
-                    # Send data
-                    s.sendall(img_rs)
-                else:
-                    self.preview_counter += 1
-                    # Write image
-                    img_name = self.files_dir / 'vis' / f"img_{self.preview_counter:04d}.jpg"
-                    img_f = io.open(img_name, 'wb')
-                    img_f.write(img_rs)
-                    img_f.close()
+                    # Resize image
+                    img_rs = self.resize_image(img_dec)
+                    # Encode len in uint32
+                    buf_len = np.array([len(img_rs)], dtype='uint32')
+                    buf_len_b = buf_len.tobytes()
+                    # Encode id to uint8
+                    buf_id = np.array([0], dtype='uint8')
+                    buf_id_b = buf_id.tobytes()
 
-                    timestamp = preview["timestamp"]
-                    self.preview_data.write(f"{self.preview_counter}: {timestamp}\n")
-                    self.preview_data.flush()
+                    if not self.args.save_visualization:
+                        # Send ID first
+                        s.sendall(buf_id_b)
+                        # Send the image length beforehand
+                        s.sendall(buf_len_b)
+                        # Send data
+                        s.sendall(img_rs)
+                    else:
+                        self.preview_counter += 1
+                        # Write image
+                        img_name = self.files_dir / 'vis' / f"img_{self.preview_counter:04d}.jpg"
+                        img_f = io.open(img_name, 'wb')
+                        img_f.write(img_rs)
+                        img_f.close()
 
-            features = self.get(
-                "feature_tracking_module:feature_point_pairs_vis")
-            if features:
-                features_dict[features["timestamp"]
-                              ] = features["data"]["matches"]
+                        timestamp = preview["timestamp"]
+                        self.preview_data.write(f"{self.preview_counter}: {timestamp}\n")
+                        self.preview_data.flush()
+
+                features = self.get("feature_tracking_module:feature_point_pairs_vis")
+                if features:
+                    features_dict[features["timestamp"]
+                                ] = features["data"]["matches"]
 
         # Send EOF to detect end of file
         s.shutdown(socket.SHUT_WR)
@@ -144,5 +173,6 @@ class VisualizationModule(Module):
                                  (255, 0, 0), THICKNESS)
                 img = cv2.circle(img, end_point, RADIUS,
                                  (0, 0, 255), THICKNESS)
-                img = cv2.arrowedLine(img, start_point, end_point, (0, 255, 0), THICKNESS)
+                img = cv2.arrowedLine(
+                    img, start_point, end_point, (0, 255, 0), THICKNESS)
         return img

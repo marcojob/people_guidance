@@ -15,8 +15,8 @@ from ...utils import DEFAULT_DATASET
 
 class PositionEstimationModule(Module):
     def __init__(self, log_dir: Path, args=None):
-        super(PositionEstimationModule, self).__init__(name="position_estimation_module", outputs=[("position", 10)],
-                                            input_topics=["drivers_module:accelerations"], log_dir=log_dir)
+        super(PositionEstimationModule, self).__init__(name="position_estimation_module", outputs=[("position_vis", 1000)],
+                                            inputs=["drivers_module:accelerations"], log_dir=log_dir)
         self.args = args
 
     def start(self):
@@ -116,7 +116,7 @@ class PositionEstimationModule(Module):
                         self.logger.info("Data :  {}".format(data_dict))
 
                 # Publish and update timestamp
-                self.publish("position", data_dict, POS_VALIDITY_MS, timestamp)
+                self.publish("position_vis", data_dict, POS_VALIDITY_MS, timestamp)
                 self.timestamp_last_output = self.loop_time
 
             # Time for processing

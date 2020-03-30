@@ -48,8 +48,8 @@ class FeatureTrackingModule(Module):
                 self.make_request("position_estimation_module:pose", {"id" : self.request_counter, "payload": new_img_timestamp})
                 self.request_counter += 1
                 """
-                self.logger.debug(
-                    f"Processing image with timestamp {new_img_timestamp} ...")
+                # self.logger.debug(
+                #    f"Processing image with timestamp {new_img_timestamp} ...")
                 # read the image jpg into an opencv matrix
                 new_img = cv2.imdecode(np.frombuffer(
                     new_img_encoded, dtype=np.int8), flags=cv2.IMREAD_COLOR)
@@ -58,8 +58,8 @@ class FeatureTrackingModule(Module):
                 new_img_keypoints = self.orb.detect(new_img, None)
                 new_img_keypoints, new_img_descriptors = self.orb.compute(
                     new_img, new_img_keypoints)
-                self.logger.debug(
-                    f"Found {len(new_img_keypoints)} feautures in this image")
+                # self.logger.debug(
+                #    f"Found {len(new_img_keypoints)} feautures in this image")
                 """
                 # get the new pose and compute the difference to the old one
                 pose_response = self.await_response("position_estimation_module:pose")
@@ -69,8 +69,9 @@ class FeatureTrackingModule(Module):
 
                 # only do feature matching if there were keypoints found in the new image, discard it otherwise
                 if len(new_img_keypoints) == 0:
-                    self.logger.warn(
-                        f"Didn't find any features in image with timestamp {new_img_timestamp}, skipping...")
+                    pass
+                    #self.logger.warn(
+                    #    f"Didn't find any features in image with timestamp {new_img_timestamp}, skipping...")
                 else:
                     if self.old_img_descriptors is not None:  # skip the matching step for the first image
                         # match the feature descriptors of the old and new image

@@ -108,10 +108,6 @@ class DriversModule(Module):
                 if not self.imu_timestamp:
                     # We read one line of data
                     imu_str = self.imu_data.readline()
-                    # If the file is empty, we exit the program
-                    if not imu_str:
-                        self.logger.warning("Replay file empty, exiting")
-                        exit(0)
 
                     # Look for data in the right format
                     out = re.search(IMU_RE_MASK, imu_str)
@@ -132,7 +128,7 @@ class DriversModule(Module):
                                               }
 
                 # If the relative time is correct, we publish the data
-                if self.get_time_ms() - self.replay_start_timestamp > \
+                if self.imu_timestamp and self.get_time_ms() - self.replay_start_timestamp > \
                         self.imu_timestamp - self.imu_first_timestamp:
                     self.publish("accelerations", self.imu_data_dict,
                                  IMU_VALIDITY_MS, self.imu_timestamp)
@@ -176,11 +172,6 @@ class DriversModule(Module):
                     # Read from the file that keeps track of timestamps
                     img_str = self.img_data.readline()
 
-                    # No more imgs, exit
-                    if not img_str:
-                        self.logger.warning("Replay file empty, exiting")
-                        exit(0)
-
                     out = re.search(r'([0-9]*): ([0-9]*)', img_str)
                     if out:
                         self.img_timestamp = int(out.group(2))
@@ -197,7 +188,7 @@ class DriversModule(Module):
                         img_f.close()
 
                 # If the relative time is correct, we publish the data
-                if self.get_time_ms() - self.replay_start_timestamp > \
+                if self.img_timestamp and self.get_time_ms() - self.replay_start_timestamp > \
                         self.img_timestamp - self.img_first_timestamp:
                     # Publish images
                     self.publish("images", self.img_data_file,
