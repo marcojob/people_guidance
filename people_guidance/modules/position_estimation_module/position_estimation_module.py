@@ -33,6 +33,20 @@ class PositionEstimationModule(Module):
         self.timestamp_last_output = self.get_time_ns()     # time last output published
         self.loop_time = self.get_time_ns()                 # time start of loop
 
+        # Output
+        self.pos_x = 0.
+        self.pos_y = 0.
+        self.pos_z = 0.
+        self.gyro_x = 0.
+        self.gyro_y = 0.
+        self.gyro_z = 0.
+        # Output_speed
+        self.speed_x = 0.
+        self.speed_y = 0.
+        self.speed_z = 0.
+        # Timestamp element
+        self.timestamp:int = 0
+
         while(True):
             # Retrieve data
             input_data = self.get("drivers_module:accelerations")
@@ -40,13 +54,13 @@ class PositionEstimationModule(Module):
 
             self.countall += 1
 
-            if input_data:
-                accel_x = input_data['data']['accel_x']
-                accel_y = input_data['data']['accel_y']
-                accel_z = input_data['data']['accel_z']
-                gyro_x = input_data['data']['gyro_x']
-                gyro_y = input_data['data']['gyro_y']
-                gyro_z = input_data['data']['gyro_z']
+            if input_data: # m/s^2 // radians
+                accel_x = float(input_data['data']['accel_x'])
+                accel_y = float(input_data['data']['accel_y'])
+                accel_z = float(input_data['data']['accel_z'])
+                gyro_x = float(input_data['data']['gyro_x'])
+                gyro_y = float(input_data['data']['gyro_y'])
+                gyro_z = float(input_data['data']['gyro_z'])
                 timestamp = input_data['timestamp']
                 validity = input_data['validity']
 
@@ -65,7 +79,12 @@ class PositionEstimationModule(Module):
                                      .format(self.count_valid_input, self.countall, timeDelta))
                     self.timestamp_last_input = timestamp
 
-            # TODO: compute position
+                    if DEBUG_POSITION == 3:
+                        self.logger.info("Data :  {}".format(input_data))
+
+                # TODO: compute position
+                self.position_estimation_simple(accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z, timestamp)
+
 
             # TODO: evaluate position quality
 
@@ -85,13 +104,16 @@ class PositionEstimationModule(Module):
                 timestamp = self.get_timestamp()
 
                 # DEBUG
-                if DEBUG_POSITION > 1:  # Full debug
+                if DEBUG_POSITION > 1:
                     # Counter of valid values
                     self.count_outputs += 1
 
                     # Log output for each element sent
                     self.logger.info("Sent data N° {}, time between samples : {}. "
                                      .format(self.count_outputs, self.loop_time - self.timestamp_last_output))
+
+                    if DEBUG_POSITION == 3:
+                        self.logger.info("Data :  {}".format(data_dict))
 
                 # Publish and update timestamp
                 self.publish("position", data_dict, POS_VALIDITY_MS, timestamp)
@@ -126,26 +148,51 @@ class PositionEstimationModule(Module):
     #         * roll = * roll * 0.98 + rollAcc * 0.02;
 
     # TODO: function implementation
+    def position_estimation_simple(self, accel_x:float, accel_y:float, accel_z:float,
+                                   gyro_x:float, gyro_y:float, gyro_z:float,
+                                   timestamp):
+        if self.timestamp != 0:
+            # Time between samples
+            dt:float = (timestamp - self.timestamp)/1000 # seconds
+            if dt > 0:
+                # Integrate the acceleration
+                self.speed_x += accel_x * dt
+                self.speed_y += accel_y * dt
+                self.speed_z += accel_z * dt
+                # Integrate to get the position
+                # TODO: review: does the angle affect the calculations?
+                self.pos_x += self.speed_x * dt
+                self.pos_y += self.speed_y * dt
+                self.pos_z += self.speed_z * dt
+                #keep the last data as valid to publish
+                self.gyro_x = gyro_x
+                self.gyro_y = gyro_y
+                self.gyro_z = gyro_z
+            elif DEBUG_POSITION > 1:
+                    self.logger.warning("dt error: dt = {}. ".format(dt))
+        # Update
+        self.timestamp = timestamp
+
     def get_pos_x(self):
-        return 0
+        return self.pos_x
 
     def get_pos_y(self):
-        return 0
+        return self.pos_y
 
     def get_pos_z(self):
-        return 0
+        return self.pos_z
 
     def get_angle_x(self):
-        return 0
+        return self.gyro_x
 
     def get_angle_y(self):
-        return 0
+        return self.gyro_y
 
     def get_angle_z(self):
-        return 0
+        return self.gyro_z
 
     def get_timestamp(self):
-        return 0
+        return self.timestamp
 
     def get_time_ms(self):
         # https://www.python.org/dev/peps/pep-0418/#time-monotonic
