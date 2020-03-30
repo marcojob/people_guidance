@@ -1,6 +1,7 @@
 import io
 import platform
 import re
+from math import atan2
 from queue import Queue
 from time import sleep, monotonic, perf_counter
 from pathlib import Path
@@ -36,15 +37,16 @@ class PositionEstimationModule(Module):
         self.pos_x = 0.
         self.pos_y = 0.
         self.pos_z = 0.
-        self.gyro_x = 0.
-        self.gyro_y = 0.
-        self.gyro_z = 0.
         # Output_speed
         self.speed_x = 0.
         self.speed_y = 0.
         self.speed_z = 0.
         # Timestamp element
         self.timestamp:int = 0
+        # Roll Pitch Yaw
+        self.roll = 0.
+        self.pitch = 0.
+        self.yaw = 0.
 
     def start(self):
         if DEBUG_POSITION >= 1:
@@ -77,7 +79,10 @@ class PositionEstimationModule(Module):
                 # TODO: compute position
 
                 # TODO: remove gravity
+                self.complementary_filter(accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z, dt)
                 self.position_estimation_simple(accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z, dt)
+
+                # TODO: transformation IMU Coordinates to Camera coordinates
 
             # TODO: evaluate position quality
 
@@ -92,7 +97,7 @@ class PositionEstimationModule(Module):
                 self.logger.info("Time needed for the loop : {} s. "
                                  .format((self.get_time_ns() - self.loop_time)/DIVIDER_OUTPUTS_SECONDS))
 
-    # FUNCTION IMPLEMETATION
+    # FUNCTION IMPLEMENTATION
     # dt time calculation between two consecutive analyzed samples. Input : ms, output : s
     def input_data_dt(self, timestamp):
         dt = (timestamp - self.timestamp) / 1000
@@ -114,22 +119,24 @@ class PositionEstimationModule(Module):
         return 0.01
 
     def complementary_filter(self, accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z, dt):
-        pitchAcc:float
-        rollAcc:float
-
-        # Gyroscope data # °/s * s
+        # Gyroscope data # °/s * s #TODO : check formula
         self.roll -= gyro_y * dt
         self.pitch += gyro_x * dt
+        self.yaw += gyro_z * dt # No idea if right
 
         # Compensate for drift with accelerometer data if within Sensitivity [0 to 2 G]
         force_magnitude = abs(accel_x) + abs(accel_y) + abs(accel_z)
         if ACCEL_RANGE * 0.1 < force_magnitude < ACCEL_RANGE:
-            # Roll # °
-            rollAcc = atan2(accel_x, accel_z)
+            # https://robotics.stackexchange.com/questions/4677/how-to-estimate-yaw-angle-from-tri-axis-accelerometer-and-gyroscope
+            # Roll # RAD
+            rollAcc = atan2(accel_x, accel_z) #TODO : check formula
             self.roll = self.roll * 0.98 + rollAcc * 0.02
-            # Pitch # °
+            # Pitch # RAD
             pitchAcc = atan2(accel_y, accel_z)
             self.pitch = self.pitch * 0.98 + pitchAcc * 0.02
+            # yaw # RAD
+            yawAcc = atan2(accel_x, accel_y)
+            self.yaw = self.yaw * 0.98 + yawAcc * 0.02
 
     def position_estimation_simple(self,
                                    accel_x:float, accel_y:float, accel_z:float,
@@ -145,10 +152,6 @@ class PositionEstimationModule(Module):
             self.pos_x += self.speed_x * dt
             self.pos_y += self.speed_y * dt
             self.pos_z += self.speed_z * dt
-            #keep the last data as valid to publish
-            self.gyro_x = gyro_x
-            self.gyro_y = gyro_y
-            self.gyro_z = gyro_z
 
     def downsample_publish(self):
         # Downsample to POSITION_PUBLISH_FREQ (Hz) and publish
@@ -178,13 +181,13 @@ class PositionEstimationModule(Module):
         return self.pos_z
 
     def get_angle_x(self):
-        return self.gyro_x
+        return self.roll
 
     def get_angle_y(self):
-        return self.gyro_y
+        return self.pitch
 
     def get_angle_z(self):
-        return self.gyro_z
+        return self.yaw
 
     def get_timestamp(self):
         return self.timestamp
