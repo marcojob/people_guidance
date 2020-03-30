@@ -5,6 +5,8 @@ from people_guidance.utils import init_logging
 
 from people_guidance.modules.drivers_module import DriversModule
 from people_guidance.modules.feature_tracking_module import FeatureTrackingModule
+from people_guidance.modules.position_estimation_module import PositionEstimationModule
+from people_guidance.modules.fps_logger_module import FPSLoggerModule
 from people_guidance.modules.visualization_module import VisualizationModule
 
 
@@ -40,12 +42,14 @@ if __name__ == '__main__':
 
     # Handles hardware drivers and interfaces
     pipeline.add_module(DriversModule)
+
+    # Handles IMU data to compute a position estimation
+    pipeline.add_module(PositionEstimationModule)
+
+    # Handles feature tracking
     pipeline.add_module(FeatureTrackingModule)
 
     if args.visualize:
         pipeline.add_module(VisualizationModule)
-
-    # Disable FPS logger module in standard mode
-    # pipeline.add_module(FPSLoggerModule)
 
     pipeline.start()
