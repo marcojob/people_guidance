@@ -1,6 +1,9 @@
-#Debug mode
-DEBUG_POSITION = 0  # 0: none, 1: light, 2: extended, 3: full debug options
+# Debug mode
+DEBUG_POSITION = 2  # 0: none, 1: light, 2: extended, 3: full debug options
 
-#Queue output
+# Queue output
 POS_VALIDITY_MS = 100
-POSITION_PUBLISH_FREQ = 20
+POSITION_PUBLISH_FREQ = 10
+
+# Time calculation to get an output in seconds
+DIVIDER_OUTPUTS_SECONDS = 1000000000
