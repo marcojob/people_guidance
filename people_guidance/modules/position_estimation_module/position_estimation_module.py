@@ -1,13 +1,14 @@
 import io
 import platform
 import re
-from math import atan2
+import math
+from scipy.spatial.transform import Rotation as R
 from queue import Queue
 from time import sleep, monotonic, perf_counter
 from pathlib import Path
 
 from .utils import *
-from ..drivers_module import ACCEL_RANGE
+from ..drivers_module import ACCEL_RANGE, ACCEL_G
 from ..module import Module
 from ...utils import DEFAULT_DATASET
 
@@ -80,7 +81,7 @@ class PositionEstimationModule(Module):
 
                 # TODO: remove gravity
                 self.complementary_filter(accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z, dt)
-                self.position_estimation_simple(accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z, dt)
+                self.position_estimation_simple(accel_x, accel_y, accel_z, dt)
 
                 # TODO: transformation IMU Coordinates to Camera coordinates
 
@@ -119,36 +120,38 @@ class PositionEstimationModule(Module):
         return 0.01
 
     def complementary_filter(self, accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z, dt):
-        # Gyroscope data # °/s * s #TODO : check formula
-        self.roll -= gyro_y * dt
+        # Gyroscope data # °/s * s = °
+        self.roll += gyro_y * dt
         self.pitch += gyro_x * dt
-        self.yaw += gyro_z * dt # No idea if right
+        self.yaw += gyro_z * dt
 
         # Compensate for drift with accelerometer data if within Sensitivity [0 to 2 G]
         force_magnitude = abs(accel_x) + abs(accel_y) + abs(accel_z)
         if ACCEL_RANGE * 0.1 < force_magnitude < ACCEL_RANGE:
             # https://robotics.stackexchange.com/questions/4677/how-to-estimate-yaw-angle-from-tri-axis-accelerometer-and-gyroscope
-            # Roll # RAD
-            rollAcc = atan2(accel_x, accel_z) #TODO : check formula
+            # https://github.com/polarpiberry/MPU6050-C-CPP-Library-for-Raspberry-Pi/blob/master/MPU6050.cpp
+            # Roll # °
+            rollAcc = math.atan2(- accel_y, accel_z) * 180 / math.pi
             self.roll = self.roll * 0.98 + rollAcc * 0.02
-            # Pitch # RAD
-            pitchAcc = atan2(accel_y, accel_z)
+            # Pitch # °
+            pitchAcc = math.atan2(accel_x, accel_z) * 180 / math.pi
             self.pitch = self.pitch * 0.98 + pitchAcc * 0.02
-            # yaw # RAD
-            yawAcc = atan2(accel_x, accel_y)
-            self.yaw = self.yaw * 0.98 + yawAcc * 0.02
+
+        else:
+            if DEBUG_POSITION > 1:
+                self.logger.warning('Acceleration outside considered range - not updating angles')
 
     def position_estimation_simple(self,
                                    accel_x:float, accel_y:float, accel_z:float,
-                                   gyro_x:float, gyro_y:float, gyro_z:float,
                                    dt:float):
         if dt > 0:
-            # TODO: Integrate the acceleration
-            self.speed_x += accel_x * dt
-            self.speed_y += accel_y * dt
-            self.speed_z += accel_z * dt
+            # Integrate the acceleration after transforming the acceleration in world coordinates
+            r = R.from_euler('xyz', [self.roll, self.pitch, self.yaw], degrees=True)
+            accel_rot = r.apply([accel_x, accel_y, accel_z])
+            self.speed_x += accel_rot[0] * dt
+            self.speed_y += accel_rot[1] * dt
+            self.speed_z += (accel_rot[2] - ACCEL_G) * dt
             # Integrate to get the position
-            # TODO: review: does the angle affect the calculations?
             self.pos_x += self.speed_x * dt
             self.pos_y += self.speed_y * dt
             self.pos_z += self.speed_z * dt
