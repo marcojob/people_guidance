@@ -1,5 +1,5 @@
 # Debug mode
-DEBUG_POSITION = 0  # 0: none, 1: light, 2: extended, 3: full debug options
+DEBUG_POSITION = 3  # 0: none, 1: light, 2: mid, 3: extended, 4: full debug options
 
 # Queue output
 POS_VALIDITY_MS = 100

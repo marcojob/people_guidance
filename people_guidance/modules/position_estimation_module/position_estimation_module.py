@@ -2,20 +2,18 @@ import io
 import platform
 import re
 import math
-from scipy.spatial.transform import Rotation as R
-from queue import Queue
 from time import sleep, monotonic, perf_counter
+from scipy.spatial.transform import Rotation as R
+
+from queue import Queue
 from pathlib import Path
 
 from .utils import *
-from ..drivers_module import ACCEL_RANGE, ACCEL_G
+from ..drivers_module import ACCEL_G
 from ..module import Module
 from ...utils import DEFAULT_DATASET
 
-# Read data IMU
-# Compute Position and save to array
-# Answer to position requests (interpolating)
-
+# Position estimation based on the data from the accelerometer and the gyroscope
 class PositionEstimationModule(Module):
     def __init__(self, log_dir: Path, args=None):
         super(PositionEstimationModule, self).__init__(name="position_estimation_module", outputs=[("position", 10)],
@@ -55,13 +53,19 @@ class PositionEstimationModule(Module):
 
         while(True):
             # Retrieve data
+            sleep(0.01)
             input_data = self.get("drivers_module:accelerations")
+            sleep(0.01)
 
             if DEBUG_POSITION > 1:
                 self.countall += 1  # count number of time the loop gets executed
-                if DEBUG_POSITION == 3:  # Full debug
+                if DEBUG_POSITION >= 3:
                     self.loop_time = self.get_time_ms()
-                    # self.logger.info("loop time : {:.4f}".format(self.loop_time))
+                    if DEBUG_POSITION == 4:
+                        self.logger.info("loop time : {:.4f}".format(self.loop_time))
+
+            if DEBUG_POSITION >= 3:
+                self.logger.info("Data :  {}".format(input_data))
 
             if input_data: # m/s^2 // radians
                 accel_x = float(input_data['data']['accel_x'])
@@ -90,12 +94,12 @@ class PositionEstimationModule(Module):
 
             # TODO: save last few estimations with absolute timestamp
 
-            # TODO: answer to position requests interpolating between saved data
-
-            self.downsample_publish()
+            # Downsample to POSITION_PUBLISH_FREQ (Hz) and publish
+            if (self.get_time_ms() - self.timestamp_last_output) * POSITION_PUBLISH_FREQ > 1:
+                self.downsample_publish()
 
             # Time for processing
-            if DEBUG_POSITION == 3:  # Full debug
+            if DEBUG_POSITION > 3:  # Full debug
                 self.logger.info("Time needed for the loop : {:.4f} s. "
                                  .format((self.get_time_ms() - self.loop_time)))
 
@@ -161,22 +165,22 @@ class PositionEstimationModule(Module):
         return
 
     def downsample_publish(self):
-        # Downsample to POSITION_PUBLISH_FREQ (Hz) and publish
-        if (self.get_time_ms() - self.timestamp_last_output) * POSITION_PUBLISH_FREQ > 1:
-            data_dict = {'pos_x': self.get_pos_x(),
-                         'pos_y': self.get_pos_y(),
-                         'pos_z': self.get_pos_z(),
-                         'angle_x': self.get_angle_x(),
-                         'angle_y': self.get_angle_y(),
-                         'angle_z': self.get_angle_z()
-                         }
+        data_dict = {'pos_x': self.get_pos_x(),
+                     'pos_y': self.get_pos_y(),
+                     'pos_z': self.get_pos_z(),
+                     'angle_x': self.get_angle_x(),
+                     'angle_y': self.get_angle_y(),
+                     'angle_z': self.get_angle_z()
+                     }
 
-            self.debug_downsample_publish(data_dict)
+        self.debug_downsample_publish(data_dict)
 
-            # Publish with the timestamp of the last element received and update timestamp
-            self.publish("position", data_dict, POS_VALIDITY_MS, self.timestamp)
-            # Update
-            self.timestamp_last_output = self.loop_time
+        # Publish with the timestamp of the last element received and update timestamp
+        self.publish("position", data_dict, POS_VALIDITY_MS, self.timestamp)
+        # Update
+        self.timestamp_last_output = self.get_time_ms()
+
+    # TODO: answer to position requests interpolating between saved data
 
     def get_pos_x(self):
         return self.pos_x
@@ -223,18 +227,17 @@ class PositionEstimationModule(Module):
                              .format(self.count_valid_input, self.countall, timeDelta))
             self.timestamp_last_input = timestamp
 
-            if DEBUG_POSITION == 3:
+            if DEBUG_POSITION >= 3:
                 self.logger.info("Data :  {}".format(input_data))
 
     def debug_downsample_publish(self, data_dict):
-        # DEBUG
         if DEBUG_POSITION > 1:
             # Counter of valid values
             self.count_outputs += 1
 
             # Log output for each element sent
-            self.logger.info("Sent data N° {}, time between samples : {}. "
-                             .format(self.count_outputs, self.loop_time - self.timestamp_last_output))
+            self.logger.info("Sent data N° {}, time between samples : {:.4f} seconds. "
+                             .format(self.count_outputs, self.get_time_ms() - self.timestamp_last_output))
 
-            if DEBUG_POSITION == 3:
+            if DEBUG_POSITION > 3:
                 self.logger.info("Data :  {}".format(data_dict))
