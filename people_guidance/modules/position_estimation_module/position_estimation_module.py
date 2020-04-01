@@ -28,11 +28,11 @@ class PositionEstimationModule(Module):
         self.count_outputs = 0      # Number of elements published
         # Timestamps
         self.timestamp_last_input = 0                       # time last input received
-        self.timestamp_last_output = self.get_time_ns()     # time last output published
-        self.loop_time = self.get_time_ns()                 # time start of loop
+        self.timestamp_last_output = self.get_time_ms()     # time last output published
+        self.loop_time = self.get_time_ms()                 # time start of loop
 
-        self.roll = 0.
-        self.pitch = 0.
+        # Initialization for dt
+        self.dt_initialised = False
 
         # Output
         self.pos_x = 0.
@@ -60,7 +60,8 @@ class PositionEstimationModule(Module):
             if DEBUG_POSITION > 1:
                 self.countall += 1  # count number of time the loop gets executed
                 if DEBUG_POSITION == 3:  # Full debug
-                    self.loop_time = self.get_time_ns()
+                    self.loop_time = self.get_time_ms()
+                    # self.logger.info("loop time : {:.4f}".format(self.loop_time))
 
             if input_data: # m/s^2 // radians
                 accel_x = float(input_data['data']['accel_x'])
@@ -95,8 +96,8 @@ class PositionEstimationModule(Module):
 
             # Time for processing
             if DEBUG_POSITION == 3:  # Full debug
-                self.logger.info("Time needed for the loop : {} s. "
-                                 .format((self.get_time_ns() - self.loop_time)/DIVIDER_OUTPUTS_SECONDS))
+                self.logger.info("Time needed for the loop : {:.4f} s. "
+                                 .format((self.get_time_ms() - self.loop_time)))
 
     # FUNCTION IMPLEMENTATION
     # dt time calculation between two consecutive analyzed samples. Input : ms, output : s
@@ -107,39 +108,37 @@ class PositionEstimationModule(Module):
             self.logger.info("Time between elements : dt = {}. ".format(dt))
             self.logger.info("Timestamp, {}, self.timestamp : {}. ".format(timestamp, self.timestamp))
 
-        if self.timestamp != 0:
+        if self.timestamp != 0 and dt < 1 : # dt has not a too high value
             # Update
             self.timestamp = timestamp
             return dt  # seconds
         elif DEBUG_POSITION > 1:
-            self.logger.warning("dt error: dt = {}.".format(dt))
+            self.logger.info("dt error: dt = {}.".format(dt))
 
-        self.logger.warning("Corrupted calculation delta time, returning 10ms, saving timestamp")
+        if self.dt_initialised == True:
+            self.logger.warning("Corrupted calculation delta time, returning 10ms, saving timestamp")
+        else:
+            self.dt_initialised = True
+            self.logger.info("delta time error, returning 10ms, saving timestamp")
         # Update
         self.timestamp = timestamp
         return 0.01
 
     def complementary_filter(self, accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z, dt):
-        # Gyroscope data # °/s * s = °
-        self.roll += gyro_y * dt
-        self.pitch += gyro_x * dt
+        # Only integrate for the yaw
         self.yaw += gyro_z * dt
-
-        # Compensate for drift with accelerometer data if within Sensitivity [0 to 2 G]
-        force_magnitude = abs(accel_x) + abs(accel_y) + abs(accel_z)
-        if ACCEL_RANGE * 0.1 < force_magnitude < ACCEL_RANGE:
-            # https://robotics.stackexchange.com/questions/4677/how-to-estimate-yaw-angle-from-tri-axis-accelerometer-and-gyroscope
-            # https://github.com/polarpiberry/MPU6050-C-CPP-Library-for-Raspberry-Pi/blob/master/MPU6050.cpp
-            # Roll # °
-            rollAcc = math.atan2(- accel_y, accel_z) * 180 / math.pi
-            self.roll = self.roll * 0.98 + rollAcc * 0.02
-            # Pitch # °
-            pitchAcc = math.atan2(accel_x, accel_z) * 180 / math.pi
-            self.pitch = self.pitch * 0.98 + pitchAcc * 0.02
-
-        else:
-            if DEBUG_POSITION > 1:
-                self.logger.warning('Acceleration outside considered range - not updating angles')
+        # Compensate for drift with accelerometer data
+        roll_accel = math.atan(accel_y / math.sqrt(accel_x ** 2 + accel_z ** 2))
+        pitch_accel = math.atan(accel_x / math.sqrt(accel_y ** 2 + accel_z ** 2))
+        # Gyro data
+        a = gyro_y * math.sin(self.roll) + gyro_z * math.cos(self.roll)
+        roll_vel_gyro = gyro_x + a * math.tan(self.pitch)
+        pitch_vel_gyro = gyro_y * math.cos(self.roll) - gyro_z * math.sin(self.roll)
+        # Update estimation
+        b = self.roll + roll_vel_gyro * dt
+        self.roll = (1.0 - ALPHA_COMPLEMENTARY_FILTER) * b + ALPHA_COMPLEMENTARY_FILTER * roll_accel
+        c = self.pitch + pitch_vel_gyro * dt
+        self.pitch = (1.0 - ALPHA_COMPLEMENTARY_FILTER) * c + ALPHA_COMPLEMENTARY_FILTER * pitch_accel
 
     def position_estimation_simple(self,
                                    accel_x:float, accel_y:float, accel_z:float,
@@ -150,15 +149,20 @@ class PositionEstimationModule(Module):
             accel_rot = r.apply([accel_x, accel_y, accel_z])
             self.speed_x += accel_rot[0] * dt
             self.speed_y += accel_rot[1] * dt
-            self.speed_z += (accel_rot[2] - ACCEL_G) * dt
+            self.speed_z += (accel_rot[2] + ACCEL_G) * dt # TODO : check coordinate system setup
             # Integrate to get the position
             self.pos_x += self.speed_x * dt
             self.pos_y += self.speed_y * dt
             self.pos_z += self.speed_z * dt
 
+    def track_values_attitude_estimation(self):
+        # TODO: Build a loop to save the data
+        # TODO: save ? the MA
+        return
+
     def downsample_publish(self):
         # Downsample to POSITION_PUBLISH_FREQ (Hz) and publish
-        if (self.loop_time - self.timestamp_last_output) * POSITION_PUBLISH_FREQ > DIVIDER_OUTPUTS_SECONDS:
+        if (self.get_time_ms() - self.timestamp_last_output) * POSITION_PUBLISH_FREQ > 1:
             data_dict = {'pos_x': self.get_pos_x(),
                          'pos_y': self.get_pos_y(),
                          'pos_z': self.get_pos_z(),
@@ -197,10 +201,10 @@ class PositionEstimationModule(Module):
 
     def get_time_ms(self):
         # https://www.python.org/dev/peps/pep-0418/#time-monotonic
-        return int(round(monotonic() * 1000))
+        return monotonic()
 
     def get_time_ns(self):
-        return int(round(perf_counter() * DIVIDER_OUTPUTS_SECONDS)) # nanoseconds
+        return perf_counter() # nanoseconds
 
     # DEBUG FUNCTIONS
     def debug_input_data(self, input_data, timestamp):

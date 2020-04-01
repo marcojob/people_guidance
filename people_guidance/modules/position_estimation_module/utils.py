@@ -7,3 +7,7 @@ POSITION_PUBLISH_FREQ = 10
 
 # Time calculation to get an output in seconds
 DIVIDER_OUTPUTS_SECONDS = 1000000000
+DIVIDER_OUTPUTS_mSECONDS = 1000
+
+# Complementary filter parameter
+ALPHA_COMPLEMENTARY_FILTER = 0.1
