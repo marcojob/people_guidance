@@ -1,4 +1,5 @@
 from argparse import ArgumentParser
+import logging
 
 from people_guidance.pipeline import Pipeline
 from people_guidance.utils import init_logging
@@ -8,6 +9,8 @@ from people_guidance.modules.position_estimation_module import PositionEstimatio
 
 from people_guidance.modules.fps_logger_module import FPSLoggerModule
 from people_guidance.modules.visualization_module import VisualizationModule
+from people_guidance.modules.reprojection_module import ReprojectionModule
+from people_guidance.modules.feature_tracking_module import FeatureTrackingModule
 
 
 if __name__ == '__main__':
@@ -30,13 +33,10 @@ if __name__ == '__main__':
 
     pipeline = Pipeline(args)
 
+    pipeline.add_module(DriversModule, log_level=logging.INFO)
     # Handles hardware drivers and interfaces
-    pipeline.add_module(DriversModule)
+    pipeline.add_module(FeatureTrackingModule,  log_level=logging.INFO)
     # Handles IMU data to compute a position estimation
-    pipeline.add_module(PositionEstimationModule)
-
-    pipeline.add_module(FPSLoggerModule)
-
-    pipeline.add_module(VisualizationModule)
+    pipeline.add_module(ReprojectionModule)
 
     pipeline.start()
