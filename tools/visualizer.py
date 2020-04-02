@@ -25,11 +25,17 @@ TOPIC_LIST = ["pos_x", "pos_y", "pos_z", "angle_x", "angle_y", "angle_z", "previ
 data_dict = {topic: [0] for topic in TOPIC_LIST}
 DATA_MAX_LEN = 500
 
+FIGSIZE = (9,6)
+DPI = 100
+
 KEYS = ["preview", "pos"]
 
 ax_list = dict()
 scatter_p = None
 preview_p = None
+
+counter = 0
+save_flag = False
 
 POS_RE_MASK = r'([0-9]*): '+ \
     'pos_x: ([0-9.-]*), ' + \
@@ -39,6 +45,7 @@ POS_RE_MASK = r'([0-9]*): '+ \
     'angle_y: ([0-9.-]*), ' + \
     'angle_z: ([0-9.-]*)\n'
 
+lock = threading.Lock()
 
 def animate_pos():
     global scatter_p
@@ -57,9 +64,9 @@ def animate_pos():
 
     if scatter_p == None:
         ax_list["pos"].set_title("pos")
-        ax_list["pos"].set_xlim((0, 20))
-        ax_list["pos"].set_ylim((0, 20))
-        ax_list["pos"].set_zlim((0, 2))
+        ax_list["pos"].set_xlim((-5, 15))
+        ax_list["pos"].set_ylim((-5, 15))
+        ax_list["pos"].set_zlim((-0.5, 1.5))
 
         scatter_p = ax_list["pos"].scatter(
             data_dict["pos_x"], data_dict["pos_y"], data_dict["pos_z"])
@@ -87,6 +94,7 @@ def animate_pos():
 
 def animate_preview():
     global preview_p
+    global save_flag
 
     if preview_p == None:
         ax_list["preview"].set_title("preview")
@@ -99,13 +107,15 @@ def animate_preview():
         preview_p.set_data(data_dict["preview"][0])
         ax_list["preview"].figure.canvas.draw()
 
+    save_flag = True
+
 def get_time_ms():
     # https://www.python.org/dev/peps/pep-0418/#time-monotonic
     return int(round(time.monotonic() * 1000))
 
 
 def plot_main():
-    fig = plt.figure()
+    fig = plt.figure(figsize=FIGSIZE, dpi=DPI)
     ax_list["preview"] = fig.add_subplot(1, 2, 1)
     ax_list["preview"].set_title("preview")
     ax_list["preview"].set_axis_off()
@@ -155,7 +165,7 @@ def socket_main():
                             pos_data = np.frombuffer(buf, dtype=np.float32)
                             data_dict["pos_x"].append(pos_data[0])
                             data_dict["pos_y"].append(pos_data[1])
-                            data_dict["pos_z"].append(0)
+                            data_dict["pos_z"].append(pos_data[2])
                             data_dict["angle_x"].append(pos_data[3])
                             data_dict["angle_y"].append(pos_data[4])
                             data_dict["angle_z"].append(pos_data[5])
@@ -174,6 +184,7 @@ def replay_main(args):
 
     img_timestamp = None
     img_first_timestamp = None
+    img_last_timestamp = None
     replay_start_timestamp = get_time_ms()
 
     pos_timestamp = None
@@ -209,7 +220,12 @@ def replay_main(args):
             img_dec = cv2.imdecode(np.frombuffer(
                 img_data_file, dtype=np.int8), flags=cv2.IMREAD_COLOR)
             data_dict["preview"][0] = img_dec
+
+            lock.acquire()
             animate_preview()
+            lock.release()
+
+            img_last_timestamp = img_timestamp
             img_timestamp = None
 
         if not pos_timestamp:
@@ -234,12 +250,10 @@ def replay_main(args):
                                  'angle_z': float(out.group(7))}
 
         # If the relative time is correct, we publish the data
-        if pos_timestamp and get_time_ms() - replay_start_timestamp > \
-                pos_timestamp - pos_first_timestamp:
-
+        if pos_timestamp and img_last_timestamp and pos_timestamp - pos_first_timestamp < img_last_timestamp - img_first_timestamp:
             data_dict["pos_x"].append(pos_data_dict["pos_x"])
             data_dict["pos_y"].append(pos_data_dict["pos_y"])
-            data_dict["pos_z"].append(0)
+            data_dict["pos_z"].append(pos_data_dict["pos_z"])
             data_dict["angle_x"].append(pos_data_dict["angle_x"])
             data_dict["angle_y"].append(pos_data_dict["angle_y"])
             data_dict["angle_z"].append(pos_data_dict["angle_z"])
@@ -248,11 +262,29 @@ def replay_main(args):
 
             pos_timestamp = None
 
+def save_main(args):
+    global counter
+    global save_flag
+
+    while True:
+        sleep(1.0/10.0)
+        if save_flag:
+            save_flag = False
+            counter += 1
+            lock.acquire()
+            plt.savefig(f"{args.save}{counter}.jpg")
+            lock.release()
+
 
 def main():
     parser = ArgumentParser()
     parser.add_argument('--replay', '-p',
                         help='Path of folder where to replay dataset from',
+                        type=str,
+                        default='')
+
+    parser.add_argument('--save', '-s',
+                        help='Path of folder where to save figures to',
                         type=str,
                         default='')
 
@@ -264,6 +296,10 @@ def main():
     else:
         replay_thread = threading.Thread(target=replay_main, args=(args,))
         replay_thread.start()
+
+    if args.save:
+        save_thread = threading.Thread(target=save_main, args=(args,))
+        save_thread.start()
 
     plot_main()
 
