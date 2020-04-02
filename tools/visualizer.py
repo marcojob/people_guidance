@@ -48,39 +48,41 @@ def animate_pos():
     pos_x = data_dict["pos_x"][-1]
     pos_y = data_dict["pos_y"][-1]
     pos_z = data_dict["pos_z"][-1]
-    angle_x = data_dict["angle_x"][-1]*np.pi/180.0
-    angle_y = data_dict["angle_y"][-1]*np.pi/180.0
-    angle_z = data_dict["angle_z"][-1]*np.pi/180.0
-    r = R.from_rotvec(np.array([angle_x, angle_y, angle_z])).as_matrix()
-    sc = 1
+    angle_x = data_dict["angle_x"][-1]
+    angle_y = data_dict["angle_y"][-1]
+    angle_z = data_dict["angle_z"][-1]
+    r = R.from_rotvec(np.array([0, 0, angle_z])).as_matrix()
+    sc_xy = 5
+    sc_z = 0.5
 
     if scatter_p == None:
         ax_list["pos"].set_title("pos")
-        ax_list["pos"].set_xlim((-100, 20))
-        ax_list["pos"].set_ylim((-100, 100))
+        ax_list["pos"].set_xlim((0, 20))
+        ax_list["pos"].set_ylim((0, 20))
+        ax_list["pos"].set_zlim((0, 2))
 
         scatter_p = ax_list["pos"].scatter(
             data_dict["pos_x"], data_dict["pos_y"], data_dict["pos_z"])
 
-        line_x = ax_list["pos"].plot([pos_x, sc*r[0][0]], [pos_y, sc*r[0][1]], [pos_z, sc*r[0][2]])
-        line_y = ax_list["pos"].plot([pos_x, sc*r[1][0]], [pos_y, sc*r[1][1]], [pos_z, sc*r[1][2]])
-        line_z = ax_list["pos"].plot([pos_x, sc*r[2][0]], [pos_y, sc*r[2][1]], [pos_z, sc*r[2][2]])
+        line_x = ax_list["pos"].plot([pos_x, pos_x + sc_xy*r[0][0]], [pos_y, pos_y + sc_xy*r[0][1]], [pos_z, pos_z + sc_z*r[0][2]])
+        line_y = ax_list["pos"].plot([pos_x, pos_x + sc_xy*r[1][0]], [pos_y, pos_y + sc_xy*r[1][1]], [pos_z, pos_z + sc_z*r[1][2]])
+        line_z = ax_list["pos"].plot([pos_x, pos_x + sc_xy*r[2][0]], [pos_y, pos_y + sc_xy*r[2][1]], [pos_z, pos_z + sc_z*r[2][2]])
 
         ax_list["pos"].figure.canvas.draw()
     else:
         scatter_p._offsets3d = (data_dict["pos_x"], data_dict["pos_y"], data_dict["pos_z"])
 
-        line_x[0].set_xdata([pos_x, r[0][0]])
-        line_x[0].set_ydata([pos_y, r[0][1]])
-        line_x[0].set_3d_properties([pos_z, r[0][2]])
+        line_x[0].set_xdata([pos_x, pos_x + sc_xy*r[0][0]])
+        line_x[0].set_ydata([pos_y, pos_y + sc_xy*r[0][1]])
+        line_x[0].set_3d_properties([pos_z, pos_z + sc_z*r[0][2]])
 
-        line_y[0].set_xdata([pos_x, r[1][0]])
-        line_y[0].set_ydata([pos_y, r[1][1]])
-        line_y[0].set_3d_properties([pos_z, r[1][2]])
+        line_y[0].set_xdata([pos_x, pos_x + sc_xy*r[1][0]])
+        line_y[0].set_ydata([pos_y, pos_y + sc_xy*r[1][1]])
+        line_y[0].set_3d_properties([pos_z, pos_z + sc_z*r[1][2]])
 
-        line_z[0].set_xdata([pos_x, r[2][0]])
-        line_z[0].set_ydata([pos_y, r[2][1]])
-        line_z[0].set_3d_properties([pos_z, r[2][2]])
+        line_z[0].set_xdata([pos_x, pos_x + sc_xy*r[2][0]])
+        line_z[0].set_ydata([pos_y, pos_y + sc_xy*r[2][1]])
+        line_z[0].set_3d_properties([pos_z, pos_z + sc_z*r[2][2]])
 
 
 def animate_preview():
@@ -151,8 +153,8 @@ def socket_main():
 
                         try:
                             pos_data = np.frombuffer(buf, dtype=np.float32)
-                            data_dict["pos_x"].append(-1.0*pos_data[0])
-                            data_dict["pos_y"].append(-1.0*pos_data[1])
+                            data_dict["pos_x"].append(pos_data[0])
+                            data_dict["pos_y"].append(pos_data[1])
                             data_dict["pos_z"].append(0)
                             data_dict["angle_x"].append(pos_data[3])
                             data_dict["angle_y"].append(pos_data[4])
@@ -235,8 +237,8 @@ def replay_main(args):
         if pos_timestamp and get_time_ms() - replay_start_timestamp > \
                 pos_timestamp - pos_first_timestamp:
 
-            data_dict["pos_x"].append(-1.0*pos_data_dict["pos_x"])
-            data_dict["pos_y"].append(-1.0*pos_data_dict["pos_y"])
+            data_dict["pos_x"].append(pos_data_dict["pos_x"])
+            data_dict["pos_y"].append(pos_data_dict["pos_y"])
             data_dict["pos_z"].append(0)
             data_dict["angle_x"].append(pos_data_dict["angle_x"])
             data_dict["angle_y"].append(pos_data_dict["angle_y"])
