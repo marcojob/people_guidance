@@ -8,6 +8,7 @@ from people_guidance.modules.position_estimation_module import PositionEstimatio
 
 from people_guidance.modules.fps_logger_module import FPSLoggerModule
 from people_guidance.modules.visualization_module import VisualizationModule
+from people_guidance.modules.feature_tracking_module import FeatureTrackingModule
 
 
 if __name__ == '__main__':
@@ -33,10 +34,11 @@ if __name__ == '__main__':
     # Handles hardware drivers and interfaces
     pipeline.add_module(DriversModule)
     # Handles IMU data to compute a position estimation
-    pipeline.add_module(PositionEstimationModule)
+    #pipeline.add_module(PositionEstimationModule)
+
+    pipeline.add_module(FeatureTrackingModule)
 
     pipeline.add_module(FPSLoggerModule)
-
     pipeline.add_module(VisualizationModule)
 
     pipeline.start()

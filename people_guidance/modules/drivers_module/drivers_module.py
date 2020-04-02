@@ -96,6 +96,10 @@ class DriversModule(Module):
                         self.publish("accelerations", data_dict,
                                      IMU_VALIDITY_MS, timestamp)
             else:
+                # add a short delay to make it easier to see the features
+                # in the visualization
+                sleep(0.05)
+
                 # We are in replay mode
                 if not self.imu_timestamp:
                     # We read one line of data
