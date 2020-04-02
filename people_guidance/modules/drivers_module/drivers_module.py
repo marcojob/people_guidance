@@ -106,7 +106,7 @@ class DriversModule(Module):
             else:
                 # add a short delay to make it easier to see the features
                 # in the visualization
-                sleep(0.05)
+                sleep(0.5)
 
                 # We are in replay mode
                 if not self.imu_timestamp:

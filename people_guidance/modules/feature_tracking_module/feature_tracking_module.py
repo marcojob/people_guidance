@@ -7,20 +7,27 @@ from people_guidance.utils import project_path
 
 import cv2
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 class FeatureTrackingModule(Module):
 
     def __init__(self, log_dir: pathlib.Path, args=None):
-        super(FeatureTrackingModule, self).__init__(name="feature_tracking_module", outputs=[("feature_point_pairs", 10), ("feature_point_pairs_vis", 10)],
+        super(FeatureTrackingModule, self).__init__(name="feature_tracking_module", outputs=[("feature_point_pairs_orb", 10), ("feature_point_pairs_surf", 10)],
                                                     inputs=["drivers_module:images"], #requests=[("position_estimation_module:pose")]
                                                     log_dir=log_dir)
 
+    def cleanup(self):
+        plt.close('all')
+
     def start(self):
         self.old_timestamp = None
-        self.old_keypoints = None
-        self.old_descriptors = None
+        self.old_keypoints = [None, None]
+        self.old_descriptors = [None, None]
         self.old_pose = None
+
+        self.inliers = [None, None]
+        self.visualization = [None, None]
 
         self.request_counter = 0
 
@@ -35,6 +42,11 @@ class FeatureTrackingModule(Module):
         self.orb_matcher = cv2.BFMatcher_create(cv2.NORM_HAMMING, crossCheck=True)
         self.surf = cv2.xfeatures2d.SURF_create()
         self.surf_matcher = cv2.BFMatcher_create(cv2.NORM_L2, crossCheck=True)
+
+        plt.ion()
+        figure, (orb_plot, surf_plot) = plt.subplots(1,2)
+        orb_plot.set_title("ORB")
+        surf_plot.set_title("SURF")
 
         while True:
             img_dict = self.get("drivers_module:images")
@@ -54,50 +66,58 @@ class FeatureTrackingModule(Module):
                 # self.logger.debug(f"Processing image with timestamp {timestamp} ...")
 
                 img = cv2.imdecode(np.frombuffer(img_encoded, dtype=np.int8), flags=cv2.IMREAD_GRAYSCALE)
-                keypoints, descriptors = self.extract_feature_descriptors(img, self.SURF)
 
-                """
-                # get the new pose and compute the difference to the old one
-                pose_response = self.await_response("position_estimation_module:pose")
-                pose = pose_response["payload"]
-                """
-                pose = np.zeros((3,4))
-                
-                # only do feature matching if there were keypoints found in the new image, discard it otherwise
-                if len(keypoints) == 0:
-                    pass
-                    # self.logger.warn(f"Didn't find any features in image with timestamp {timestamp}, skipping...")
-                else:
-                    if self.old_descriptors is not None:  # skip the matching step for the first image
-                        # match the feature descriptors of the old and new image
+                for i in range(2):
+                    keypoints, descriptors = self.extract_feature_descriptors(img, i)
 
-                        inliers, total_nr_matches = self.match_features(keypoints, descriptors, self.SURF)
+                    """
+                    # get the new pose and compute the difference to the old one
+                    pose_response = self.await_response("position_estimation_module:pose")
+                    pose = pose_response["payload"]
+                    """
+                    pose = np.zeros((3,4))
+                    
+                    # only do feature matching if there were keypoints found in the new image, discard it otherwise
+                    if len(keypoints) == 0:
+                        pass
+                        # self.logger.warn(f"Didn't find any features in image with timestamp {timestamp}, skipping...")
+                    else:
+                        if self.old_descriptors is not None:  # skip the matching step for the first image
+                            # match the feature descriptors of the old and new image
 
-                        if inliers.shape[2] == 0:
-                            pass
-                            # there were 0 inliers found, print a warning
-                            # self.logger.warn("Couldn't find any matching features in the images with timestamps: " +
-                            #                 f"{old_timestamp} and {timestamp}")
-                        else:
-                            pose_pair = np.concatenate((self.old_pose[np.newaxis, :, :], pose[np.newaxis, :, :]), axis=0)
-                            # visualization_img = self.visualize_matches(img, keypoints, inliers, total_nr_matches)
+                            self.inliers[i], total_nr_matches = self.match_features(keypoints, descriptors, i)
 
-                            self.publish("feature_point_pairs",
-                                         {"camera_positions" : (pose, pose),
-                                          "point_pairs": inliers},
-                                         1000, timestamp)
-                            self.publish("feature_point_pairs_vis",
-                                         {"camera_positions" : (pose, pose),
-                                          "point_pairs": inliers},
-                                         1000, timestamp)
+                            if  self.inliers[i].shape[2] == 0:
+                                self.visualization[i] = img
+                                pass
+                                # there were 0 inliers found, print a warning
+                                # self.logger.warn("Couldn't find any matching features in the images with timestamps: " +
+                                #                 f"{old_timestamp} and {timestamp}")
+                            else:
+                                pose_pair = np.concatenate((self.old_pose[np.newaxis, :, :], pose[np.newaxis, :, :]), axis=0)
+                                self.visualization[i] = self.visualize_matches(img, keypoints, self.inliers[i], total_nr_matches)
 
-                    # store the date of the new image as old_img... for the next iteration
-                    # If there are no features found in the new image this step is skipped
-                    # This means that the next image will be compared witht he same old image again
-                    self.old_timestamp = timestamp
-                    self.old_keypoints = keypoints
-                    self.old_descriptors = descriptors
-                    self.old_pose = pose
+                        # store the date of the new image as old_img... for the next iteration
+                        # If there are no features found in the new image this step is skipped
+                        # This means that the next image will be compared witht he same old image again
+                        self.old_timestamp = timestamp
+                        self.old_keypoints[i] = keypoints
+                        self.old_descriptors[i] = descriptors
+                        self.old_pose = pose
+
+                self.publish("feature_point_pairs_orb",
+                            {"camera_positions" : (pose, pose),
+                                "point_pairs": self.inliers[i]},
+                                1000, timestamp)
+                self.publish("feature_point_pairs_surf",
+                            {"camera_positions" : (pose, pose),
+                                "point_pairs": self.inliers[i]},
+                                1000, timestamp)
+
+                orb_plot.imshow(self.visualization[0])
+                surf_plot.imshow(self.visualization[1])
+                figure.show()
+                plt.waitforbuttonpress(0.001)
 
     def extract_feature_descriptors(self, img: np.ndarray, method: int) -> (list, np.ndarray):
         if method == 0:
@@ -117,18 +137,18 @@ class FeatureTrackingModule(Module):
         return (keypoints, descriptors)
     
     def match_features(self, keypoints: list, descriptors: np.ndarray, method: int) -> np.ndarray:
-        if method == 0:
-            matches = self.orb_matcher.match(self.old_descriptors, descriptors)
-        elif method == 1:
-            matches = self.surf_matcher.match(self.old_descriptors, descriptors)
+        if method == self.ORB:
+            matches = self.orb_matcher.match(self.old_descriptors[method], descriptors)
+        elif method == self.SURF:
+            matches = self.surf_matcher.match(self.old_descriptors[method], descriptors)
         else:
             self.logger.warn("Unknown matching method, defaulting to orbs...")
-            matches = self.orb_matcher.match(self.old_descriptors, descriptors)
+            matches = self.orb_matcher.match(self.old_descriptors[method], descriptors)
         # sort the matches by shortest distance first
         # matches_sorted = sorted(matches, key=lambda x: x.distance)
 
         # assemble the coordinates of the matched features into a numpy matrix for each image
-        old_match_points = np.float32([self.old_keypoints[match.queryIdx].pt for match in matches])
+        old_match_points = np.float32([self.old_keypoints[method][match.queryIdx].pt for match in matches])
         match_points = np.float32([keypoints[match.trainIdx].pt for match in matches])
 
         if len(matches) > 10:
