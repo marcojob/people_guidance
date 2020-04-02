@@ -28,11 +28,20 @@ class PositionEstimationModule(Module):
         self.timestamp_last_input = 0                       # time last input received
         self.timestamp_last_output = monotonic()     # time last output published
         self.timestamp_last_displayed_input = monotonic()
+        self.timestamp_last_displayed_acc = monotonic()
+        self.timestamp_last_reset_vel = monotonic()
+        self.timestamp_last_summed_acc = monotonic()
         self.loop_time = monotonic()                 # time start of loop
 
         # Initialization and tracking
         self.dt_initialised = False
         self.last_data_dict_published = None
+        # Tracking drift
+        self.total_time = 0
+        self.total_number_elt_summed = 0
+        self.total_acc_x = 0
+        self.total_acc_y = 0
+        self.total_acc_z = 0
 
         # Output (m)
         self.pos_x = 0.
@@ -151,13 +160,36 @@ class PositionEstimationModule(Module):
             # Integrate the acceleration after transforming the acceleration in world coordinates
             r = R.from_euler('xyz', [self.roll, self.pitch, self.yaw], degrees=True)
             accel_rot = r.apply([accel_x, accel_y, accel_z])
-            self.speed_x += accel_rot[0] * dt
-            self.speed_y += accel_rot[1] * dt
-            self.speed_z += (accel_rot[2] + ACCEL_G) * dt # TODO : check coordinate system setup
+            self.speed_x += (accel_rot[0] - CORRECTION_ACC[0]) * dt
+            self.speed_y += (accel_rot[1] - CORRECTION_ACC[1]) * dt
+            self.speed_z += (accel_rot[2] + ACCEL_G - CORRECTION_ACC[2]) * dt # TODO : check coordinate system setup
+            # Calculate the mean for drift compensation
+            if MEASURE_SUMMED_ERROR_ACC:
+                self.total_time += dt
+                self.total_number_elt_summed += 1
+                self.total_acc_x += accel_rot[0]
+                self.total_acc_y += accel_rot[1]
+                self.total_acc_z += accel_rot[2] + ACCEL_G
+                if (monotonic() - self.timestamp_last_summed_acc) * PUBLISH_SUMMED_MEASURE_ERROR_ACC > 1:
+                    self.logger.info("Sum dt : {}, Number of elements : {}, Sum Acc : {} "
+                                     .format(self.total_time, self.total_number_elt_summed,
+                                             [self.total_acc_x, self.total_acc_y, self.total_acc_z]))
+                    self.timestamp_last_summed_acc = monotonic()
+            # Reduce the velocity to reduce the drift
+            if METHOD_RESET_VELOCITY and (monotonic() - self.timestamp_last_reset_vel) * RESET_VEL_FREQ > 1:
+                self.speed_x *= RESET_VEL_FREQ_COEF_X
+                self.speed_y *= RESET_VEL_FREQ_COEF_Y
+                self.speed_z *= RESET_VEL_FREQ_COEF_Z
+                self.timestamp_last_reset_vel = monotonic()
             # Integrate to get the position
             self.pos_x += self.speed_x * dt
             self.pos_y += self.speed_y * dt
             self.pos_z += self.speed_z * dt
+            if (monotonic() - self.timestamp_last_displayed_acc) * POSITION_PUBLISH_ACC_FREQ > 1:
+                self.logger.info("Acceleration after rotation :  {}, Corrected speed : {} "
+                                 .format(accel_rot, [self.speed_x, self.speed_y, self.speed_z]))
+                self.timestamp_last_displayed_acc = monotonic()
+
 
     def track_values_attitude_estimation(self):
         # TODO: Build a loop to save the data
@@ -238,4 +270,4 @@ class PositionEstimationModule(Module):
 
             if DEBUG_POSITION >= 3:
                 self.logger.info("Data sent :  {}".format(data_dict))
-        # self.logger.info("Data sent :  {}".format(data_dict))
+        #self.logger.info("Data sent :  {}".format(data_dict))
