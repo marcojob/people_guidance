@@ -15,9 +15,6 @@ class FeatureTrackingModule(Module):
         super(FeatureTrackingModule, self).__init__(name="feature_tracking_module", outputs=[("feature_point_pairs", 10), ("feature_point_pairs_vis", 10)],
                                                     inputs=["drivers_module:images"], #requests=[("position_estimation_module:pose")]
                                                     log_dir=log_dir)
-    def cleanup(self):
-        self.logger.debug("Closing all windwos")
-        cv2.destroyAllWindows()
 
     def start(self):
         self.old_timestamp = None
@@ -39,7 +36,8 @@ class FeatureTrackingModule(Module):
             img_dict = self.get("drivers_module:images")
 
             if not img_dict:
-                sleep(1)
+                sleep(0.1)
+                self.logger.warn("queue was empty")
             else:
                 # extract the image data and time stamp
                 img_encoded = img_dict["data"]
@@ -51,7 +49,7 @@ class FeatureTrackingModule(Module):
                 """
                 # self.logger.debug(f"Processing image with timestamp {timestamp} ...")
 
-                img = cv2.imdecode(np.frombuffer(img_encoded, dtype=np.int8), flags=cv2.IMREAD_COLOR)
+                img = cv2.imdecode(np.frombuffer(img_encoded, dtype=np.int8), flags=cv2.IMREAD_GRAYSCALE)
                 keypoints, descriptors = self.extract_feature_descriptors(img)
 
                 """
@@ -70,6 +68,7 @@ class FeatureTrackingModule(Module):
                         # match the feature descriptors of the old and new image
 
                         inliers, total_nr_matches = self.match_features(keypoints, descriptors)
+
                         if inliers.shape[2] == 0:
                             pass
                             # there were 0 inliers found, print a warning
@@ -132,7 +131,7 @@ class FeatureTrackingModule(Module):
              match_points.transpose().reshape(1, 2, -1)),
              axis=0)
 
-        total_nr_matches = len(matches) if len(matches) < 10 else len(mask)
+        total_nr_matches = len(matches) if len(matches) <= 10 else len(mask)
 
         return (matches_paired, total_nr_matches)
 
