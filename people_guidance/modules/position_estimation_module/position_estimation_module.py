@@ -32,17 +32,17 @@ class PositionEstimationModule(Module):
         # Initialization for dt
         self.dt_initialised = False
 
-        # Output
+        # Output (m)
         self.pos_x = 0.
         self.pos_y = 0.
         self.pos_z = 0.
-        # Output_speed
+        # Output_speed (m/s)
         self.speed_x = 0.
         self.speed_y = 0.
         self.speed_z = 0.
         # Timestamp element
         self.timestamp:int = 0
-        # Roll Pitch Yaw
+        # Roll Pitch Yaw (Radians)
         self.roll = 0.
         self.pitch = 0.
         self.yaw = 0.
@@ -53,9 +53,8 @@ class PositionEstimationModule(Module):
 
         while(True):
             # Retrieve data
-            sleep(0.01)
             input_data = self.get("drivers_module:accelerations")
-            sleep(0.01)
+            #sleep(0.1)
 
             if DEBUG_POSITION > 1:
                 self.countall += 1  # count number of time the loop gets executed
@@ -65,15 +64,15 @@ class PositionEstimationModule(Module):
                         self.logger.info("loop time : {:.4f}".format(self.loop_time))
 
             if DEBUG_POSITION >= 3:
-                self.logger.info("Data :  {}".format(input_data))
+                self.logger.info(input_data)
 
-            if input_data: # m/s^2 // radians
+            if input_data: # m/s^2 // °/s
                 accel_x = float(input_data['data']['accel_x'])
                 accel_y = float(input_data['data']['accel_y'])
                 accel_z = float(input_data['data']['accel_z'])
-                gyro_x = float(input_data['data']['gyro_x'])
-                gyro_y = float(input_data['data']['gyro_y'])
-                gyro_z = float(input_data['data']['gyro_z'])
+                gyro_x = float(input_data['data']['gyro_x']) * math.pi / 180
+                gyro_y = float(input_data['data']['gyro_y']) * math.pi / 180
+                gyro_z = float(input_data['data']['gyro_z']) * math.pi / 180
                 timestamp = input_data['timestamp']
                 validity = input_data['validity']
 
