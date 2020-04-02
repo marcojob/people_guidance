@@ -12,7 +12,7 @@ import numpy as np
 class FeatureTrackingModule(Module):
 
     def __init__(self, log_dir: pathlib.Path, args=None):
-        super(FeatureTrackingModule, self).__init__(name="feature_tracking_module", outputs=[("feature_point_pairs", 10), ("matches_visualization", 10)],
+        super(FeatureTrackingModule, self).__init__(name="feature_tracking_module", outputs=[("feature_point_pairs", 10), ("feature_point_pairs_vis", 10)],
                                                     inputs=["drivers_module:images"], #requests=[("position_estimation_module:pose")]
                                                     log_dir=log_dir)
 
@@ -51,7 +51,7 @@ class FeatureTrackingModule(Module):
                 self.make_request("position_estimation_module:pose", {"id" : self.request_counter, "payload": timestamp})
                 self.request_counter += 1
                 """
-                self.logger.debug(f"Processing image with timestamp {timestamp} ...")
+                # self.logger.debug(f"Processing image with timestamp {timestamp} ...")
 
                 img = cv2.imdecode(np.frombuffer(img_encoded, dtype=np.int8), flags=cv2.IMREAD_GRAYSCALE)
                 keypoints, descriptors = self.extract_feature_descriptors(img, self.SURF)
@@ -65,7 +65,8 @@ class FeatureTrackingModule(Module):
                 
                 # only do feature matching if there were keypoints found in the new image, discard it otherwise
                 if len(keypoints) == 0:
-                    self.logger.warn(f"Didn't find any features in image with timestamp {timestamp}, skipping...")
+                    pass
+                    # self.logger.warn(f"Didn't find any features in image with timestamp {timestamp}, skipping...")
                 else:
                     if self.old_descriptors is not None:  # skip the matching step for the first image
                         # match the feature descriptors of the old and new image
@@ -73,19 +74,21 @@ class FeatureTrackingModule(Module):
                         inliers, total_nr_matches = self.match_features(keypoints, descriptors, self.SURF)
 
                         if inliers.shape[2] == 0:
+                            pass
                             # there were 0 inliers found, print a warning
-                            self.logger.warn("Couldn't find any matching features in the images with timestamps: " +
-                                             f"{old_timestamp} and {timestamp}")
+                            # self.logger.warn("Couldn't find any matching features in the images with timestamps: " +
+                            #                 f"{old_timestamp} and {timestamp}")
                         else:
                             pose_pair = np.concatenate((self.old_pose[np.newaxis, :, :], pose[np.newaxis, :, :]), axis=0)
-                            visualization_img = self.visualize_matches(img, keypoints, inliers, total_nr_matches)
+                            # visualization_img = self.visualize_matches(img, keypoints, inliers, total_nr_matches)
 
                             self.publish("feature_point_pairs",
                                          {"camera_positions" : (pose, pose),
                                           "point_pairs": inliers},
                                          1000, timestamp)
-                            self.publish("matches_visualization",
-                                         visualization_img,
+                            self.publish("feature_point_pairs_vis",
+                                         {"camera_positions" : (pose, pose),
+                                          "point_pairs": inliers},
                                          1000, timestamp)
 
                     # store the date of the new image as old_img... for the next iteration
@@ -134,6 +137,8 @@ class FeatureTrackingModule(Module):
             _, mask = cv2.findHomography(old_match_points, match_points, cv2.RANSAC, 1.0)
             old_match_points = old_match_points[mask.ravel().astype(bool)]
             match_points = match_points[mask.ravel().astype(bool)]
+        else:
+            mask = list()
 
         # add the two matrixes together, first dimension are all the matches,
         # second dimension is image 1 and 2, thrid dimension is x and y
