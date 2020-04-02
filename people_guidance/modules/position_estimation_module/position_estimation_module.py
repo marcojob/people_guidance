@@ -26,8 +26,9 @@ class PositionEstimationModule(Module):
         self.count_outputs = 0      # Number of elements published
         # Timestamps
         self.timestamp_last_input = 0                       # time last input received
-        self.timestamp_last_output = self.get_time_ms()     # time last output published
-        self.loop_time = self.get_time_ms()                 # time start of loop
+        self.timestamp_last_output = monotonic()     # time last output published
+        self.timestamp_last_displayed_input = monotonic()
+        self.loop_time = monotonic()                 # time start of loop
 
         # Initialization and tracking
         self.dt_initialised = False
@@ -55,17 +56,13 @@ class PositionEstimationModule(Module):
         while(True):
             # Retrieve data
             input_data = self.get("drivers_module:accelerations")
-            # sleep(0.1)
 
             if DEBUG_POSITION > 1:
                 self.countall += 1  # count number of time the loop gets executed
                 if DEBUG_POSITION >= 3:
-                    self.loop_time = self.get_time_ms()
+                    self.loop_time = monotonic()
                     if DEBUG_POSITION == 4:
                         self.logger.info("loop time : {:.4f}".format(self.loop_time))
-
-            # if DEBUG_POSITION >= 3:
-            #     self.logger.info(input_data)
 
             if input_data: # m/s^2 // °/s
                 accel_x = float(input_data['data']['accel_x'])
@@ -78,6 +75,9 @@ class PositionEstimationModule(Module):
                 validity = input_data['validity']
 
                 self.debug_input_data(input_data, timestamp)
+                if (monotonic() - self.timestamp_last_displayed_input) * POSITION_PUBLISH_INPUT_FREQ > 1:
+                    self.logger.info("Data received :  {}".format(input_data))
+                    self.timestamp_last_displayed_input = monotonic()
 
                 # Delta time since last input
                 dt = self.input_data_dt(timestamp)
@@ -95,13 +95,13 @@ class PositionEstimationModule(Module):
             # TODO: save last few estimations with absolute timestamp
 
             # Downsample to POSITION_PUBLISH_FREQ (Hz) and publish
-            if (self.get_time_ms() - self.timestamp_last_output) * POSITION_PUBLISH_FREQ > 1:
+            if (monotonic() - self.timestamp_last_output) * POSITION_PUBLISH_FREQ > 1:
                 self.downsample_publish()
 
             # Time for processing
             if DEBUG_POSITION > 3:  # Full debug
                 self.logger.info("Time needed for the loop : {:.4f} s. "
-                                 .format((self.get_time_ms() - self.loop_time)))
+                                 .format((monotonic() - self.loop_time)))
 
     # FUNCTION IMPLEMENTATION
     # dt time calculation between two consecutive analyzed samples. Input : ms, output : s
@@ -179,7 +179,7 @@ class PositionEstimationModule(Module):
             self.publish("position", data_dict, POS_VALIDITY_MS, self.timestamp)
             self.last_data_dict_published = data_dict
         # Update
-        self.timestamp_last_output = self.get_time_ms()
+        self.timestamp_last_output = monotonic()
 
     # TODO: answer to position requests interpolating between saved data
 
@@ -204,12 +204,8 @@ class PositionEstimationModule(Module):
     def get_timestamp(self):
         return self.timestamp
 
-    def get_time_ms(self):
-        # https://www.python.org/dev/peps/pep-0418/#time-monotonic
-        return monotonic()
-
-    def get_time_ns(self):
-        return perf_counter() # nanoseconds
+    # def get_time_ns(self):
+    #     return perf_counter() # nanoseconds
 
     # DEBUG FUNCTIONS
     def debug_input_data(self, input_data, timestamp):
@@ -238,7 +234,8 @@ class PositionEstimationModule(Module):
 
             # Log output for each element sent
             self.logger.info("Sent data N° {}, time between samples : {:.4f} seconds. "
-                             .format(self.count_outputs, self.get_time_ms() - self.timestamp_last_output))
+                             .format(self.count_outputs, monotonic() - self.timestamp_last_output))
 
             if DEBUG_POSITION >= 3:
-                self.logger.info("Data :  {}".format(data_dict))
+                self.logger.info("Data sent :  {}".format(data_dict))
+        # self.logger.info("Data sent :  {}".format(data_dict))
