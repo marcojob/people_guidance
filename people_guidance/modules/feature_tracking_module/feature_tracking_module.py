@@ -28,9 +28,13 @@ class FeatureTrackingModule(Module):
         # reducing this number can improve computation time:
         self.max_num_keypoints = 1000
 
-        # create cv2 ORB feature descriptor and brute force matcher object
+        # create each an ORB and a SURF feature descriptor and brute force matcher object
+        self.ORB = 0
+        self.SURF = 1
         self.orb = cv2.ORB_create(nfeatures=self.max_num_keypoints)
-        self.matcher = cv2.BFMatcher_create(cv2.NORM_HAMMING, crossCheck=True)
+        self.orb_matcher = cv2.BFMatcher_create(cv2.NORM_HAMMING, crossCheck=True)
+        self.surf = cv2.xfeatures2d.SURF_create()
+        self.surf_matcher = cv2.BFMatcher_create(cv2.NORM_L2, crossCheck=True)
 
         while True:
             img_dict = self.get("drivers_module:images")
@@ -50,7 +54,7 @@ class FeatureTrackingModule(Module):
                 self.logger.debug(f"Processing image with timestamp {timestamp} ...")
 
                 img = cv2.imdecode(np.frombuffer(img_encoded, dtype=np.int8), flags=cv2.IMREAD_GRAYSCALE)
-                keypoints, descriptors = self.extract_feature_descriptors(img)
+                keypoints, descriptors = self.extract_feature_descriptors(img, self.SURF)
 
                 """
                 # get the new pose and compute the difference to the old one
@@ -66,7 +70,7 @@ class FeatureTrackingModule(Module):
                     if self.old_descriptors is not None:  # skip the matching step for the first image
                         # match the feature descriptors of the old and new image
 
-                        inliers, total_nr_matches = self.match_features(keypoints, descriptors)
+                        inliers, total_nr_matches = self.match_features(keypoints, descriptors, self.SURF)
 
                         if inliers.shape[2] == 0:
                             # there were 0 inliers found, print a warning
@@ -92,23 +96,37 @@ class FeatureTrackingModule(Module):
                     self.old_descriptors = descriptors
                     self.old_pose = pose
 
-    def extract_feature_descriptors(self, img: np.ndarray) -> (list, np.ndarray):
-        # first detect the ORB keypoints and then compute the feature descriptors of those points
-        keypoints = self.orb.detect(img, None)
-        keypoints, descriptors = self.orb.compute(img, keypoints)
+    def extract_feature_descriptors(self, img: np.ndarray, method: int) -> (list, np.ndarray):
+        if method == 0:
+            # first detect the ORB keypoints and then compute the feature descriptors of those points
+            keypoints = self.orb.detect(img, None)
+            keypoints, descriptors = self.orb.compute(img, keypoints)
+        elif method == 1:
+            # surf detects and describes the feature in one function
+            keypoints, descriptors = self.surf.detectAndCompute(img, None)
+        else:
+            self.logger.warn("Unknown feature extraction method, defaulting to orbs...")
+            keypoints = self.orb.detect(img, None)
+            keypoints, descriptors = self.orb.compute(img, keypoints)
+        
         self.logger.debug(f"Found {len(keypoints)} feautures")
 
         return (keypoints, descriptors)
     
-    def match_features(self, keypoints: list, descriptors: np.ndarray) -> np.ndarray:
-        matches = self.matcher.match(self.old_descriptors, descriptors)
-
+    def match_features(self, keypoints: list, descriptors: np.ndarray, method: int) -> np.ndarray:
+        if method == 0:
+            matches = self.orb_matcher.match(self.old_descriptors, descriptors)
+        elif method == 1:
+            matches = self.surf_matcher.match(self.old_descriptors, descriptors)
+        else:
+            self.logger.warn("Unknown matching method, defaulting to orbs...")
+            matches = self.orb_matcher.match(self.old_descriptors, descriptors)
         # sort the matches by shortest distance first
-        matches_sorted = sorted(matches, key=lambda x: x.distance)
+        # matches_sorted = sorted(matches, key=lambda x: x.distance)
 
         # assemble the coordinates of the matched features into a numpy matrix for each image
-        old_match_points = np.float32([self.old_keypoints[match.queryIdx].pt for match in matches_sorted])
-        match_points = np.float32([keypoints[match.trainIdx].pt for match in matches_sorted])
+        old_match_points = np.float32([self.old_keypoints[match.queryIdx].pt for match in matches])
+        match_points = np.float32([keypoints[match.trainIdx].pt for match in matches])
 
         if len(matches) > 10:
             # if we found enough matches do a RANSAC search to find inliers corresponding to one homography
