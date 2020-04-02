@@ -50,7 +50,8 @@ class VisualizationModule(Module):
         features_dict = dict()
 
         while True:
-            sleep(1.0/PREVIEW_PLOT_HZ)
+            #sleep(1.0/PREVIEW_PLOT_HZ)
+            sleep(0.1)
             # POS DATA HANDLING
             if pos_last_ms is None:
                 pos_vis = self.get("position_estimation_module:position_vis")
@@ -145,7 +146,7 @@ class VisualizationModule(Module):
                 features = self.get("feature_tracking_module:feature_point_pairs_vis")
                 if features:
                     features_dict[features["timestamp"]
-                                ] = features["data"]["matches"]
+                                ] = features["data"]["point_pairs"]
 
         # Send EOF to detect end of file
         s.shutdown(socket.SHUT_WR)
@@ -165,10 +166,10 @@ class VisualizationModule(Module):
         RADIUS = 30
         THICKNESS = 3
         if matches is not None:
-            print("Found matches")
-            for match in matches:
-                start_point = (match[0][0], match[0][1])
-                end_point = (match[1][0], match[1][0])
+            shape = matches.shape
+            for m in range(shape[2]):
+                start_point = (matches[0][0][m], matches[0][1][m])
+                end_point = (matches[1][0][m], matches[1][1][m])
                 img = cv2.circle(img, start_point, RADIUS,
                                  (255, 0, 0), THICKNESS)
                 img = cv2.circle(img, end_point, RADIUS,

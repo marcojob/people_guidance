@@ -52,7 +52,6 @@ def animate_pos():
     angle_y = data_dict["angle_y"][-1]*np.pi/180.0
     angle_z = data_dict["angle_z"][-1]*np.pi/180.0
     r = R.from_rotvec(np.array([angle_x, angle_y, angle_z])).as_matrix()
-    print(r[0][0]*r[0][0]+r[0][1]*r[0][1]+r[0][2]*r[0][2])
     sc = 1
 
     if scatter_p == None:
@@ -62,8 +61,6 @@ def animate_pos():
 
         scatter_p = ax_list["pos"].scatter(
             data_dict["pos_x"], data_dict["pos_y"], data_dict["pos_z"])
-
-        print(r[0][0]*r[0][0]+r[0][1]*r[0][1]+r[0][2]*r[0][2])
 
         line_x = ax_list["pos"].plot([pos_x, sc*r[0][0]], [pos_y, sc*r[0][1]], [pos_z, sc*r[0][2]])
         line_y = ax_list["pos"].plot([pos_x, sc*r[1][0]], [pos_y, sc*r[1][1]], [pos_z, sc*r[1][2]])
@@ -142,7 +139,8 @@ def socket_main():
                             data_dict["preview"][0] = img_dec
                             animate_preview()
                         except Exception as e:
-                            print(f"preview: {e}")
+                            pass
+                            # print(f"preview: {e}")
 
                 elif data_id_int == 1:
                     data_len = conn.recv(4)
@@ -163,7 +161,8 @@ def socket_main():
                             animate_pos()
 
                         except Exception as e:
-                            print(f"pos: {e}")
+                            pass
+                            # print(f"pos: {e}")
 
 
 def replay_main(args):
