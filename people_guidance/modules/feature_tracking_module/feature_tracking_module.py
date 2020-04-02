@@ -36,7 +36,8 @@ class FeatureTrackingModule(Module):
             img_dict = self.get("drivers_module:images")
 
             if not img_dict:
-                sleep(1)
+                sleep(0.1)
+                self.logger.warn("queue was empty")
             else:
                 # extract the image data and time stamp
                 img_encoded = img_dict["data"]
@@ -66,6 +67,7 @@ class FeatureTrackingModule(Module):
                         # match the feature descriptors of the old and new image
 
                         inliers, total_nr_matches = self.match_features(keypoints, descriptors)
+
                         if inliers.shape[2] == 0:
                             # there were 0 inliers found, print a warning
                             self.logger.warn("Couldn't find any matching features in the images with timestamps: " +
