@@ -29,8 +29,9 @@ class PositionEstimationModule(Module):
         self.timestamp_last_output = self.get_time_ms()     # time last output published
         self.loop_time = self.get_time_ms()                 # time start of loop
 
-        # Initialization for dt
+        # Initialization and tracking
         self.dt_initialised = False
+        self.last_data_dict_published = None
 
         # Output (m)
         self.pos_x = 0.
@@ -54,7 +55,7 @@ class PositionEstimationModule(Module):
         while(True):
             # Retrieve data
             input_data = self.get("drivers_module:accelerations")
-            #sleep(0.1)
+            # sleep(0.1)
 
             if DEBUG_POSITION > 1:
                 self.countall += 1  # count number of time the loop gets executed
@@ -63,8 +64,8 @@ class PositionEstimationModule(Module):
                     if DEBUG_POSITION == 4:
                         self.logger.info("loop time : {:.4f}".format(self.loop_time))
 
-            if DEBUG_POSITION >= 3:
-                self.logger.info(input_data)
+            # if DEBUG_POSITION >= 3:
+            #     self.logger.info(input_data)
 
             if input_data: # m/s^2 // °/s
                 accel_x = float(input_data['data']['accel_x'])
@@ -171,11 +172,12 @@ class PositionEstimationModule(Module):
                      'angle_y': self.get_angle_y(),
                      'angle_z': self.get_angle_z()
                      }
+        if data_dict != self.last_data_dict_published:
+            self.debug_downsample_publish(data_dict)
 
-        self.debug_downsample_publish(data_dict)
-
-        # Publish with the timestamp of the last element received and update timestamp
-        self.publish("position", data_dict, POS_VALIDITY_MS, self.timestamp)
+            # Publish with the timestamp of the last element received and update timestamp
+            self.publish("position", data_dict, POS_VALIDITY_MS, self.timestamp)
+            self.last_data_dict_published = data_dict
         # Update
         self.timestamp_last_output = self.get_time_ms()
 
@@ -238,5 +240,5 @@ class PositionEstimationModule(Module):
             self.logger.info("Sent data N° {}, time between samples : {:.4f} seconds. "
                              .format(self.count_outputs, self.get_time_ms() - self.timestamp_last_output))
 
-            if DEBUG_POSITION > 3:
+            if DEBUG_POSITION >= 3:
                 self.logger.info("Data :  {}".format(data_dict))
