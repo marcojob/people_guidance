@@ -15,9 +15,6 @@ class FeatureTrackingModule(Module):
         super(FeatureTrackingModule, self).__init__(name="feature_tracking_module", outputs=[("feature_point_pairs", 10), ("matches_visualization", 10)],
                                                     inputs=["drivers_module:images"], #requests=[("position_estimation_module:pose")]
                                                     log_dir=log_dir)
-    def cleanup(self):
-        self.logger.debug("Closing all windwos")
-        cv2.destroyAllWindows()
 
     def start(self):
         self.old_timestamp = None
@@ -51,7 +48,7 @@ class FeatureTrackingModule(Module):
                 """
                 self.logger.debug(f"Processing image with timestamp {timestamp} ...")
 
-                img = cv2.imdecode(np.frombuffer(img_encoded, dtype=np.int8), flags=cv2.IMREAD_COLOR)
+                img = cv2.imdecode(np.frombuffer(img_encoded, dtype=np.int8), flags=cv2.IMREAD_GRAYSCALE)
                 keypoints, descriptors = self.extract_feature_descriptors(img)
 
                 """
@@ -127,7 +124,7 @@ class FeatureTrackingModule(Module):
              match_points.transpose().reshape(1, 2, -1)),
              axis=0)
 
-        total_nr_matches = len(matches) if len(matches) < 10 else len(mask)
+        total_nr_matches = len(matches) if len(matches) <= 10 else len(mask)
 
         return (matches_paired, total_nr_matches)
 
