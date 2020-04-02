@@ -38,5 +38,9 @@ if __name__ == '__main__':
     pipeline.add_module(FeatureTrackingModule,  log_level=logging.INFO)
     # Handles IMU data to compute a position estimation
     pipeline.add_module(ReprojectionModule)
+    pipeline.add_module(PositionEstimationModule)
+    pipeline.add_module(FPSLoggerModule)
+    pipeline.add_module(VisualizationModule)
+
 
     pipeline.start()
