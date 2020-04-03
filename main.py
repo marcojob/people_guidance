@@ -34,7 +34,7 @@ if __name__ == '__main__':
     # Handles hardware drivers and interfaces
     pipeline.add_module(DriversModule)
     # Handles IMU data to compute a position estimation
-    #pipeline.add_module(PositionEstimationModule)
+    pipeline.add_module(PositionEstimationModule)
 
     pipeline.add_module(FeatureTrackingModule)
 

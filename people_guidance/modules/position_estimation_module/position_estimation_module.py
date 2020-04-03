@@ -282,9 +282,6 @@ class PositionEstimationModule(Module):
         #self.logger.info("Data sent :  {}".format(data_dict))
 
     def delta_position(self, request):
-        requested_timestamp = request["payload"]
-        idx = np.where(self.track_for_request_position[:, 0] > requested_timestamp)[0]
-        second_idx = min(idx)
         data_dict = {'timestamp': 0,
                      'pos_x': 0,
                      'pos_y': 0,
@@ -292,6 +289,14 @@ class PositionEstimationModule(Module):
                      'roll': 0,
                      'pitch': 0,
                      'yaw': 0}
+        requested_timestamp = request["payload"]
+        idx = np.where(self.track_for_request_position[:, 0] > requested_timestamp)[0]
+        if len(idx) == 0:
+            self.logger.warning("Issue at interpolation. Requested timestamp: {}, data saved: {}"
+                                .format(requested_timestamp, self.track_for_request_position))
+            return {"id": request["id"], "payload": data_dict}
+
+        second_idx = min(idx)
 
         if second_idx > 0:
             first_idx = second_idx - 1
