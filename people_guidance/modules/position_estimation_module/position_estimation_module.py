@@ -4,6 +4,7 @@ import re
 import math
 from time import sleep, monotonic, perf_counter
 from scipy.spatial.transform import Rotation as R
+import numpy as np
 
 from queue import Queue
 from pathlib import Path
@@ -102,13 +103,11 @@ class PositionEstimationModule(Module):
                 # Delta time since last input
                 dt = self.input_data_dt(timestamp)
 
-                # TODO: compute position
-
-                # TODO: remove gravity
+                # Filter input, remove gravity, compute position and save the data
                 self.complementary_filter(accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z, dt)
                 self.position_estimation_simple(accel_x, accel_y, accel_z, dt)
-
-                # TODO: transformation IMU Coordinates to Camera coordinates
+                self.track_for_request_position_save(timestamp, self.get_pos_x(), self.get_pos_y(), self.get_pos_z(),
+                                                     self.get_angle_x(), self.get_angle_y(), self.get_angle_z())
 
             # TODO: evaluate position quality
 
@@ -201,11 +200,6 @@ class PositionEstimationModule(Module):
                                  .format(accel_rot, [self.speed_x, self.speed_y, self.speed_z]))
                 self.timestamp_last_displayed_acc = monotonic()
 
-    def track_values_attitude_estimation(self):
-        # TODO: Build a loop to save the data
-        # TODO: save ? the MA
-        return
-
     def downsample_publish(self):
         data_dict = {'pos_x': self.get_pos_x(),
                      'pos_y': self.get_pos_y(),
@@ -283,9 +277,6 @@ class PositionEstimationModule(Module):
         # self.logger.info("Data sent :  {}".format(data_dict))
 
     def delta_position(self, request):
-        requested_timestamp = request["payload"]
-        idx = np.where(self.track_for_request_position[:, 0] > requested_timestamp)[0]
-        second_idx = min(idx)
         data_dict = {'timestamp': 0,
                      'pos_x': 0,
                      'pos_y': 0,
@@ -293,12 +284,38 @@ class PositionEstimationModule(Module):
                      'roll': 0,
                      'pitch': 0,
                      'yaw': 0}
+        requested_timestamp = request["payload"]
+        idx = np.where(self.track_for_request_position[:, 0] > requested_timestamp)[0]
+        if not idx:
+            if DEBUG_POSITION > 1:
+                self.logger.warning(" idx : {}, requested timestamp: {}, max timestamp saved {}"
+                                 .format(idx, requested_timestamp, max(self.track_for_request_position[:, 0])))
+        if len(idx) == 0 and len(self.track_for_request_position[:, 0]) == 1:
+            # No element saved previously
+            self.logger.warning("No element saved previously. Requested timestamp: {}, data saved: {}"
+                                .format(requested_timestamp, self.track_for_request_position))
+            return {"id": request["id"], "payload": data_dict}
+
+        if len(idx) == 0:
+            # take the last element which has the highest timestamp
+            second_idx = len(self.track_for_request_position) - 1
+        else:
+            second_idx = min(idx)
 
         if second_idx > 0:
             first_idx = second_idx - 1
         else:
-            self.logger.warning("Issue at interpolation. Requested timestamp: {}, data saved: {}"
-                                .format(requested_timestamp, self.track_for_request_position))
+            if DEBUG_POSITION > 1:
+                self.logger.info("Not interpolating. Requested timestamp: {}, data saved: {}, returning element {}"
+                                 .format(requested_timestamp, self.track_for_request_position, second_idx))
+            # Transcript data
+            tmp = 0
+            for key in data_dict:
+                data_dict[key] = self.track_for_request_position[second_idx, tmp]
+                tmp += 1
+            if DEBUG_POSITION > 2:
+                self.logger.warning("sent data to request for timestamp: {}, data : {}"
+                                 .format(requested_timestamp, data_dict))
             return {"id": request["id"], "payload": data_dict}
 
         # Interpolate
@@ -307,18 +324,29 @@ class PositionEstimationModule(Module):
 
         factor_2 = (requested_timestamp - elt_1[0]) / (elt_2[0] - elt_1[0])
         if factor_2 < 0:
-            self.logger.warning("Issue at interpolation. factor_2 < 0. Requested timestamp: {}, data saved: {}"
-                                .format(requested_timestamp, self.track_for_request_position))
+            if DEBUG_POSITION > 2:
+                self.logger.warning("Issue at interpolation. factor_2 < 0. Requested timestamp: {}, data saved: {}"
+                                    .format(requested_timestamp, self.track_for_request_position))
             return {"id": request["id"], "payload": data_dict}
+        if factor_2 > 1:
+            if DEBUG_POSITION > 2:
+                self.logger.warning("Issue at interpolation. factor_2 > 1. Requested timestamp: {}, last data saved: {}"
+                                    .format(requested_timestamp, self.track_for_request_position[-1, :]))
+            factor_2 = 1
         factor_1 = 1 - factor_2
 
+        # Transcript data
         tmp = 0
         for key in data_dict:
             data_dict[key] = factor_1 * elt_1[tmp] + factor_2 * elt_2[tmp]
             tmp += 1
+        if DEBUG_POSITION > 2:
+            self.logger.info("sent data to request for timestamp: {}, data : {}"
+                                .format(requested_timestamp, data_dict))
+            self.logger.info("index asked: {}".format(second_idx))
         return {"id": request["id"], "payload": data_dict}
 
-    def track_for_request_position(self, timestamp, pos_x, pos_y, pos_z, roll, pitch, yaw):
+    def track_for_request_position_save(self, timestamp, pos_x, pos_y, pos_z, roll, pitch, yaw):
         self.track_for_request_position = np.append(self.track_for_request_position,
                                                     [[timestamp, pos_x, pos_y, pos_z, roll, pitch, yaw]],
                                                     axis=0)
