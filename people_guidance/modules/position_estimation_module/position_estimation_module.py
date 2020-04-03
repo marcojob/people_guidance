@@ -17,7 +17,8 @@ from ...utils import DEFAULT_DATASET
 class PositionEstimationModule(Module):
     def __init__(self, log_dir: Path, args=None):
         super(PositionEstimationModule, self).__init__(name="position_estimation_module", outputs=[("position", 10)],
-                                            inputs=["drivers_module:accelerations"], log_dir=log_dir)
+                                            inputs=["drivers_module:accelerations"], services=["delta_position"],
+                                                       log_dir=log_dir)
         self.args = args
 
         # General inits
@@ -43,6 +44,9 @@ class PositionEstimationModule(Module):
         self.total_acc_y = 0
         self.total_acc_z = 0
 
+        # Tracking for requests # timestamp - position x, y, z - roll - pitch - yaw
+        self.track_for_request_position = np.array([[0, 0, 0, 0, 0, 0, 0]])
+
         # Output (m)
         self.pos_x = 0.
         self.pos_y = 0.
@@ -62,9 +66,14 @@ class PositionEstimationModule(Module):
         if DEBUG_POSITION >= 1:
             self.logger.info("Starting position_estimation_module...")
 
+        self.services["delta_position"].register_handler(self.delta_position)
+
         while(True):
             # Retrieve data
             input_data = self.get("drivers_module:accelerations")
+
+            # Handle requests
+            self.handle_requests()
 
             if DEBUG_POSITION > 1:
                 self.countall += 1  # count number of time the loop gets executed
@@ -271,3 +280,47 @@ class PositionEstimationModule(Module):
             if DEBUG_POSITION >= 3:
                 self.logger.info("Data sent :  {}".format(data_dict))
         #self.logger.info("Data sent :  {}".format(data_dict))
+
+    def delta_position(self, request):
+        requested_timestamp = request["payload"]
+        idx = np.where(self.track_for_request_position[:, 0] > requested_timestamp)[0]
+        second_idx = min(idx)
+        data_dict = {'timestamp': 0,
+                     'pos_x': 0,
+                     'pos_y': 0,
+                     'pos_z': 0,
+                     'roll': 0,
+                     'pitch': 0,
+                     'yaw': 0}
+
+        if second_idx > 0:
+            first_idx = second_idx - 1
+        else:
+            self.logger.warning("Issue at interpolation. Requested timestamp: {}, data saved: {}"
+                                .format(requested_timestamp, self.track_for_request_position))
+            return {"id": request["id"], "payload": data_dict}
+
+        # Interpolate
+        elt_1 = self.track_for_request_position[first_idx]
+        elt_2 = self.track_for_request_position[second_idx]
+
+        factor_2 = (requested_timestamp - elt_1[0]) / (elt_2[0] - elt_1[0])
+        if factor_2 < 0:
+            self.logger.warning("Issue at interpolation. factor_2 < 0. Requested timestamp: {}, data saved: {}"
+                                .format(requested_timestamp, self.track_for_request_position))
+            return {"id": request["id"], "payload": data_dict}
+        factor_1 = 1 - factor_2
+
+        tmp = 0
+        for key in data_dict:
+            data_dict[key] = factor_1 * elt_1[tmp] + factor_2 * elt_2[tmp]
+            tmp += 1
+        return {"id": request["id"], "payload": data_dict}
+
+    def track_for_request_position(self, timestamp, pos_x, pos_y, pos_z, roll, pitch, yaw):
+        self.track_for_request_position = np.append(self.track_for_request_position,
+                                                    [[timestamp, pos_x, pos_y, pos_z, roll, pitch, yaw]],
+                                                    axis = 0)
+        while self.track_for_request_position.shape[0] > TRACK_FOR_REQUEST_POSITION_NUMBER_ELT_KEEP:
+            self.track_for_request_position = np.delete(self.track_for_request_position, 0, 0)
+
