@@ -7,7 +7,7 @@ import coloredlogs
 ROOT_DIR = pathlib.Path(__file__).parent.parent
 ROOT_LOG_DIR = ROOT_DIR / "logs"
 ROOT_DATA_DIR = ROOT_DIR / "data"
-DEFAULT_DATASET = ROOT_DATA_DIR / "indoor_dataset_1"
+DEFAULT_DATASET = pathlib.Path("C:\\Users\\theop\\Desktop\\indoor_dataset_1")
 
 
 def project_path(relative_path: str) -> pathlib.Path:

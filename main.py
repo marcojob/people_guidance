@@ -35,7 +35,7 @@ if __name__ == '__main__':
     # Handles IMU data to compute a position estimation
     pipeline.add_module(PositionEstimationModule)
 
-    pipeline.add_module(FPSLoggerModule)
+    # pipeline.add_module(FPSLoggerModule)
 
     pipeline.add_module(VisualizationModule)
 
