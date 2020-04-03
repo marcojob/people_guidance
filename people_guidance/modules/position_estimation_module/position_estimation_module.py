@@ -69,7 +69,7 @@ class PositionEstimationModule(Module):
         if DEBUG_POSITION >= 1:
             self.logger.info("Starting position_estimation_module...")
 
-        self.services["delta_position"].register_handler(self.delta_position)
+        self.services["delta_position"].register_handler(self.position_request)
 
         while (True):
             # Retrieve data
@@ -276,7 +276,7 @@ class PositionEstimationModule(Module):
                 self.logger.info("Data sent :  {}".format(data_dict))
         # self.logger.info("Data sent :  {}".format(data_dict))
 
-    def delta_position(self, request):
+    def position_request(self, request):
         data_dict = {'timestamp': 0,
                      'pos_x': 0,
                      'pos_y': 0,
@@ -289,15 +289,15 @@ class PositionEstimationModule(Module):
         if not idx:
             if DEBUG_POSITION > 1:
                 self.logger.warning(" idx : {}, requested timestamp: {}, max timestamp saved {}"
-                                 .format(idx, requested_timestamp, max(self.track_for_request_position[:, 0])))
+                                    .format(idx, requested_timestamp, max(self.track_for_request_position[:, 0])))
         if len(idx) == 0 and len(self.track_for_request_position[:, 0]) == 1:
             # No element saved previously
             self.logger.warning("No element saved previously. Requested timestamp: {}, data saved: {}"
                                 .format(requested_timestamp, self.track_for_request_position))
             return {"id": request["id"], "payload": data_dict}
 
-        if len(idx) == 0:
-            # take the last element which has the highest timestamp
+        if len(idx) == 0:  # some elements have been added to the array.
+            # take the last element of the array. It has the highest timestamp saved.
             second_idx = len(self.track_for_request_position) - 1
         else:
             second_idx = min(idx)
@@ -315,7 +315,7 @@ class PositionEstimationModule(Module):
                 tmp += 1
             if DEBUG_POSITION > 2:
                 self.logger.warning("sent data to request for timestamp: {}, data : {}"
-                                 .format(requested_timestamp, data_dict))
+                                    .format(requested_timestamp, data_dict))
             return {"id": request["id"], "payload": data_dict}
 
         # Interpolate
@@ -342,7 +342,7 @@ class PositionEstimationModule(Module):
             tmp += 1
         if DEBUG_POSITION > 2:
             self.logger.info("sent data to request for timestamp: {}, data : {}"
-                                .format(requested_timestamp, data_dict))
+                             .format(requested_timestamp, data_dict))
             self.logger.info("index asked: {}".format(second_idx))
         return {"id": request["id"], "payload": data_dict}
 
