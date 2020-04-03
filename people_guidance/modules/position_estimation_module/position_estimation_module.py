@@ -13,26 +13,28 @@ from ..drivers_module import ACCEL_G
 from ..module import Module
 from ...utils import DEFAULT_DATASET
 
+
 # Position estimation based on the data from the accelerometer and the gyroscope
 class PositionEstimationModule(Module):
     def __init__(self, log_dir: Path, args=None):
         super(PositionEstimationModule, self).__init__(name="position_estimation_module", outputs=[("position", 10)],
-                                            inputs=["drivers_module:accelerations"], services=["delta_position"],
+                                                       inputs=["drivers_module:accelerations"],
+                                                       services=["delta_position"],
                                                        log_dir=log_dir)
         self.args = args
 
         # General inits
         self.count_valid_input = 0  # Number of inputs processed
-        self.countall = 0           # Number of loops since start
-        self.count_outputs = 0      # Number of elements published
+        self.countall = 0  # Number of loops since start
+        self.count_outputs = 0  # Number of elements published
         # Timestamps
-        self.timestamp_last_input = 0                       # time last input received
-        self.timestamp_last_output = monotonic()     # time last output published
+        self.timestamp_last_input = 0  # time last input received
+        self.timestamp_last_output = monotonic()  # time last output published
         self.timestamp_last_displayed_input = monotonic()
         self.timestamp_last_displayed_acc = monotonic()
         self.timestamp_last_reset_vel = monotonic()
         self.timestamp_last_summed_acc = monotonic()
-        self.loop_time = monotonic()                 # time start of loop
+        self.loop_time = monotonic()  # time start of loop
 
         # Initialization and tracking
         self.dt_initialised = False
@@ -56,7 +58,7 @@ class PositionEstimationModule(Module):
         self.speed_y = 0.
         self.speed_z = 0.
         # Timestamp element
-        self.timestamp:int = 0
+        self.timestamp: int = 0
         # Roll Pitch Yaw (Radians)
         self.roll = 0.
         self.pitch = 0.
@@ -68,7 +70,7 @@ class PositionEstimationModule(Module):
 
         self.services["delta_position"].register_handler(self.delta_position)
 
-        while(True):
+        while (True):
             # Retrieve data
             input_data = self.get("drivers_module:accelerations")
 
@@ -82,7 +84,7 @@ class PositionEstimationModule(Module):
                     if DEBUG_POSITION == 4:
                         self.logger.info("loop time : {:.4f}".format(self.loop_time))
 
-            if input_data: # m/s^2 // °/s
+            if input_data:  # m/s^2 // °/s
                 accel_x = float(input_data['data']['accel_x'])
                 accel_y = float(input_data['data']['accel_y'])
                 accel_z = float(input_data['data']['accel_z'])
@@ -130,7 +132,7 @@ class PositionEstimationModule(Module):
             self.logger.info("Time between elements : dt = {}. ".format(dt))
             self.logger.info("Timestamp, {}, self.timestamp : {}. ".format(timestamp, self.timestamp))
 
-        if self.timestamp != 0 and dt < 1 : # dt has not a too high value
+        if self.timestamp != 0 and dt < 1:  # dt has not a too high value
             # Update
             self.timestamp = timestamp
             return dt  # seconds
@@ -163,15 +165,15 @@ class PositionEstimationModule(Module):
         self.pitch = (1.0 - ALPHA_COMPLEMENTARY_FILTER) * c + ALPHA_COMPLEMENTARY_FILTER * pitch_accel
 
     def position_estimation_simple(self,
-                                   accel_x:float, accel_y:float, accel_z:float,
-                                   dt:float):
+                                   accel_x: float, accel_y: float, accel_z: float,
+                                   dt: float):
         if dt > 0:
             # Integrate the acceleration after transforming the acceleration in world coordinates
             r = R.from_euler('xyz', [self.roll, self.pitch, self.yaw], degrees=True)
             accel_rot = r.apply([accel_x, accel_y, accel_z])
             self.speed_x += (accel_rot[0] - CORRECTION_ACC[0]) * dt
             self.speed_y += (accel_rot[1] - CORRECTION_ACC[1]) * dt
-            self.speed_z += (accel_rot[2] + ACCEL_G - CORRECTION_ACC[2]) * dt # TODO : check coordinate system setup
+            self.speed_z += (accel_rot[2] + ACCEL_G - CORRECTION_ACC[2]) * dt  # TODO : check coordinate system setup
             # Calculate the mean for drift compensation
             if MEASURE_SUMMED_ERROR_ACC:
                 self.total_time += dt
@@ -198,7 +200,6 @@ class PositionEstimationModule(Module):
                 self.logger.info("Acceleration after rotation :  {}, Corrected speed : {} "
                                  .format(accel_rot, [self.speed_x, self.speed_y, self.speed_z]))
                 self.timestamp_last_displayed_acc = monotonic()
-
 
     def track_values_attitude_estimation(self):
         # TODO: Build a loop to save the data
@@ -279,7 +280,7 @@ class PositionEstimationModule(Module):
 
             if DEBUG_POSITION >= 3:
                 self.logger.info("Data sent :  {}".format(data_dict))
-        #self.logger.info("Data sent :  {}".format(data_dict))
+        # self.logger.info("Data sent :  {}".format(data_dict))
 
     def delta_position(self, request):
         requested_timestamp = request["payload"]
@@ -320,7 +321,6 @@ class PositionEstimationModule(Module):
     def track_for_request_position(self, timestamp, pos_x, pos_y, pos_z, roll, pitch, yaw):
         self.track_for_request_position = np.append(self.track_for_request_position,
                                                     [[timestamp, pos_x, pos_y, pos_z, roll, pitch, yaw]],
-                                                    axis = 0)
+                                                    axis=0)
         while self.track_for_request_position.shape[0] > TRACK_FOR_REQUEST_POSITION_NUMBER_ELT_KEEP:
             self.track_for_request_position = np.delete(self.track_for_request_position, 0, 0)
-
