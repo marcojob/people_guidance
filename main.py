@@ -5,12 +5,10 @@ from people_guidance.pipeline import Pipeline
 from people_guidance.utils import init_logging
 
 from people_guidance.modules.drivers_module import DriversModule
+from people_guidance.modules.feature_tracking_module import FeatureTrackingModule
 from people_guidance.modules.position_estimation_module import PositionEstimationModule
-
-from people_guidance.modules.fps_logger_module import FPSLoggerModule
 from people_guidance.modules.visualization_module import VisualizationModule
 from people_guidance.modules.reprojection_module import ReprojectionModule
-from people_guidance.modules.feature_tracking_module import FeatureTrackingModule
 
 
 if __name__ == '__main__':
@@ -29,14 +27,34 @@ if __name__ == '__main__':
     parser.add_argument('--deploy', '-d',
                         help='Deploy the pipeline on a raspberry pi.',
                         action='store_true')
+
+    parser.add_argument('--visualize', '-v',
+                        help='Turn on visualisation',
+                        action='store_true')
+
+    parser.add_argument('--save_visualization','-s',
+                        help='Save visualization to file',
+                        type=str,
+                        default='')
+
     args = parser.parse_args()
 
     pipeline = Pipeline(args)
 
-    pipeline.add_module(DriversModule, log_level=logging.WARNING)
     # Handles hardware drivers and interfaces
-    pipeline.add_module(FeatureTrackingModule,  log_level=logging.WARNING)
+    pipeline.add_module(DriversModule, log_level=logging.WARNING)
+
     # Handles IMU data to compute a position estimation
-    pipeline.add_module(PositionEstimationModule,  log_level=logging.WARNING)
-    pipeline.add_module(ReprojectionModule)
+    pipeline.add_module(PositionEstimationModule, log_level=logging.WARNING)
+
+    # Handles feature tracking
+    pipeline.add_module(FeatureTrackingModule, log_level=logging.WARNING)
+
+    # Handles reprojection
+    pipeline.add_module(ReprojectionModule, log_level=logging.WARNING)
+
+    # If argument is specified we start visualization
+    if args.visualize:
+        pipeline.add_module(VisualizationModule, log_level=logging.WARNING)
+
     pipeline.start()

@@ -1,7 +1,7 @@
 # MPU 6050 Registers,
 # datasheet https://invensense.tdk.com/wp-content/uploads/2015/02/MPU-6000-Register-Map1.pdf
 
-# FLAGS
+# FLAGS
 DO_CALIB = False
 
 # CAMERA PARAMETERS
@@ -51,13 +51,13 @@ ACCEL_G = 9.80600
 # Accel full range in m/s^2
 ACCEL_RANGE = 2.0*ACCEL_G
 
-# 16 signed, max val
+# 16 signed, max val
 IMU_MAX_VAL = 32768
 
 # Gyro full range in °/s
 GYRO_RANGE = 250
 
-# Coeffs
+# Coeffs
 ACCEL_COEFF = ACCEL_RANGE/IMU_MAX_VAL
 GYRO_COEFF = GYRO_RANGE/IMU_MAX_VAL
 
