@@ -1,16 +1,13 @@
-import pathlib
 import cv2
 import numpy as np
+import pathlib
 
-from time import sleep
 from scipy.spatial.transform import Rotation
+from time import sleep
+from typing import Tuple
 
 from people_guidance.modules.module import Module
 from people_guidance.utils import project_path
-
-
-
-
 
 
 class FeatureTrackingModule(Module):
@@ -21,6 +18,7 @@ class FeatureTrackingModule(Module):
                                                     log_dir=log_dir)
 
     def start(self):
+        self.publish_visualization: bool = True
         self.old_timestamp = None
         self.old_keypoints = None
         self.old_descriptors = None
@@ -56,12 +54,9 @@ class FeatureTrackingModule(Module):
                 img = cv2.imdecode(np.frombuffer(img_encoded, dtype=np.int8), flags=cv2.IMREAD_GRAYSCALE)
                 keypoints, descriptors = self.extract_feature_descriptors(img)
 
-                # get the new pose and compute the difference to the old one
+                # wait for the pose request answer to arrive
                 position_request_response = self.await_response("position_estimation_module:position_request")
-                position_request = position_request_response["payload"]["payload"]
-                r = Rotation.from_euler('xyz', [position_request["roll"], position_request["pitch"], position_request["yaw"]], degrees=True)
-                t = [[position_request["pos_x"]], [position_request["pos_y"]], [position_request["pos_z"]]]
-                pose = np.concatenate((r.as_matrix(), t), axis=1)
+                pose = self.extract_position_request_response(position_request_response)
 
                 # only do feature matching if there were keypoints found in the new image, discard it otherwise
                 if len(keypoints) == 0:
@@ -78,15 +73,16 @@ class FeatureTrackingModule(Module):
                                              f"{old_timestamp} and {timestamp}")
                         else:
                             pose_pair = np.concatenate((self.old_pose[np.newaxis, :, :], pose[np.newaxis, :, :]), axis=0)
-                            visualization_img = self.visualize_matches(img, keypoints, inliers, total_nr_matches)
-
                             self.publish("feature_point_pairs",
                                          {"camera_positions" : pose_pair,
                                           "point_pairs": inliers},
                                          1000, timestamp)
-                            self.publish("matches_visualization",
-                                         visualization_img,
-                                         1000, timestamp)
+
+                            if self.publish_visualization:
+                                visualization_img = self.visualize_matches(img, keypoints, inliers, total_nr_matches)
+                                self.publish("matches_visualization",
+                                            visualization_img,
+                                            1000, timestamp)
 
                     # store the date of the new image as old_img... for the next iteration
                     # If there are no features found in the new image this step is skipped
@@ -96,7 +92,8 @@ class FeatureTrackingModule(Module):
                     self.old_descriptors = descriptors
                     self.old_pose = pose
 
-    def extract_feature_descriptors(self, img: np.ndarray) -> (list, np.ndarray):
+
+    def extract_feature_descriptors(self, img: np.ndarray) -> Tuple[list, np.ndarray]:
         # first detect the ORB keypoints and then compute the feature descriptors of those points
         keypoints = self.orb.detect(img, None)
         keypoints, descriptors = self.orb.compute(img, keypoints)
@@ -104,7 +101,7 @@ class FeatureTrackingModule(Module):
 
         return (keypoints, descriptors)
     
-    def match_features(self, keypoints: list, descriptors: np.ndarray) -> np.ndarray:
+    def match_features(self, keypoints: list, descriptors: np.ndarray) -> Tuple[np.ndarray, int]:
         matches = self.matcher.match(self.old_descriptors, descriptors)
 
         # sort the matches by shortest distance first
@@ -134,7 +131,21 @@ class FeatureTrackingModule(Module):
 
         return (matches_paired, total_nr_matches)
 
-    def visualize_matches(self, img, keypoints, inliers, nb_matches):
+    def extract_position_request_response(self, response: dict) -> np.ndarray:
+        request_id = response["id"]
+        if request_id != self.request_counter-1:
+            self.logger.warn(f"Request Id is {request_id}, should be {self.request_counter-1}, something went wrong with the position request")
+            return np.eye(3,4)
+
+        position_request = response["payload"]["payload"]
+
+        r = Rotation.from_euler('xyz', [position_request["roll"], position_request["pitch"], position_request["yaw"]], degrees=True)
+        t = [[position_request["pos_x"]], [position_request["pos_y"]], [position_request["pos_z"]]]
+        pose = np.concatenate((r.as_matrix(), t), axis=1)
+
+        return pose
+
+    def visualize_matches(self, img: np.ndarray, keypoints: list, inliers: np.ndarray, nb_matches: int) -> np.ndarray:
         visualization_img = cv2.drawKeypoints(img, keypoints, None, color=(0,255,0), flags=0)
         for i in range(inliers.shape[2]):
             visualization_img = cv2.line(visualization_img,
