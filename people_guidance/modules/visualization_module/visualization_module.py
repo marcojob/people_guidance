@@ -9,7 +9,8 @@ from ..module import Module
 class VisualizationModule(Module):
     def __init__(self, log_dir: pathlib.Path, args=None):
         super(VisualizationModule, self).__init__(name="visualization_module",
-                                                  inputs=["drivers_module:images", "drivers_module:accelerations"],
+                                                  inputs=["feature_tracking_module:matches_visualization",
+                                                          "drivers_module:accelerations"],
                                                   log_dir=log_dir)
 
         self.display_fps = 0.0
@@ -19,10 +20,10 @@ class VisualizationModule(Module):
         frm_idx = 0
         ms_time = 0
         while True:
-            # Get data from spam module and check if data is not empty
-            data_dict = self.get("drivers_module:images")
-            if data_dict:
+            # Get data from feature tracking module and check if data is not empty
+            data_dict = self.get("feature_tracking_module:matches_visualization")
 
+            if data_dict:
                 if frm_idx == 1:
                     ms_time = self.get_time_ms()
 
@@ -33,11 +34,12 @@ class VisualizationModule(Module):
                 frm_idx += 1
                 self.visualize_image_data(data_dict["data"])
 
-    def visualize_image_data(self, data: bytes) -> None:
-        decoded = cv2.imdecode(np.frombuffer(data, np.uint8), -1)
-
-        cv2.putText(decoded, f"Display fps: {self.display_fps}",
-                    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-
-        cv2.imshow("Frame", decoded)
+    def visualize_image_data(self, img: np.ndarray) -> None:
+        cv2.putText(img, f"Display fps: {self.display_fps:5.2f}",
+                    (img.shape[1]-300, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+        cv2.imshow("Frame", img)
         cv2.waitKey(1)
+
+    def cleanup(self):
+        self.logger.debug("Closing all windwos")
+        cv2.destroyAllWindows()
