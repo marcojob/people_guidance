@@ -62,7 +62,7 @@ class FeatureTrackingModule(Module):
                 r = Rotation.from_euler('xyz', [position_request["roll"], position_request["pitch"], position_request["yaw"]], degrees=True)
                 t = [[position_request["pos_x"]], [position_request["pos_y"]], [position_request["pos_z"]]]
                 pose = np.concatenate((r.as_matrix(), t), axis=1)
-                self.logger.warn(pose)
+
                 # only do feature matching if there were keypoints found in the new image, discard it otherwise
                 if len(keypoints) == 0:
                     self.logger.warn(f"Didn't find any features in image with timestamp {timestamp}, skipping...")
