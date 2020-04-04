@@ -32,6 +32,7 @@ class Module:
 
         self.name: str = name
         self.log_dir: pathlib.Path = log_dir
+        self.log_level = logging.DEBUG
 
         self.inputs: Dict[str, Optional[mp.Queue]] = {} if inputs is None else {channel: None for channel in inputs}
         self.outputs: Dict[str, mp.Queue] = {} if outputs is None else \
@@ -68,17 +69,18 @@ class Module:
     def get(self, channel: str) -> Dict:
         # If the queue is empty we return an empty dict, error handling should be done after
 
-        def is_valid(payload_obj: Dict):
-            return payload is not None and payload_obj['timestamp'] + payload_obj['validity'] < self.get_time_ms()
+        def is_valid(msg_body_item: Dict):
+            return msg_body_item is not None and msg_body_item['timestamp'] + \
+                   msg_body_item['validity'] < self.get_time_ms()
 
         try:
-            payload = None
+            msg_body = None
             while True:
-                # get objects from the queue until it is either empty or a valid payload is found.
+                # get objects from the queue until it is either empty or a valid msg_body is found.
                 # if the queue is empty queue.Empty will be raised.
-                payload = self.inputs[channel].get_nowait()
-                if is_valid(payload):
-                    return payload
+                msg_body = self.inputs[channel].get_nowait()
+                if is_valid(msg_body):
+                    return msg_body
         except queue.Empty:
             return dict()
 
@@ -129,7 +131,7 @@ class Module:
         return int(round(time.monotonic() * 1000))
 
     def __enter__(self):
-        self.logger: logging.Logger = get_logger(f"module_{self.name}", self.log_dir)
+        self.logger: logging.Logger = get_logger(f"module_{self.name}", self.log_dir, level=self.log_level)
         for service in self.services.values():
             service.logger = self.logger.getChild(f"service_{service.name}")
         self.logger.info(f"Module {self.name} started.")
