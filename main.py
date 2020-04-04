@@ -33,14 +33,10 @@ if __name__ == '__main__':
 
     pipeline = Pipeline(args)
 
-    pipeline.add_module(DriversModule, log_level=logging.INFO)
+    pipeline.add_module(DriversModule, log_level=logging.WARNING)
     # Handles hardware drivers and interfaces
-    pipeline.add_module(FeatureTrackingModule,  log_level=logging.INFO)
+    pipeline.add_module(FeatureTrackingModule,  log_level=logging.WARNING)
     # Handles IMU data to compute a position estimation
+    pipeline.add_module(PositionEstimationModule,  log_level=logging.WARNING)
     pipeline.add_module(ReprojectionModule)
-    pipeline.add_module(PositionEstimationModule)
-    pipeline.add_module(FPSLoggerModule)
-    pipeline.add_module(VisualizationModule)
-
-
     pipeline.start()
