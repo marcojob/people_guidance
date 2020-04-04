@@ -38,7 +38,9 @@ if __name__ == '__main__':
 
     pipeline.add_module(FeatureTrackingModule)
 
-    pipeline.add_module(FPSLoggerModule)
+
+    #pipeline.add_module(FPSLoggerModule)
+    
     pipeline.add_module(VisualizationModule)
 
     pipeline.start()
