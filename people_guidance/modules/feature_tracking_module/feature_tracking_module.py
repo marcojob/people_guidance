@@ -17,7 +17,7 @@ class FeatureTrackingModule(Module):
 
     def __init__(self, log_dir: pathlib.Path, args=None):
         super(FeatureTrackingModule, self).__init__(name="feature_tracking_module", outputs=[("feature_point_pairs", 10), ("matches_visualization", 10)],
-                                                    inputs=["drivers_module:images"], requests=[("position_estimation_module:delta_position")],
+                                                    inputs=["drivers_module:images"], requests=[("position_estimation_module:position_request")],
                                                     log_dir=log_dir)
 
     def start(self):
@@ -48,7 +48,7 @@ class FeatureTrackingModule(Module):
                 timestamp = img_dict["timestamp"]
 
                 # request the pose of the camera at this time stamp from the position_estimation_module
-                self.make_request("position_estimation_module:delta_position", {"id" : self.request_counter, "payload": timestamp})
+                self.make_request("position_estimation_module:position_request", {"id" : self.request_counter, "payload": timestamp})
                 self.request_counter += 1
 
                 self.logger.debug(f"Processing image with timestamp {timestamp} ...")
@@ -57,12 +57,12 @@ class FeatureTrackingModule(Module):
                 keypoints, descriptors = self.extract_feature_descriptors(img)
 
                 # get the new pose and compute the difference to the old one
-                delta_position_response = self.await_response("position_estimation_module:delta_position")
-                delta_position = delta_position_response["payload"]["payload"]
-                r = Rotation.from_euler('xyz', [delta_position["roll"], delta_position["pitch"], delta_position["yaw"]], degrees=True)
-                t = [[delta_position["pos_x"]], [delta_position["pos_y"]], [delta_position["pos_z"]]]
+                position_request_response = self.await_response("position_estimation_module:position_request")
+                position_request = position_request_response["payload"]["payload"]
+                r = Rotation.from_euler('xyz', [position_request["roll"], position_request["pitch"], position_request["yaw"]], degrees=True)
+                t = [[position_request["pos_x"]], [position_request["pos_y"]], [position_request["pos_z"]]]
                 pose = np.concatenate((r.as_matrix(), t), axis=1)
-                
+                self.logger.warn(pose)
                 # only do feature matching if there were keypoints found in the new image, discard it otherwise
                 if len(keypoints) == 0:
                     self.logger.warn(f"Didn't find any features in image with timestamp {timestamp}, skipping...")
