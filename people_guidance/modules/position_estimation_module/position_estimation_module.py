@@ -20,7 +20,7 @@ class PositionEstimationModule(Module):
     def __init__(self, log_dir: Path, args=None):
         super(PositionEstimationModule, self).__init__(name="position_estimation_module", outputs=[("position_vis", 10)],
                                                        inputs=["drivers_module:accelerations"],
-                                                       services=["delta_position"],
+                                                       services=["position_request"],
                                                        log_dir=log_dir)
         self.args = args
 
@@ -69,7 +69,7 @@ class PositionEstimationModule(Module):
         if DEBUG_POSITION >= 1:
             self.logger.info("Starting position_estimation_module...")
 
-        self.services["delta_position"].register_handler(self.position_request)
+        self.services["position_request"].register_handler(self.position_request)
 
         while (True):
             # Retrieve data

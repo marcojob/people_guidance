@@ -1,19 +1,23 @@
 import pathlib
+import cv2
+import numpy as np
 
 from time import sleep
+from scipy.spatial.transform import Rotation
 
 from people_guidance.modules.module import Module
 from people_guidance.utils import project_path
 
-import cv2
-import numpy as np
+
+
+
 
 
 class FeatureTrackingModule(Module):
 
     def __init__(self, log_dir: pathlib.Path, args=None):
         super(FeatureTrackingModule, self).__init__(name="feature_tracking_module", outputs=[("feature_point_pairs", 10), ("feature_point_pairs_vis", 10)],
-                                                    inputs=["drivers_module:images"], #requests=[("position_estimation_module:pose")]
+                                                    inputs=["drivers_module:images"], requests=[("position_estimation_module:position_request")],
                                                     log_dir=log_dir)
 
     def start(self):
@@ -42,23 +46,23 @@ class FeatureTrackingModule(Module):
                 # extract the image data and time stamp
                 img_encoded = img_dict["data"]
                 timestamp = img_dict["timestamp"]
-                """
+
                 # request the pose of the camera at this time stamp from the position_estimation_module
-                self.make_request("position_estimation_module:pose", {"id" : self.request_counter, "payload": timestamp})
+                self.make_request("position_estimation_module:position_request", {"id" : self.request_counter, "payload": timestamp})
                 self.request_counter += 1
-                """
+
                 # self.logger.debug(f"Processing image with timestamp {timestamp} ...")
 
                 img = cv2.imdecode(np.frombuffer(img_encoded, dtype=np.int8), flags=cv2.IMREAD_GRAYSCALE)
                 keypoints, descriptors = self.extract_feature_descriptors(img)
 
-                """
                 # get the new pose and compute the difference to the old one
-                pose_response = self.await_response("position_estimation_module:pose")
-                pose = pose_response["payload"]
-                """
-                pose = np.zeros((3,4))
-                
+                position_request_response = self.await_response("position_estimation_module:position_request")
+                position_request = position_request_response["payload"]["payload"]
+                r = Rotation.from_euler('xyz', [position_request["roll"], position_request["pitch"], position_request["yaw"]], degrees=True)
+                t = [[position_request["pos_x"]], [position_request["pos_y"]], [position_request["pos_z"]]]
+                pose = np.concatenate((r.as_matrix(), t), axis=1)
+
                 # only do feature matching if there were keypoints found in the new image, discard it otherwise
                 if len(keypoints) == 0:
                     pass
@@ -79,7 +83,7 @@ class FeatureTrackingModule(Module):
                             # visualization_img = self.visualize_matches(img, keypoints, inliers, total_nr_matches)
 
                             self.publish("feature_point_pairs",
-                                         {"camera_positions" : (pose, pose),
+                                         {"camera_positions" : pose_pair,
                                           "point_pairs": inliers},
                                          1000, timestamp)
                             self.publish("feature_point_pairs_vis",
