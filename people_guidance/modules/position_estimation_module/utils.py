@@ -9,6 +9,9 @@ POSITION_PUBLISH_FREQ = 1
 POSITION_PUBLISH_ACC_FREQ = 0
 POSITION_PUBLISH_INPUT_FREQ = 0
 
+# Requests
+TRACK_FOR_REQUEST_POSITION_NUMBER_ELT_KEEP = 1000
+
 # Reduce the velocity to reduce drift
 METHOD_RESET_VELOCITY = True
 RESET_VEL_FREQ = 200 # select value above 100 to compensate after each step  TODO : prone to dt

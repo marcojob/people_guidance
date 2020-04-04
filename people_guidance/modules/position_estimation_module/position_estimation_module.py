@@ -4,6 +4,7 @@ import re
 import math
 from time import sleep, monotonic, perf_counter
 from scipy.spatial.transform import Rotation as R
+import numpy as np
 
 from queue import Queue
 from pathlib import Path
@@ -13,25 +14,28 @@ from ..drivers_module import ACCEL_G
 from ..module import Module
 from ...utils import DEFAULT_DATASET
 
+
 # Position estimation based on the data from the accelerometer and the gyroscope
 class PositionEstimationModule(Module):
     def __init__(self, log_dir: Path, args=None):
-        super(PositionEstimationModule, self).__init__(name="position_estimation_module", outputs=[("position_vis", 1000)],
-                                            inputs=["drivers_module:accelerations"], log_dir=log_dir)
+        super(PositionEstimationModule, self).__init__(name="position_estimation_module", outputs=[("position_vis", 10)],
+                                                       inputs=["drivers_module:accelerations"],
+                                                       services=["delta_position"],
+                                                       log_dir=log_dir)
         self.args = args
 
         # General inits
         self.count_valid_input = 0  # Number of inputs processed
-        self.countall = 0           # Number of loops since start
-        self.count_outputs = 0      # Number of elements published
+        self.countall = 0  # Number of loops since start
+        self.count_outputs = 0  # Number of elements published
         # Timestamps
-        self.timestamp_last_input = 0                       # time last input received
-        self.timestamp_last_output = monotonic()     # time last output published
+        self.timestamp_last_input = 0  # time last input received
+        self.timestamp_last_output = monotonic()  # time last output published
         self.timestamp_last_displayed_input = monotonic()
         self.timestamp_last_displayed_acc = monotonic()
         self.timestamp_last_reset_vel = monotonic()
         self.timestamp_last_summed_acc = monotonic()
-        self.loop_time = monotonic()                 # time start of loop
+        self.loop_time = monotonic()  # time start of loop
 
         # Initialization and tracking
         self.dt_initialised = False
@@ -43,6 +47,9 @@ class PositionEstimationModule(Module):
         self.total_acc_y = 0
         self.total_acc_z = 0
 
+        # Tracking for requests # timestamp - position x, y, z - roll - pitch - yaw
+        self.track_for_request_position = np.array([[0, 0, 0, 0, 0, 0, 0]])
+
         # Output (m)
         self.pos_x = 0.
         self.pos_y = 0.
@@ -52,7 +59,7 @@ class PositionEstimationModule(Module):
         self.speed_y = 0.
         self.speed_z = 0.
         # Timestamp element
-        self.timestamp:int = 0
+        self.timestamp: int = 0
         # Roll Pitch Yaw (Radians)
         self.roll = 0.
         self.pitch = 0.
@@ -62,9 +69,14 @@ class PositionEstimationModule(Module):
         if DEBUG_POSITION >= 1:
             self.logger.info("Starting position_estimation_module...")
 
-        while(True):
+        self.services["delta_position"].register_handler(self.position_request)
+
+        while (True):
             # Retrieve data
             input_data = self.get("drivers_module:accelerations")
+
+            # Handle requests
+            self.handle_requests()
 
             if DEBUG_POSITION > 1:
                 self.countall += 1  # count number of time the loop gets executed
@@ -73,7 +85,7 @@ class PositionEstimationModule(Module):
                     if DEBUG_POSITION == 4:
                         self.logger.info("loop time : {:.4f}".format(self.loop_time))
 
-            if input_data: # m/s^2 // °/s
+            if input_data:  # m/s^2 // °/s
                 accel_x = float(input_data['data']['accel_x'])
                 accel_y = float(input_data['data']['accel_y'])
                 accel_z = float(input_data['data']['accel_z'])
@@ -91,13 +103,11 @@ class PositionEstimationModule(Module):
                 # Delta time since last input
                 dt = self.input_data_dt(timestamp)
 
-                # TODO: compute position
-
-                # TODO: remove gravity
+                # Filter input, remove gravity, compute position and save the data
                 self.complementary_filter(accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z, dt)
                 self.position_estimation_simple(accel_x, accel_y, accel_z, dt)
-
-                # TODO: transformation IMU Coordinates to Camera coordinates
+                self.track_for_request_position_save(timestamp, self.get_pos_x(), self.get_pos_y(), self.get_pos_z(),
+                                                     self.get_angle_x(), self.get_angle_y(), self.get_angle_z())
 
             # TODO: evaluate position quality
 
@@ -121,7 +131,7 @@ class PositionEstimationModule(Module):
             self.logger.info("Time between elements : dt = {}. ".format(dt))
             self.logger.info("Timestamp, {}, self.timestamp : {}. ".format(timestamp, self.timestamp))
 
-        if self.timestamp != 0 and dt < 1 : # dt has not a too high value
+        if self.timestamp != 0 and dt < 1:  # dt has not a too high value
             # Update
             self.timestamp = timestamp
             return dt  # seconds
@@ -154,15 +164,15 @@ class PositionEstimationModule(Module):
         self.pitch = (1.0 - ALPHA_COMPLEMENTARY_FILTER) * c + ALPHA_COMPLEMENTARY_FILTER * pitch_accel
 
     def position_estimation_simple(self,
-                                   accel_x:float, accel_y:float, accel_z:float,
-                                   dt:float):
+                                   accel_x: float, accel_y: float, accel_z: float,
+                                   dt: float):
         if dt > 0:
             # Integrate the acceleration after transforming the acceleration in world coordinates
             r = R.from_euler('xyz', [self.roll, self.pitch, self.yaw], degrees=True)
             accel_rot = r.apply([accel_x, accel_y, accel_z])
             self.speed_x += (accel_rot[0] - CORRECTION_ACC[0]) * dt
             self.speed_y += (accel_rot[1] - CORRECTION_ACC[1]) * dt
-            self.speed_z += (accel_rot[2] + ACCEL_G - CORRECTION_ACC[2]) * dt # TODO : check coordinate system setup
+            self.speed_z += (accel_rot[2] + ACCEL_G - CORRECTION_ACC[2]) * dt  # TODO : check coordinate system setup
             # Calculate the mean for drift compensation
             if MEASURE_SUMMED_ERROR_ACC:
                 self.total_time += dt
@@ -189,12 +199,6 @@ class PositionEstimationModule(Module):
                 self.logger.info("Acceleration after rotation :  {}, Corrected speed : {} "
                                  .format(accel_rot, [self.speed_x, self.speed_y, self.speed_z]))
                 self.timestamp_last_displayed_acc = monotonic()
-
-
-    def track_values_attitude_estimation(self):
-        # TODO: Build a loop to save the data
-        # TODO: save ? the MA
-        return
 
     def downsample_publish(self):
         data_dict = {'pos_x': self.get_pos_x(),
@@ -270,4 +274,81 @@ class PositionEstimationModule(Module):
 
             if DEBUG_POSITION >= 3:
                 self.logger.info("Data sent :  {}".format(data_dict))
-        #self.logger.info("Data sent :  {}".format(data_dict))
+        # self.logger.info("Data sent :  {}".format(data_dict))
+
+    def position_request(self, request):
+        data_dict = {'timestamp': 0,
+                     'pos_x': 0,
+                     'pos_y': 0,
+                     'pos_z': 0,
+                     'roll': 0,
+                     'pitch': 0,
+                     'yaw': 0}
+        requested_timestamp = request["payload"]
+        idx = np.where(self.track_for_request_position[:, 0] > requested_timestamp)[0]
+        if not idx:
+            if DEBUG_POSITION > 1:
+                self.logger.warning(" idx : {}, requested timestamp: {}, max timestamp saved {}"
+                                    .format(idx, requested_timestamp, max(self.track_for_request_position[:, 0])))
+        if len(idx) == 0 and len(self.track_for_request_position[:, 0]) == 1:
+            # No element saved previously
+            self.logger.warning("No element saved previously. Requested timestamp: {}, data saved: {}"
+                                .format(requested_timestamp, self.track_for_request_position))
+            return {"id": request["id"], "payload": data_dict}
+
+        if len(idx) == 0:  # some elements have been added to the array.
+            # take the last element of the array. It has the highest timestamp saved.
+            second_idx = len(self.track_for_request_position) - 1
+        else:
+            second_idx = min(idx)
+
+        if second_idx > 0:
+            first_idx = second_idx - 1
+        else:
+            if DEBUG_POSITION > 1:
+                self.logger.info("Not interpolating. Requested timestamp: {}, data saved: {}, returning element {}"
+                                 .format(requested_timestamp, self.track_for_request_position, second_idx))
+            # Transcript data
+            tmp = 0
+            for key in data_dict:
+                data_dict[key] = self.track_for_request_position[second_idx, tmp]
+                tmp += 1
+            if DEBUG_POSITION > 2:
+                self.logger.warning("sent data to request for timestamp: {}, data : {}"
+                                    .format(requested_timestamp, data_dict))
+            return {"id": request["id"], "payload": data_dict}
+
+        # Interpolate
+        elt_1 = self.track_for_request_position[first_idx]
+        elt_2 = self.track_for_request_position[second_idx]
+
+        factor_2 = (requested_timestamp - elt_1[0]) / (elt_2[0] - elt_1[0])
+        if factor_2 < 0:
+            if DEBUG_POSITION > 2:
+                self.logger.warning("Issue at interpolation. factor_2 < 0. Requested timestamp: {}, data saved: {}"
+                                    .format(requested_timestamp, self.track_for_request_position))
+            return {"id": request["id"], "payload": data_dict}
+        if factor_2 > 1:
+            if DEBUG_POSITION > 2:
+                self.logger.warning("Issue at interpolation. factor_2 > 1. Requested timestamp: {}, last data saved: {}"
+                                    .format(requested_timestamp, self.track_for_request_position[-1, :]))
+            factor_2 = 1
+        factor_1 = 1 - factor_2
+
+        # Transcript data
+        tmp = 0
+        for key in data_dict:
+            data_dict[key] = factor_1 * elt_1[tmp] + factor_2 * elt_2[tmp]
+            tmp += 1
+        if DEBUG_POSITION > 2:
+            self.logger.info("sent data to request for timestamp: {}, data : {}"
+                             .format(requested_timestamp, data_dict))
+            self.logger.info("index asked: {}".format(second_idx))
+        return {"id": request["id"], "payload": data_dict}
+
+    def track_for_request_position_save(self, timestamp, pos_x, pos_y, pos_z, roll, pitch, yaw):
+        self.track_for_request_position = np.append(self.track_for_request_position,
+                                                    [[timestamp, pos_x, pos_y, pos_z, roll, pitch, yaw]],
+                                                    axis=0)
+        while self.track_for_request_position.shape[0] > TRACK_FOR_REQUEST_POSITION_NUMBER_ELT_KEEP:
+            self.track_for_request_position = np.delete(self.track_for_request_position, 0, 0)
