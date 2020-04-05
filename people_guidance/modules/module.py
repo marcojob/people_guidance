@@ -50,20 +50,12 @@ class Module:
     def add_request_target(self, request_channel, request_queue, response_queue):
         self.requests.update({request_channel: {"requests": request_queue, "responses": response_queue}})
 
-    def publish(self, channel: str, data: Any, validity: int, timestamp=None) -> None:
-        if timestamp is None:
-            # We need to set the timestamp if not set explicitly
-            timestamp = self.get_time_ms()
-
-        while True:
-            try:
-                self.outputs[channel].put_nowait({'data': data, 'timestamp': timestamp, 'validity': validity})
-                break
-            except queue.Full:
-                try:
-                    self.outputs[channel].get_nowait()
-                except queue.Empty:
-                    pass
+    def publish(self, channel: str, data: Any, validity: int) -> None:
+        # this assumes that only the owning process is putting items into the output queue!
+        if self.outputs["channel"].full():
+            self.outputs[channel].get_nowait()
+        else:
+            self.outputs[channel].put_nowait({'data': data, 'timestamp': self.get_time_ms(), 'validity': validity})
 
     def get(self, channel: str) -> Dict:
         # If the queue is empty we return an empty dict, error handling should be done after
@@ -71,16 +63,11 @@ class Module:
         def is_valid(payload_obj: Dict):
             return payload is not None and payload_obj['timestamp'] + payload_obj['validity'] < self.get_time_ms()
 
-        try:
-            payload = None
-            while True:
-                # get objects from the queue until it is either empty or a valid payload is found.
-                # if the queue is empty queue.Empty will be raised.
-                payload = self.inputs[channel].get_nowait()
-                if is_valid(payload):
-                    return payload
-        except queue.Empty:
+        if not self.inputs[channel].empty():
+            payload = self.inputs[channel].get_nowait()
+        else:
             return dict()
+
 
     def make_request(self, target_name, request_payload: Dict):
         full_exc = queue.Full(f"You made another request to {target_name} before it finished the first request."
@@ -126,7 +113,7 @@ class Module:
     @staticmethod
     def get_time_ms():
         # https://www.python.org/dev/peps/pep-0418/#time-monotonic
-        return int(round(time.monotonic() * 1000))
+        return int(round(time.monotonic_ns() / 1000.0))
 
     def __enter__(self):
         self.logger: logging.Logger = get_logger(f"module_{self.name}", self.log_dir)
