@@ -2,6 +2,7 @@
 /logs/
 /.idea/
 /data/
+/sandbox/*
 /sandbox.py
 
 # Byte-compiled / optimized / DLL files

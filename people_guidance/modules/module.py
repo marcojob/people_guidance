@@ -17,6 +17,7 @@ class ModuleService:
         self.responses = mp.Queue(maxsize=1)
         self.handler = self.default_handler
         self.logger = None
+        self.active_request = None
 
     def register_handler(self, handler: Callable):
         self.handler = handler
@@ -100,7 +101,9 @@ class Module:
     def handle_requests(self):
         for service_name in self.services:
             service = self.services[service_name]
-            if not service.requests.empty():
+            if service.active_request is not None:
+                self.respond(service_name, service.active_request)
+            elif not service.requests.empty():
                 try:
                     request: Dict = service.requests.get_nowait()
                     self.respond(service_name, request)
@@ -111,10 +114,15 @@ class Module:
         full_exc = queue.Full("Response was not read by requesting process. You must read the response in the "
                               "requesting process before making another request.")
         service = self.services[service_name]
-        if not service.responses.full():
+        if not service.responses.full() or service.active_request is not None:
             try:
-                response = {"id": request["id"], "payload": service.handler(request)}
-                service.responses.put_nowait(response)
+                handler_response = service.handler(request)
+                if handler_response is None:
+                    service.active_request = request
+                else:
+                    response = {"id": request["id"], "payload": handler_response}
+                    service.responses.put_nowait(response)
+                    service.active_request = None
             except queue.Full:
                 raise full_exc
         else:
