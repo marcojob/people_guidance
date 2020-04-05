@@ -33,14 +33,22 @@ class ReprojectionModule(Module):
             if payload:
 
                 camera_positions, point_pairs = self.extract_payload(payload)
-                pm1, pm2 = self.create_projection_matrices(camera_positions)
+                user_pos = camera_positions[1, ...][:, 3]
 
+                plt.scatter(user_pos[0], user_pos[1], c="r")
+                plt.pause(0.05)
+
+
+                """
+                pm1, pm2 = self.create_projection_matrices(camera_positions)
+                    
                 points_homo = cv2.triangulatePoints(pm1, pm2, point_pairs[0, ...], point_pairs[1, ...])
                 points3d = cv2.convertPointsFromHomogeneous(points_homo.T)
                 points3d = points3d.reshape((points3d.shape[0], 3))
                 points3d = self.remove_outliers(points3d)
                 self.publish("points3d", data=points3d, validity=100, timestamp=self.get_time_ms())
-
+            
+                
                 user_pos = camera_positions[1, ...][:, 3]
                 user_trajectory: np.array = normalize((camera_positions[1, ...] - camera_positions[0, ...])[:, 3])
                 point_vectors = - np.subtract(points3d, user_pos)
@@ -53,6 +61,7 @@ class ReprojectionModule(Module):
 
                 if np.count_nonzero(critical_points) > 0:
                     self.logger.critical("Collision Imminent")
+                """
 
     @staticmethod
     def remove_outliers(points3d):

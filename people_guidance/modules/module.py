@@ -4,6 +4,7 @@ import logging
 import traceback
 import queue
 import time
+import multiprocessing as mp
 
 from typing import Optional, Any, Dict, List, Tuple, Callable, Union
 
@@ -17,6 +18,7 @@ class ModuleService:
         self.responses = mp.Queue(maxsize=1)
         self.handler = self.default_handler
         self.logger = None
+        self.current_request = None
 
     def register_handler(self, handler: Callable):
         self.handler = handler
@@ -39,17 +41,15 @@ class Module:
             {name: mp.Queue(maxsize=maxsize) for (name, maxsize) in outputs}
 
         self.requests: Dict[str, Dict[str, mp.Queue]] = {} if requests is None else \
-            {channel: {} for channel in requests}
+            {channel: {"timeout": timeout} for channel, timeout in requests}
         self.services: Dict[str, ModuleService] = {} if services is None \
             else {name: ModuleService(name) for name in services}
-
-        self.request_timeout = 5  # seconds
 
     def subscribe(self, channel: str, queue_obj: mp.Queue):
         return self.inputs.update({channel: queue_obj})
 
     def add_request_target(self, request_channel, request_queue, response_queue):
-        self.requests.update({request_channel: {"requests": request_queue, "responses": response_queue}})
+        self.requests[request_channel].update({"requests": request_queue, "responses": response_queue})
 
     def publish(self, channel: str, data: Any, validity: int, timestamp=None) -> None:
         if timestamp is None:
@@ -81,12 +81,16 @@ class Module:
                 msg_body = self.inputs[channel].get_nowait()
                 if is_valid(msg_body):
                     return msg_body
+                elif msg_body is not None:
+                    self.logger.info("found stale msg")
         except queue.Empty:
             return dict()
 
     def make_request(self, target_name, request_payload: Dict):
         full_exc = queue.Full(f"You made another request to {target_name} before it finished the first request."
                               f"You must use await_response to wait for the response first.")
+
+        request_payload.update({"timeout": self.requests[target_name]["timeout"]})
         if not self.requests[target_name]["requests"].full():
             try:
                 self.requests[target_name]["requests"].put_nowait(request_payload)
@@ -97,17 +101,33 @@ class Module:
 
     def await_response(self, target_name) -> Any:
         # this call blocks until a response is received.
-        return self.requests[target_name]["responses"].get(timeout=self.request_timeout)
+        return self.requests[target_name]["responses"].get(timeout=self.requests[target_name]["timeout"])
 
     def handle_requests(self):
         for service_name in self.services:
             service = self.services[service_name]
-            if not service.requests.empty():
+            if service.current_request is not None:
+                self.respond(service_name, service.current_request)
+            elif not service.requests.empty():
                 try:
                     request: Dict = service.requests.get_nowait()
                     self.respond(service_name, request)
                 except queue.Empty:
                     pass
+
+    def get_requests(self, service_name):
+
+        service = self.services[service_name]
+        if service.current_request is not None:
+            self.respond(service_name, service.current_request)
+        elif not service.requests.empty():
+            try:
+                request: Dict = service.requests.get_nowait()
+                return request
+            except queue.Empty:
+                pass
+
+        return None
 
     def respond(self, service_name: str, request: Dict):
         full_exc = queue.Full("Response was not read by requesting process. You must read the response in the "
@@ -115,8 +135,15 @@ class Module:
         service = self.services[service_name]
         if not service.responses.full():
             try:
-                response = {"id": request["id"], "payload": service.handler(request)}
-                service.responses.put_nowait(response)
+                handler_result = service.handler(request)
+                if handler_result is not None:
+                    response = {"id": request["id"], "payload": handler_result}
+                    service.responses.put_nowait(response)
+                    service.current_request = None
+                else:
+                    self.logger.debug(f"Service {service_name} was not yet ready to "
+                                      f"respond to request {request['id']}.")
+                    service.current_request = request
             except queue.Full:
                 raise full_exc
         else:

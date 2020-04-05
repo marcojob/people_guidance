@@ -10,7 +10,7 @@ class FPSLoggerModule(Module):
 
     def __init__(self, log_dir: pathlib.Path, args=None):
         super(FPSLoggerModule, self).__init__(name="fps_logger_module",
-                                              inputs=["drivers_module:accelerations"], log_dir=log_dir)
+                                              inputs=["drivers_module:accelerations", "drivers_module:accelerations", "drivers_module:images"], log_dir=log_dir)
 
     def start(self):
         payload_idxs: Dict = {input_name: 0 for input_name in self.inputs}

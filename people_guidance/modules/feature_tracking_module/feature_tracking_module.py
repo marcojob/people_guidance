@@ -17,7 +17,7 @@ class FeatureTrackingModule(Module):
 
     def __init__(self, log_dir: pathlib.Path, args=None):
         super(FeatureTrackingModule, self).__init__(name="feature_tracking_module", outputs=[("feature_point_pairs", 10), ("feature_point_pairs_vis", 10)],
-                                                    inputs=["drivers_module:images"], requests=[("position_estimation_module:position_request")],
+                                                    inputs=["drivers_module:images"], requests=[("position_estimation_module:position_request", 3)],
                                                     log_dir=log_dir)
 
     def start(self):
@@ -35,6 +35,8 @@ class FeatureTrackingModule(Module):
         # create cv2 ORB feature descriptor and brute force matcher object
         self.orb = cv2.ORB_create(nfeatures=self.max_num_keypoints)
         self.matcher = cv2.BFMatcher_create(cv2.NORM_HAMMING, crossCheck=True)
+
+        self.request_timeout = 10
 
         while True:
             img_dict = self.get("drivers_module:images")
@@ -60,7 +62,7 @@ class FeatureTrackingModule(Module):
                 position_request_response = self.await_response("position_estimation_module:position_request")
                 position_request = position_request_response["payload"]["payload"]
                 r = Rotation.from_euler('xyz', [position_request["roll"], position_request["pitch"], position_request["yaw"]], degrees=True)
-                t = [[position_request["pos_x"]], [position_request["pos_y"]], [position_request["pos_z"]]]
+                t = [[position_request["x"]], [position_request["y"]], [position_request["z"]]]
                 pose = np.concatenate((r.as_matrix(), t), axis=1)
 
                 # only do feature matching if there were keypoints found in the new image, discard it otherwise

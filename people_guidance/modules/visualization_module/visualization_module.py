@@ -65,12 +65,12 @@ class VisualizationModule(Module):
                     vis_pos_last_ms = self.get_time_ms()
 
                     # Encode position data
-                    pos_buf = np.array([pos_vis["data"]["pos_x"],
-                                        pos_vis["data"]["pos_y"],
-                                        pos_vis["data"]["pos_z"],
-                                        pos_vis["data"]["angle_x"],
-                                        pos_vis["data"]["angle_y"],
-                                        pos_vis["data"]["angle_z"]], dtype='float32').tobytes()
+                    pos_buf = np.array([pos_vis["data"]["x"],
+                                        pos_vis["data"]["y"],
+                                        pos_vis["data"]["z"],
+                                        pos_vis["data"]["roll"],
+                                        pos_vis["data"]["pitch"],
+                                        pos_vis["data"]["yaw"]], dtype='float32').tobytes()
                     # Len of pos_data
                     buf_len = np.array([len(pos_buf)], dtype='uint32')
 
