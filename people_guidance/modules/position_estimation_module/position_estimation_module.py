@@ -5,7 +5,7 @@ import math
 from time import sleep, monotonic, perf_counter
 from scipy.spatial.transform import Rotation as R
 import numpy as np
-from typing import List, Optional
+from typing import List, Optional, Dict
 from queue import Queue
 from pathlib import Path
 import copy
@@ -15,7 +15,7 @@ from .utils import *
 from ..drivers_module import ACCEL_G
 from ..module import Module
 from ...utils import DEFAULT_DATASET
-from .position import Position
+from .position import Position, new_empty_position, new_interpolated_position
 
 IMUFrame = collections.namedtuple("IMUFrame", ["ax", "ay", "az", "gx", "gy", "gz", "ts"])
 
@@ -59,60 +59,60 @@ class PositionEstimationModule(Module):
         self.speed_z = 0.
         # Timestamp element
 
-        self.pos = Position.new_empty()
+        self.pos: Position = new_empty_position()
         self.tracked_positions: List[Position] = []
         self.prev_imu_frame: Optional[IMUFrame] = None
+        self.last_visualized_pos: Optional[Position] = None
 
     def start(self):
-        if DEBUG_POSITION >= 1:
-            self.logger.info("Starting position_estimation_module...")
-
+        # TODO: evaluate position quality
+        # TODO: save last few estimations with absolute timestamp
         self.services["position_request"].register_handler(self.position_request)
 
         while True:
-            # Retrieve data
             input_data = self.get("drivers_module:accelerations")
-
             self.handle_requests()
 
             if not input_data:  # m/s^2 // °/s
                 sleep(0.0001)
             else:
-                frame = IMUFrame(
-                    ax=float(input_data['data']['accel_x']),
-                    ay=float(input_data['data']['accel_y']),
-                    az=float(input_data['data']['accel_z']),
-                    gx=float(input_data['data']['gyro_x']) * math.pi / 180,
-                    gy=float(input_data['data']['gyro_y']) * math.pi / 180,
-                    gz=float(input_data['data']['gyro_z']) * math.pi / 180,
-                    ts=input_data['timestamp']
-                )
+                frame = self.frame_from_input_data(input_data)
 
                 if self.prev_imu_frame is None:
                     # if the frame we just received is the first one we have received.
                     self.prev_imu_frame = frame
                 else:
+                    self.update_position(frame)
+                    self.append_tracked_positions()
 
-                    # Delta time since last input
-                    dt: float = (frame.ts - self.prev_imu_frame.ts) / 1000.0
-                    # Filter input, remove gravity, compute position and save the data
-                    self.complementary_filter(frame, dt)
-                    self.position_estimation_simple(frame, dt)
-                    self.prev_imu_frame = frame
-                    self.update_tracked_positions()
+            self.publish_to_visualization()
 
-            # TODO: evaluate position quality
-            # TODO: save last few estimations with absolute timestamp
 
-            # Downsample to POSITION_PUBLISH_FREQ (Hz) and publish
-            if (monotonic() - self.timestamp_last_output) * POSITION_PUBLISH_FREQ > 1:
-                self.downsample_publish()
+    @staticmethod
+    def frame_from_input_data(input_data: Dict) -> IMUFrame:
 
-    def update_tracked_positions(self):
+        return IMUFrame(
+            ax=float(input_data['data']['accel_x']),
+            ay=float(input_data['data']['accel_y']),
+            az=float(input_data['data']['accel_z']),
+            gx=float(input_data['data']['gyro_x']) * math.pi / 180,
+            gy=float(input_data['data']['gyro_y']) * math.pi / 180,
+            gz=float(input_data['data']['gyro_z']) * math.pi / 180,
+            ts=input_data['timestamp']
+        )
+
+    def append_tracked_positions(self):
         self.tracked_positions.append(copy.deepcopy(self.pos))
 
         if len(self.tracked_positions) > 300:
             self.tracked_positions.pop(0)
+
+    def update_position(self, frame: IMUFrame) -> None:
+        dt: float = (frame.ts - self.prev_imu_frame.ts) / 1000.0
+        self.pos.ts = frame.ts
+        self.complementary_filter(frame, dt)
+        self.position_estimation_simple(frame, dt)
+        self.prev_imu_frame = frame
 
     def complementary_filter(self, frame: IMUFrame, dt: float):
         # Only integrate for the yaw
@@ -129,8 +129,7 @@ class PositionEstimationModule(Module):
         self.pos.roll = (1.0 - ALPHA_COMPLEMENTARY_FILTER) * b + ALPHA_COMPLEMENTARY_FILTER * roll_accel
         c = self.pos.pitch + pitch_vel_gyro * dt
         self.pos.pitch = (1.0 - ALPHA_COMPLEMENTARY_FILTER) * c + ALPHA_COMPLEMENTARY_FILTER * pitch_accel
-
-        self.pos.timestamp = frame.ts
+        self.logger.info(f"updated timestamp {frame.ts}")
 
     def position_estimation_simple(self, frame: IMUFrame, dt: float):
         # Integrate the acceleration after transforming the acceleration in world coordinates
@@ -166,24 +165,13 @@ class PositionEstimationModule(Module):
                              .format(accel_rot, [self.speed_x, self.speed_y, self.speed_z]))
             self.timestamp_last_displayed_acc = monotonic()
 
-    def downsample_publish(self):
-        data_dict = {'pos_x': self.pos.x,
-                     'pos_y': self.pos.y,
-                     'pos_z': self.pos.z,
-                     'angle_x': self.pos.roll,
-                     'angle_y': self.pos.pitch,
-                     'angle_z': self.pos.yaw
-                     }
-        if data_dict != self.last_data_dict_published:
-            self.debug_downsample_publish(data_dict)
+    def publish_to_visualization(self):
+        if self.last_visualized_pos is None \
+                or (monotonic() - self.last_visualized_pos.ts) * POSITION_PUBLISH_FREQ > 1:
 
-            # Publish with the timestamp of the last element received and update timestamp
-            self.publish("position", data_dict, POS_VALIDITY_MS)
-            self.last_data_dict_published = data_dict
-        # Update
-        self.timestamp_last_output = monotonic()
-
-    # TODO: answer to position requests interpolating between saved data
+            if self.pos != self.last_visualized_pos:
+                self.publish("position", self.pos.__dict__, POS_VALIDITY_MS)
+                self.last_visualized_pos = copy.deepcopy(self.pos)
 
     # DEBUG FUNCTIONS
     def debug_input_data(self, input_data, timestamp):
@@ -223,28 +211,28 @@ class PositionEstimationModule(Module):
         requested_timestamp = request["payload"]
         neighbors = [None, None]
 
-        self.logger.info(f"{len(self.tracked_positions)}  - {[str(pos.timestamp) for pos in self.tracked_positions]}")
+        self.logger.info(f"{len(self.tracked_positions)}  - {[str(pos.ts) for pos in self.tracked_positions]}")
 
         for idx, position in enumerate(self.tracked_positions):
             # this assumes that our positions are sorted old to new.
-            if position.timestamp <= requested_timestamp:
+            if position.ts <= requested_timestamp:
                 neighbors[0] = (idx, position)
-            if position.timestamp >= requested_timestamp:
+            if position.ts >= requested_timestamp:
                 neighbors[1] = (idx, position)
                 break
 
         if neighbors[0] is not None and neighbors[1] is not None:
-            interp_position = Position.new_interpolate(requested_timestamp, neighbors[0][1], neighbors[1][1])
+            interp_position = new_interpolated_position(requested_timestamp, neighbors[0][1], neighbors[1][1])
             return interp_position.__dict__
 
         elif neighbors[0] is None and neighbors[1] is not None and neighbors[1][0] < len(self.tracked_positions) - 1:
             self.logger.critical("Extrapolating backwards!")
-            interp_position = Position.new_extrapolate(requested_timestamp, neighbors[1][1],
-                                                       self.tracked_positions[neighbors[1][0] + 1])
+            interp_position = new_interpolated_position(requested_timestamp, neighbors[1][1],
+                                                        self.tracked_positions[neighbors[1][0] + 1])
             return interp_position.__dict__
 
         else:
-            offset = self.pos.timestamp - requested_timestamp
+            offset = self.pos.ts - requested_timestamp
             self.logger.info(f"Could not interpolate for position with timestamp {requested_timestamp}."
                              f"Current offset {offset}")
             return None

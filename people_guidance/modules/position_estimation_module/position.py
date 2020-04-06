@@ -2,9 +2,9 @@ from typing import List
 from collections import Sequence
 
 class Position:
-    def __init__(self, timestamp, x, y, z, roll, pitch, yaw):
+    def __init__(self, ts, x, y, z, roll, pitch, yaw):
         super().__init__()
-        self.timestamp = timestamp
+        self.ts = ts
         self.x = x
         self.y = y
         self.z = z
@@ -18,35 +18,20 @@ class Position:
     def __str__(self):
         return "Position: " + str(self.__dict__)
 
-    @staticmethod
-    def new_interpolate(timestamp, position0, position1):
-        assert position0.timestamp <= timestamp <= position1.timestamp, \
-            "timestamp for interpolation must lie between the position timestamps."
 
-        if position1.timestamp == position0.timestamp:
-            return position1
-        else:
-            lever = (timestamp - position0.timestamp) / (position1.timestamp - position0.timestamp)
+def new_interpolated_position(timestamp, position0: Position, position1: Position):
 
-            properties = {"timestamp": timestamp}
-            for key in ["x", "y", "z", "roll", "pitch", "yaw"]:
-                value = position0[key] + ((position1[key] - position0[key]) * lever)
-                properties[key] = value
-            return Position(**properties)
+    if position1.ts == position0.ts:
+        return position1
+    else:
+        lever = (timestamp - position0.ts) / (position1.ts - position0.ts)
 
-    @staticmethod
-    def new_extrapolate(timestamp, position0, position1):
-        if position1.timestamp == position0.timestamp:
-            raise ValueError("Could not extrapolate because timestamps for extrapolation positions matched!")
-        else:
-            lever = (timestamp - position0.timestamp) / (position1.timestamp - position0.timestamp)
+        properties = {"ts": timestamp}
+        for key in ["x", "y", "z", "roll", "pitch", "yaw"]:
+            value = position0[key] + ((position1[key] - position0[key]) * lever)
+            properties[key] = value
+        return Position(**properties)
 
-            properties = {"timestamp": timestamp}
-            for key in ["x", "y", "z", "roll", "pitch", "yaw"]:
-                value = position0[key] + ((position1[key] - position0[key]) * lever)
-                properties[key] = value
-            return Position(**properties)
 
-    @staticmethod
-    def new_empty():
-        return Position(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+def new_empty_position():
+    return Position(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
