@@ -1,3 +1,5 @@
+from typing import List
+from collections import Sequence
 
 class Position:
     def __init__(self, timestamp, x, y, z, roll, pitch, yaw):
@@ -13,6 +15,9 @@ class Position:
     def __getitem__(self, item):
         return self.__dict__[item]
 
+    def __str__(self):
+        return "Position: " + str(self.__dict__)
+
     @staticmethod
     def new_interpolate(timestamp, position0, position1):
         assert position0.timestamp <= timestamp <= position1.timestamp, \
@@ -20,6 +25,19 @@ class Position:
 
         if position1.timestamp == position0.timestamp:
             return position1
+        else:
+            lever = (timestamp - position0.timestamp) / (position1.timestamp - position0.timestamp)
+
+            properties = {"timestamp": timestamp}
+            for key in ["x", "y", "z", "roll", "pitch", "yaw"]:
+                value = position0[key] + ((position1[key] - position0[key]) * lever)
+                properties[key] = value
+            return Position(**properties)
+
+    @staticmethod
+    def new_extrapolate(timestamp, position0, position1):
+        if position1.timestamp == position0.timestamp:
+            raise ValueError("Could not extrapolate because timestamps for extrapolation positions matched!")
         else:
             lever = (timestamp - position0.timestamp) / (position1.timestamp - position0.timestamp)
 

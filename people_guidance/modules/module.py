@@ -26,6 +26,12 @@ class ModuleService:
         self.logger.warning("Request made to service {self.name} which has no handler. Returning an arbitrary response.")
         return {"id": request["id"], "payload": None}
 
+    def add_active_request(self, request: Dict):
+        self.active_request = request
+
+    def reset_active_request(self):
+        self.active_request = None
+
 
 class Module:
     def __init__(self, name: str, log_dir: pathlib.Path, outputs: List[Tuple[str, int]] = None,
@@ -101,14 +107,15 @@ class Module:
     def handle_requests(self):
         for service_name in self.services:
             service = self.services[service_name]
-            if service.active_request is not None:
+            if service.active_request is None:
+                if not service.requests.empty():
+                    try:
+                        request: Dict = service.requests.get_nowait()
+                        service.add_active_request(request)
+                    except queue.Empty:
+                        pass
+            else:
                 self.respond(service_name, service.active_request)
-            elif not service.requests.empty():
-                try:
-                    request: Dict = service.requests.get_nowait()
-                    self.respond(service_name, request)
-                except queue.Empty:
-                    pass
 
     def respond(self, service_name: str, request: Dict):
         full_exc = queue.Full("Response was not read by requesting process. You must read the response in the "
@@ -118,11 +125,11 @@ class Module:
             try:
                 handler_response = service.handler(request)
                 if handler_response is None:
-                    service.active_request = request
+                    service.add_active_request(request)
                 else:
                     response = {"id": request["id"], "payload": handler_response}
                     service.responses.put_nowait(response)
-                    service.active_request = None
+                    service.reset_active_request()
             except queue.Full:
                 raise full_exc
         else:

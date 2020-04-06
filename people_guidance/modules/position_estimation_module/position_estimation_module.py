@@ -9,12 +9,16 @@ from typing import List
 from queue import Queue
 from pathlib import Path
 import copy
+import collections
 
 from .utils import *
 from ..drivers_module import ACCEL_G
 from ..module import Module
 from ...utils import DEFAULT_DATASET
 from .position import Position
+
+IMUFrame = collections.namedtuple("IMUFrame", ["ax", "ay", "az", "gx", "gy", "gz"])
+
 
 # Position estimation based on the data from the accelerometer and the gyroscope
 class PositionEstimationModule(Module):
@@ -57,6 +61,7 @@ class PositionEstimationModule(Module):
 
         self.pos = Position.new_empty()
         self.tracked_positions: List[Position] = []
+        self.last_imu_frame = None
 
     def start(self):
         if DEBUG_POSITION >= 1:
@@ -101,8 +106,6 @@ class PositionEstimationModule(Module):
                 # Filter input, remove gravity, compute position and save the data
                 self.complementary_filter(accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z, dt)
                 self.position_estimation_simple(accel_x, accel_y, accel_z, dt)
-
-                self.update_tracked_positions()
 
             # TODO: evaluate position quality
             # TODO: save last few estimations with absolute timestamp
@@ -200,6 +203,9 @@ class PositionEstimationModule(Module):
                                  .format(accel_rot, [self.speed_x, self.speed_y, self.speed_z]))
                 self.timestamp_last_displayed_acc = monotonic()
 
+            self.update_tracked_positions()
+
+
     def downsample_publish(self):
         data_dict = {'pos_x': self.pos.x,
                      'pos_y': self.pos.y,
@@ -257,18 +263,28 @@ class PositionEstimationModule(Module):
         requested_timestamp = request["payload"]
         neighbors = [None, None]
 
-        for position in self.tracked_positions:
+        self.logger.info(f"{len(self.tracked_positions)}  - {[str(pos.timestamp) for pos in self.tracked_positions]}")
+
+        for idx, position in enumerate(self.tracked_positions):
             # this assumes that our positions are sorted old to new.
             if position.timestamp <= requested_timestamp:
-                neighbors[0] = position
+                neighbors[0] = (idx, position)
             if position.timestamp >= requested_timestamp:
-                neighbors[1] = position
+                neighbors[1] = (idx, position)
                 break
 
         if neighbors[0] is not None and neighbors[1] is not None:
-            interp_position = Position.new_interpolate(requested_timestamp, neighbors[0], neighbors[1])
+            interp_position = Position.new_interpolate(requested_timestamp, neighbors[0][1], neighbors[1][1])
             return interp_position.__dict__
+
+        elif neighbors[0] is None and neighbors[1] is not None and neighbors[1][0] < len(self.tracked_positions) - 1:
+            self.logger.critical("Extrapolating backwards!")
+            interp_position = Position.new_extrapolate(requested_timestamp, neighbors[1][1],
+                                                       self.tracked_positions[neighbors[1][0] + 1])
+            return interp_position.__dict__
+
         else:
+            offset = self.pos.timestamp - requested_timestamp
             self.logger.info(f"Could not interpolate for position with timestamp {requested_timestamp}."
-                             f"Current timestamp {self.pos.timestamp}, {neighbors}")
+                             f"Current offset {offset}")
             return None
