@@ -5,7 +5,7 @@ import math
 from time import sleep, monotonic, perf_counter
 from scipy.spatial.transform import Rotation as R
 import numpy as np
-from typing import List
+from typing import List, Optional
 from queue import Queue
 from pathlib import Path
 import copy
@@ -17,7 +17,7 @@ from ..module import Module
 from ...utils import DEFAULT_DATASET
 from .position import Position
 
-IMUFrame = collections.namedtuple("IMUFrame", ["ax", "ay", "az", "gx", "gy", "gz"])
+IMUFrame = collections.namedtuple("IMUFrame", ["ax", "ay", "az", "gx", "gy", "gz", "ts"])
 
 
 # Position estimation based on the data from the accelerometer and the gyroscope
@@ -61,7 +61,7 @@ class PositionEstimationModule(Module):
 
         self.pos = Position.new_empty()
         self.tracked_positions: List[Position] = []
-        self.last_imu_frame = None
+        self.prev_imu_frame: Optional[IMUFrame] = None
 
     def start(self):
         if DEBUG_POSITION >= 1:
@@ -73,39 +73,33 @@ class PositionEstimationModule(Module):
             # Retrieve data
             input_data = self.get("drivers_module:accelerations")
 
-            # Handle requests
             self.handle_requests()
-
-            if DEBUG_POSITION > 1:
-                self.countall += 1  # count number of time the loop gets executed
-                if DEBUG_POSITION >= 3:
-                    self.loop_time = monotonic()
-                    if DEBUG_POSITION == 4:
-                        self.logger.info("loop time : {:.4f}".format(self.loop_time))
 
             if not input_data:  # m/s^2 // °/s
                 sleep(0.0001)
             else:
-                accel_x = float(input_data['data']['accel_x'])
-                accel_y = float(input_data['data']['accel_y'])
-                accel_z = float(input_data['data']['accel_z'])
-                gyro_x = float(input_data['data']['gyro_x']) * math.pi / 180
-                gyro_y = float(input_data['data']['gyro_y']) * math.pi / 180
-                gyro_z = float(input_data['data']['gyro_z']) * math.pi / 180
-                timestamp = input_data['timestamp']
-                validity = input_data['validity']
+                frame = IMUFrame(
+                    ax=float(input_data['data']['accel_x']),
+                    ay=float(input_data['data']['accel_y']),
+                    az=float(input_data['data']['accel_z']),
+                    gx=float(input_data['data']['gyro_x']) * math.pi / 180,
+                    gy=float(input_data['data']['gyro_y']) * math.pi / 180,
+                    gz=float(input_data['data']['gyro_z']) * math.pi / 180,
+                    ts=input_data['timestamp']
+                )
 
-                self.debug_input_data(input_data, timestamp)
-                if (monotonic() - self.timestamp_last_displayed_input) * POSITION_PUBLISH_INPUT_FREQ > 1:
-                    self.logger.info("Data received :  {}".format(input_data))
-                    self.timestamp_last_displayed_input = monotonic()
+                if self.prev_imu_frame is None:
+                    # if the frame we just received is the first one we have received.
+                    self.prev_imu_frame = frame
+                else:
 
-                # Delta time since last input
-                dt = self.input_data_dt(timestamp)
-
-                # Filter input, remove gravity, compute position and save the data
-                self.complementary_filter(accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z, dt)
-                self.position_estimation_simple(accel_x, accel_y, accel_z, dt)
+                    # Delta time since last input
+                    dt: float = (frame.ts - self.prev_imu_frame.ts) / 1000.0
+                    # Filter input, remove gravity, compute position and save the data
+                    self.complementary_filter(frame, dt)
+                    self.position_estimation_simple(frame, dt)
+                    self.prev_imu_frame = frame
+                    self.update_tracked_positions()
 
             # TODO: evaluate position quality
             # TODO: save last few estimations with absolute timestamp
@@ -114,97 +108,63 @@ class PositionEstimationModule(Module):
             if (monotonic() - self.timestamp_last_output) * POSITION_PUBLISH_FREQ > 1:
                 self.downsample_publish()
 
-            # Time for processing
-            if DEBUG_POSITION > 3:  # Full debug
-                self.logger.info("Time needed for the loop : {:.4f} s. "
-                                 .format((monotonic() - self.loop_time)))
-
     def update_tracked_positions(self):
         self.tracked_positions.append(copy.deepcopy(self.pos))
 
         if len(self.tracked_positions) > 300:
             self.tracked_positions.pop(0)
 
-    # FUNCTION IMPLEMENTATION
-    # dt time calculation between two consecutive analyzed samples. Input : ms, output : s
-    def input_data_dt(self, timestamp):
-        dt = (timestamp - self.pos.timestamp) / 1000
-
-        if DEBUG_POSITION > 2:
-            self.logger.info("Time between elements : dt = {}. ".format(dt))
-            self.logger.info("Timestamp, {}, self.pos.timestamp : {}. ".format(timestamp, self.pos.timestamp))
-
-        if self.pos.timestamp != 0 and dt < 1:  # dt has not a too high value
-            # Update
-            self.pos.timestamp = timestamp
-            return dt  # seconds
-        elif DEBUG_POSITION > 1:
-            self.logger.info("dt error: dt = {}.".format(dt))
-
-        if self.dt_initialised == True:
-            self.logger.warning("Corrupted calculation delta time, returning 10ms, saving timestamp")
-        else:
-            self.dt_initialised = True
-            self.logger.info("delta time error, returning 10ms, saving timestamp")
-        # Update
-        self.pos.timestamp = timestamp
-        return 0.01
-
-    def complementary_filter(self, accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z, dt):
+    def complementary_filter(self, frame: IMUFrame, dt: float):
         # Only integrate for the yaw
-        self.pos.yaw += gyro_z * dt
+        self.pos.yaw += frame.gz * dt
         # Compensate for drift with accelerometer data
-        roll_accel = math.atan(accel_y / math.sqrt(accel_x ** 2 + accel_z ** 2))
-        pitch_accel = math.atan(accel_x / math.sqrt(accel_y ** 2 + accel_z ** 2))
+        roll_accel = math.atan(frame.ay / math.sqrt(frame.ax ** 2 + frame.az ** 2))
+        pitch_accel = math.atan(frame.ax / math.sqrt(frame.ay ** 2 + frame.az ** 2))
         # Gyro data
-        a = gyro_y * math.sin(self.pos.roll) + gyro_z * math.cos(self.pos.roll)
-        roll_vel_gyro = gyro_x + a * math.tan(self.pos.pitch)
-        pitch_vel_gyro = gyro_y * math.cos(self.pos.roll) - gyro_z * math.sin(self.pos.roll)
+        a = frame.gz * math.sin(self.pos.roll) + frame.gz * math.cos(self.pos.roll)
+        roll_vel_gyro = frame.gz + a * math.tan(self.pos.pitch)
+        pitch_vel_gyro = frame.gy * math.cos(self.pos.roll) - frame.gz * math.sin(self.pos.roll)
         # Update estimation
         b = self.pos.roll + roll_vel_gyro * dt
         self.pos.roll = (1.0 - ALPHA_COMPLEMENTARY_FILTER) * b + ALPHA_COMPLEMENTARY_FILTER * roll_accel
         c = self.pos.pitch + pitch_vel_gyro * dt
         self.pos.pitch = (1.0 - ALPHA_COMPLEMENTARY_FILTER) * c + ALPHA_COMPLEMENTARY_FILTER * pitch_accel
 
-    def position_estimation_simple(self,
-                                   accel_x: float, accel_y: float, accel_z: float,
-                                   dt: float):
-        if dt > 0:
-            # Integrate the acceleration after transforming the acceleration in world coordinates
-            r = R.from_euler('xyz', [self.pos.roll, self.pos.pitch, self.pos.yaw], degrees=True)
-            accel_rot = r.apply([accel_x, accel_y, accel_z])
-            self.speed_x += (accel_rot[0] - CORRECTION_ACC[0]) * dt
-            self.speed_y += (accel_rot[1] - CORRECTION_ACC[1]) * dt
-            self.speed_z += (accel_rot[2] + ACCEL_G - CORRECTION_ACC[2]) * dt  # TODO : check coordinate system setup
-            # Calculate the mean for drift compensation
-            if MEASURE_SUMMED_ERROR_ACC:
-                self.total_time += dt
-                self.total_number_elt_summed += 1
-                self.total_acc_x += accel_rot[0]
-                self.total_acc_y += accel_rot[1]
-                self.total_acc_z += accel_rot[2] + ACCEL_G
-                if (monotonic() - self.timestamp_last_summed_acc) * PUBLISH_SUMMED_MEASURE_ERROR_ACC > 1:
-                    self.logger.info("Sum dt : {}, Number of elements : {}, Sum Acc : {} "
-                                     .format(self.total_time, self.total_number_elt_summed,
-                                             [self.total_acc_x, self.total_acc_y, self.total_acc_z]))
-                    self.timestamp_last_summed_acc = monotonic()
-            # Reduce the velocity to reduce the drift
-            if METHOD_RESET_VELOCITY and (monotonic() - self.timestamp_last_reset_vel) * RESET_VEL_FREQ > 1:
-                self.speed_x *= RESET_VEL_FREQ_COEF_X
-                self.speed_y *= RESET_VEL_FREQ_COEF_Y
-                self.speed_z *= RESET_VEL_FREQ_COEF_Z
-                self.timestamp_last_reset_vel = monotonic()
-            # Integrate to get the position
-            self.pos.x += self.speed_x * dt
-            self.pos.y += self.speed_y * dt
-            self.pos.z += self.speed_z * dt
-            if (monotonic() - self.timestamp_last_displayed_acc) * POSITION_PUBLISH_ACC_FREQ > 1:
-                self.logger.info("Acceleration after rotation :  {}, Corrected speed : {} "
-                                 .format(accel_rot, [self.speed_x, self.speed_y, self.speed_z]))
-                self.timestamp_last_displayed_acc = monotonic()
+        self.pos.timestamp = frame.ts
 
-            self.update_tracked_positions()
-
+    def position_estimation_simple(self, frame: IMUFrame, dt: float):
+        # Integrate the acceleration after transforming the acceleration in world coordinates
+        r = R.from_euler('xyz', [self.pos.roll, self.pos.pitch, self.pos.yaw], degrees=True)
+        accel_rot = r.apply([frame.ax, frame.ay, frame.az])
+        self.speed_x += (accel_rot[0] - CORRECTION_ACC[0]) * dt
+        self.speed_y += (accel_rot[1] - CORRECTION_ACC[1]) * dt
+        self.speed_z += (accel_rot[2] + ACCEL_G - CORRECTION_ACC[2]) * dt  # TODO : check coordinate system setup
+        # Calculate the mean for drift compensation
+        if MEASURE_SUMMED_ERROR_ACC:
+            self.total_time += dt
+            self.total_number_elt_summed += 1
+            self.total_acc_x += accel_rot[0]
+            self.total_acc_y += accel_rot[1]
+            self.total_acc_z += accel_rot[2] + ACCEL_G
+            if (monotonic() - self.timestamp_last_summed_acc) * PUBLISH_SUMMED_MEASURE_ERROR_ACC > 1:
+                self.logger.info("Sum dt : {}, Number of elements : {}, Sum Acc : {} "
+                                 .format(self.total_time, self.total_number_elt_summed,
+                                         [self.total_acc_x, self.total_acc_y, self.total_acc_z]))
+                self.timestamp_last_summed_acc = monotonic()
+        # Reduce the velocity to reduce the drift
+        if METHOD_RESET_VELOCITY and (monotonic() - self.timestamp_last_reset_vel) * RESET_VEL_FREQ > 1:
+            self.speed_x *= RESET_VEL_FREQ_COEF_X
+            self.speed_y *= RESET_VEL_FREQ_COEF_Y
+            self.speed_z *= RESET_VEL_FREQ_COEF_Z
+            self.timestamp_last_reset_vel = monotonic()
+        # Integrate to get the position
+        self.pos.x += self.speed_x * dt
+        self.pos.y += self.speed_y * dt
+        self.pos.z += self.speed_z * dt
+        if (monotonic() - self.timestamp_last_displayed_acc) * POSITION_PUBLISH_ACC_FREQ > 1:
+            self.logger.info("Acceleration after rotation :  {}, Corrected speed : {} "
+                             .format(accel_rot, [self.speed_x, self.speed_y, self.speed_z]))
+            self.timestamp_last_displayed_acc = monotonic()
 
     def downsample_publish(self):
         data_dict = {'pos_x': self.pos.x,
