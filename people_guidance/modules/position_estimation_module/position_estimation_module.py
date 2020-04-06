@@ -78,7 +78,9 @@ class PositionEstimationModule(Module):
                     if DEBUG_POSITION == 4:
                         self.logger.info("loop time : {:.4f}".format(self.loop_time))
 
-            if input_data:  # m/s^2 // °/s
+            if not input_data:  # m/s^2 // °/s
+                sleep(0.0001)
+            else:
                 accel_x = float(input_data['data']['accel_x'])
                 accel_y = float(input_data['data']['accel_y'])
                 accel_z = float(input_data['data']['accel_z'])
@@ -253,24 +255,19 @@ class PositionEstimationModule(Module):
     def position_request(self, request):
 
         requested_timestamp = request["payload"]
-
         neighbors = [None, None]
 
-        for position in reversed(self.tracked_positions):
-            # start with the newest position
+        for position in self.tracked_positions:
+            # this assumes that our positions are sorted old to new.
             if position.timestamp <= requested_timestamp:
                 neighbors[0] = position
-                break
-
-        for position in self.tracked_positions:
-            # start with the oldest position
             if position.timestamp >= requested_timestamp:
                 neighbors[1] = position
                 break
 
         if neighbors[0] is not None and neighbors[1] is not None:
             interp_position = Position.new_interpolate(requested_timestamp, neighbors[0], neighbors[1])
-            return {"id": request["id"], "payload": interp_position.__dict__}
+            return interp_position.__dict__
         else:
             self.logger.info(f"Could not interpolate for position with timestamp {requested_timestamp}."
                              f"Current timestamp {self.pos.timestamp}, {neighbors}")
