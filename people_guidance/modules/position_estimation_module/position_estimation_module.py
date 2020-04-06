@@ -2,6 +2,7 @@ import io
 import platform
 import re
 import math
+import logging
 from time import sleep, monotonic, perf_counter
 from scipy.spatial.transform import Rotation as R
 import numpy as np
@@ -19,7 +20,6 @@ from .position import Position, new_empty_position, new_interpolated_position
 
 IMUFrame = collections.namedtuple("IMUFrame", ["ax", "ay", "az", "gx", "gy", "gz", "ts"])
 
-
 # Position estimation based on the data from the accelerometer and the gyroscope
 class PositionEstimationModule(Module):
     def __init__(self, log_dir: Path, args=None):
@@ -34,35 +34,15 @@ class PositionEstimationModule(Module):
         self.countall = 0  # Number of loops since start
         self.count_outputs = 0  # Number of elements published
         # Timestamps
-        self.timestamp_last_input = 0  # time last input received
-        self.timestamp_last_output = monotonic()  # time last output published
-        self.timestamp_last_displayed_input = monotonic()
-        self.timestamp_last_displayed_acc = monotonic()
-        self.timestamp_last_reset_vel = monotonic()
-        self.timestamp_last_summed_acc = monotonic()
-        self.loop_time = monotonic()  # time start of loop
 
-        # Initialization and tracking
-        self.dt_initialised = False
-        self.last_data_dict_published = None
-        # Tracking drift
-        self.total_time = 0
-        self.total_number_elt_summed = 0
-        self.total_acc_x = 0
-        self.total_acc_y = 0
-        self.total_acc_z = 0
-
-
-        # Output_speed (m/s)
-        self.speed_x = 0.
-        self.speed_y = 0.
-        self.speed_z = 0.
-        # Timestamp element
-
+        self.drift_tracking: Dict = self.reset_drift_tracker()
         self.pos: Position = new_empty_position()
         self.tracked_positions: List[Position] = []
         self.prev_imu_frame: Optional[IMUFrame] = None
         self.last_visualized_pos: Optional[Position] = None
+
+        self.event_timestamps: Dict[str, float] = {}  # keep track of when events (classified by name) happened last
+        self.speed: Dict[str, float] = {"x": 0.0, "y": 0.0, "z": 0.0}
 
     def start(self):
         # TODO: evaluate position quality
@@ -86,7 +66,6 @@ class PositionEstimationModule(Module):
                     self.append_tracked_positions()
 
             self.publish_to_visualization()
-
 
     @staticmethod
     def frame_from_input_data(input_data: Dict) -> IMUFrame:
@@ -114,6 +93,15 @@ class PositionEstimationModule(Module):
         self.position_estimation_simple(frame, dt)
         self.prev_imu_frame = frame
 
+    def reset_drift_tracker(self):
+        return {
+            "total_time": 0.0,
+            "n_elt_summed": 0,
+            "toal_acc_x": 0,
+            "toal_acc_y": 0,
+            "toal_acc_z": 0
+        }
+
     def complementary_filter(self, frame: IMUFrame, dt: float):
         # Only integrate for the yaw
         self.pos.yaw += frame.gz * dt
@@ -135,76 +123,62 @@ class PositionEstimationModule(Module):
         # Integrate the acceleration after transforming the acceleration in world coordinates
         r = R.from_euler('xyz', [self.pos.roll, self.pos.pitch, self.pos.yaw], degrees=True)
         accel_rot = r.apply([frame.ax, frame.ay, frame.az])
-        self.speed_x += (accel_rot[0] - CORRECTION_ACC[0]) * dt
-        self.speed_y += (accel_rot[1] - CORRECTION_ACC[1]) * dt
-        self.speed_z += (accel_rot[2] + ACCEL_G - CORRECTION_ACC[2]) * dt  # TODO : check coordinate system setup
+        self.speed["x"] += (accel_rot[0] - CORRECTION_ACC[0]) * dt
+        self.speed["y"] += (accel_rot[1] - CORRECTION_ACC[1]) * dt
+        self.speed["z"] += (accel_rot[2] + ACCEL_G - CORRECTION_ACC[2]) * dt  # TODO : check coordinate system setup
         # Calculate the mean for drift compensation
         if MEASURE_SUMMED_ERROR_ACC:
-            self.total_time += dt
-            self.total_number_elt_summed += 1
-            self.total_acc_x += accel_rot[0]
-            self.total_acc_y += accel_rot[1]
-            self.total_acc_z += accel_rot[2] + ACCEL_G
-            if (monotonic() - self.timestamp_last_summed_acc) * PUBLISH_SUMMED_MEASURE_ERROR_ACC > 1:
-                self.logger.info("Sum dt : {}, Number of elements : {}, Sum Acc : {} "
-                                 .format(self.total_time, self.total_number_elt_summed,
-                                         [self.total_acc_x, self.total_acc_y, self.total_acc_z]))
-                self.timestamp_last_summed_acc = monotonic()
+            self.drift_tracking["total_time"] += dt
+            self.drift_tracking["n_elt_summed"] += 1
+            self.drift_tracking["toal_acc_x"] += accel_rot[0]
+            self.drift_tracking["toal_acc_y"] += accel_rot[1]
+            self.drift_tracking["toal_acc_z"] += accel_rot[2] + ACCEL_G
+
+            self.const_frequency_log("log_drift_stats", PUBLISH_SUMMED_MEASURE_ERROR_ACC,
+                                     f"Drift {self.drift_tracking}",
+                                     )
+
         # Reduce the velocity to reduce the drift
-        if METHOD_RESET_VELOCITY and (monotonic() - self.timestamp_last_reset_vel) * RESET_VEL_FREQ > 1:
-            self.speed_x *= RESET_VEL_FREQ_COEF_X
-            self.speed_y *= RESET_VEL_FREQ_COEF_Y
-            self.speed_z *= RESET_VEL_FREQ_COEF_Z
-            self.timestamp_last_reset_vel = monotonic()
+        self.dampen_velocity()
+
         # Integrate to get the position
-        self.pos.x += self.speed_x * dt
-        self.pos.y += self.speed_y * dt
-        self.pos.z += self.speed_z * dt
-        if (monotonic() - self.timestamp_last_displayed_acc) * POSITION_PUBLISH_ACC_FREQ > 1:
-            self.logger.info("Acceleration after rotation :  {}, Corrected speed : {} "
-                             .format(accel_rot, [self.speed_x, self.speed_y, self.speed_z]))
-            self.timestamp_last_displayed_acc = monotonic()
+        self.pos.x += self.speed["x"] * dt
+        self.pos.y += self.speed["y"] * dt
+        self.pos.z += self.speed["z"] * dt
+
+        self.const_frequency_log("last_summed_acc", POSITION_PUBLISH_ACC_FREQ,
+                                 f"Acceleration after rotation :  {accel_rot}, "
+                                 f"Corrected speed : {[self.speed['x'], self.speed['y'], self.speed['z']]} ",
+                                 )
+
+    def dampen_velocity(self):
+        if METHOD_RESET_VELOCITY:
+            curr_time = monotonic()
+            if "velocity_reset" not in self.event_timestamps or \
+                    (curr_time - self.event_timestamps["velocity_reset"]) * RESET_VEL_FREQ > 1:
+
+                self.speed["x"] *= RESET_VEL_FREQ_COEF_X
+                self.speed["y"] *= RESET_VEL_FREQ_COEF_Y
+                self.speed["z"] *= RESET_VEL_FREQ_COEF_Z
+
+                self.event_timestamps["velocity_reset"] = curr_time
 
     def publish_to_visualization(self):
-        if self.last_visualized_pos is None \
-                or (monotonic() - self.last_visualized_pos.ts) * POSITION_PUBLISH_FREQ > 1:
+        curr_time = monotonic()
+        if "last_visu_pub" not in self.event_timestamps or self.last_visualized_pos is None or \
+                (curr_time - self.event_timestamps["last_visu_pub"]) * POSITION_PUBLISH_FREQ > 1:
 
             if self.pos != self.last_visualized_pos:
                 self.publish("position", self.pos.__dict__, POS_VALIDITY_MS)
                 self.last_visualized_pos = copy.deepcopy(self.pos)
+                self.event_timestamps["last_visu_pub"] = curr_time
 
-    # DEBUG FUNCTIONS
-    def debug_input_data(self, input_data, timestamp):
-        if DEBUG_POSITION > 1:
-            # Counter of valid values
-            self.count_valid_input += 1
-
-            # Difference in time from the timestamp of the data
-            if self.timestamp_last_input == 0:
-                timeDelta = 0
-            else:
-                timeDelta = timestamp - self.timestamp_last_input
-
-            # Log output for each element received
-            self.logger.info("Received Acceleration element N° {} within {} loops, time between samples : {}. "
-                             .format(self.count_valid_input, self.countall, timeDelta))
-            self.timestamp_last_input = timestamp
-
-            if DEBUG_POSITION >= 3:
-                self.logger.info("Data :  {}".format(input_data))
-
-    def debug_downsample_publish(self, data_dict):
-        if DEBUG_POSITION > 1:
-            # Counter of valid values
-            self.count_outputs += 1
-
-            # Log output for each element sent
-            self.logger.info("Sent data N° {}, time between samples : {:.4f} seconds. "
-                             .format(self.count_outputs, monotonic() - self.timestamp_last_output))
-
-            if DEBUG_POSITION >= 3:
-                self.logger.info("Data sent :  {}".format(data_dict))
-        # self.logger.info("Data sent :  {}".format(data_dict))
+    def const_frequency_log(self, msg_name: str, frequency: int, msg: str, level=logging.INFO):
+        curr_time = monotonic()
+        if msg_name not in self.event_timestamps or \
+                (curr_time - self.event_timestamps[msg_name]) * frequency > 1:
+            self.logger.info(msg)
+            self.event_timestamps[msg_name] = curr_time
 
     def position_request(self, request):
 
