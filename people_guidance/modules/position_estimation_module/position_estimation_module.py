@@ -29,12 +29,6 @@ class PositionEstimationModule(Module):
                                                        log_dir=log_dir)
         self.args = args
 
-        # General inits
-        self.count_valid_input = 0  # Number of inputs processed
-        self.countall = 0  # Number of loops since start
-        self.count_outputs = 0  # Number of elements published
-        # Timestamps
-
         self.drift_tracking: Dict = self.reset_drift_tracker()
         self.pos: Position = new_empty_position()
         self.tracked_positions: List[Position] = []
