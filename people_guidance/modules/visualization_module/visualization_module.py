@@ -115,7 +115,6 @@ class VisualizationModule(Module):
                     vis_repoints_last_ms = self.get_time_ms()
 
                     # Encode reprojected points
-                    print(repoints["data"].astype(dtype='float32').shape)
                     repoints_buf = repoints["data"].astype(dtype='float32').tobytes()
                     # Len of pos_data
                     buf_len = np.array([len(repoints_buf)], dtype='uint32')

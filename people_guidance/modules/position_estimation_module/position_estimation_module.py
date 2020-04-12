@@ -286,10 +286,11 @@ class PositionEstimationModule(Module):
                      'yaw': 0}
         requested_timestamp = request["payload"]
         idx = np.where(self.track_for_request_position[:, 0] > requested_timestamp)[0]
-        if not idx:
-            if DEBUG_POSITION > 1:
-                self.logger.warning(" idx : {}, requested timestamp: {}, max timestamp saved {}"
-                                    .format(idx, requested_timestamp, max(self.track_for_request_position[:, 0])))
+        # With this it does not run on rpi
+        # if not idx:
+        #    if DEBUG_POSITION > 1:
+        #       self.logger.warning(" idx : {}, requested timestamp: {}, max timestamp saved {}"
+        #                           .format(idx, requested_timestamp, max(self.track_for_request_position[:, 0])))
         if len(idx) == 0 and len(self.track_for_request_position[:, 0]) == 1:
             # No element saved previously
             self.logger.warning("No element saved previously. Requested timestamp: {}, data saved: {}"
