@@ -46,7 +46,7 @@ IMU_SAMPLE_TIME_MS = 1000.0*1.0/IMU_SAMPLE_FREQ_HZ
 IMU_VALIDITY_MS = IMU_SAMPLE_TIME_MS * 1.10
 
 # Earth acceleration in Zurich
-ACCEL_G = 9.80600
+ACCEL_G = - 9.80600
 
 # Accel full range in m/s^2
 ACCEL_RANGE = 2.0*ACCEL_G
