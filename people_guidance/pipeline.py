@@ -42,8 +42,9 @@ class Pipeline:
         with module:
             module.start()
 
-    def add_module(self, constructor: Callable):
+    def add_module(self, constructor: Callable, log_level=logging.DEBUG):
         module = constructor(log_dir=self.log_dir, args=self.args)
+        module.log_level = log_level
         if module.name in self.modules:
             raise RuntimeError(f"Could not create a module with name {module.name} "
                                "because another module had the same name. Module names must be unique!")

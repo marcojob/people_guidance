@@ -2,3 +2,4 @@ coloredlogs
 numpy
 opencv-python
 psutil
+scipy==1.4.1

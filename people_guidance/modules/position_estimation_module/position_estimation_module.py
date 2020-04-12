@@ -18,7 +18,7 @@ from ...utils import DEFAULT_DATASET
 # Position estimation based on the data from the accelerometer and the gyroscope
 class PositionEstimationModule(Module):
     def __init__(self, log_dir: Path, args=None):
-        super(PositionEstimationModule, self).__init__(name="position_estimation_module", outputs=[("position", 10)],
+        super(PositionEstimationModule, self).__init__(name="position_estimation_module", outputs=[("position_vis", 10)],
                                                        inputs=["drivers_module:accelerations"],
                                                        services=["position_request"],
                                                        log_dir=log_dir)
@@ -212,7 +212,7 @@ class PositionEstimationModule(Module):
             self.debug_downsample_publish(data_dict)
 
             # Publish with the timestamp of the last element received and update timestamp
-            self.publish("position", data_dict, POS_VALIDITY_MS, self.timestamp)
+            self.publish("position_vis", data_dict, POS_VALIDITY_MS, self.timestamp)
             self.last_data_dict_published = data_dict
         # Update
         self.timestamp_last_output = monotonic()
