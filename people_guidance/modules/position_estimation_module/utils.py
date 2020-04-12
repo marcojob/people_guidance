@@ -13,7 +13,7 @@ POSITION_PUBLISH_INPUT_FREQ = 0
 TRACK_FOR_REQUEST_POSITION_NUMBER_ELT_KEEP = 1000
 
 # Reduce the velocity to reduce drift
-METHOD_RESET_VELOCITY = True
+METHOD_RESET_VELOCITY = False
 RESET_VEL_FREQ = 200 # select value above 100 to compensate after each step  TODO : prone to dt
 RESET_VEL_FREQ_COEF_X = 0.991
 RESET_VEL_FREQ_COEF_Y = 0.991
@@ -21,7 +21,7 @@ RESET_VEL_FREQ_COEF_Z = 0.97
 
 # Error calculation
 MEASURE_SUMMED_ERROR_ACC = False
-METHOD_ERROR_ACC_CORRECTION = True # worse otherwise
+METHOD_ERROR_ACC_CORRECTION = False # True, worse otherwise
 PUBLISH_SUMMED_MEASURE_ERROR_ACC = 4
 
 # dataset_1

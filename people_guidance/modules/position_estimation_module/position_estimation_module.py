@@ -22,6 +22,14 @@ from .position import Position, new_empty_position, new_interpolated_position
 
 IMUFrame = collections.namedtuple("IMUFrame", ["ax", "ay", "az", "gx", "gy", "gz", "ts"])
 
+# TODO: IMU data (acceleration) needs to be multiplied by (-1) to compensate for calculation error
+# TODO: Remove the hardcoded change in this file for further datasets recorded after the correction.
+HARDCODED_NEGATIVE_CORRECTION = -1
+''' 
+Coordinates valid for the IMU only : looking at the front of the camera,  
+x points upwards, y horizontally to the right, z horizontally towards the camera, 
+in direction of the plane
+'''
 # Position estimation based on the data from the accelerometer and the gyroscope
 class PositionEstimationModule(Module):
     def __init__(self, log_dir: Path, args=None):
@@ -39,8 +47,6 @@ class PositionEstimationModule(Module):
 
         self.event_timestamps: Dict[str, float] = {}  # keep track of when events (classified by name) happened last
         self.speed: Dict[str, float] = {"x": 0.0, "y": 0.0, "z": 0.0}
-
-        # self.init_display_position()
 
     def start(self):
         # TODO: evaluate position quality
@@ -64,8 +70,8 @@ class PositionEstimationModule(Module):
                     # TODO: do not track and do not update if the timestamp did not change (dt = 0)
                     # ERROR description : 91426359 appears twice in the printed list.
                     self.append_tracked_positions()
-                    # TODO: display in a scatter plot
-                    self.display_position()
+                    # Display in a scatter plot
+                    self.display_position(frame)
 
             self.publish_to_visualization()
 
@@ -73,9 +79,9 @@ class PositionEstimationModule(Module):
     def frame_from_input_data(input_data: Dict) -> IMUFrame:
 
         return IMUFrame(
-            ax=float(input_data['data']['accel_x']),
-            ay=float(input_data['data']['accel_y']),
-            az=float(input_data['data']['accel_z']),
+            ax=HARDCODED_NEGATIVE_CORRECTION * float(input_data['data']['accel_x']),
+            ay=HARDCODED_NEGATIVE_CORRECTION * float(input_data['data']['accel_y']),
+            az=HARDCODED_NEGATIVE_CORRECTION * float(input_data['data']['accel_z']),
             gx=float(input_data['data']['gyro_x']) * math.pi / 180,
             gy=float(input_data['data']['gyro_y']) * math.pi / 180,
             gz=float(input_data['data']['gyro_z']) * math.pi / 180,
@@ -88,50 +94,52 @@ class PositionEstimationModule(Module):
         if len(self.tracked_positions) > 300:
             self.tracked_positions.pop(0)
 
-    def init_display_position(self):
-        # self.ax1 =
-        plt.subplot(2, 1, 1)
-        plt.axis([-100, 100, -100, 100])
-        # self.ax2 =
-        plt.subplot(2, 1, 2)
-        plt.axis([-100, 100, -100, 100])
-
-        #fig.title('Position estimation')
-        #self.ax1 = plt
-
-    def display_position(self):
+    def display_position(self, frame):
         # place figure in top left corner
         plt.figure(1, figsize=(10, 5))
         mngr = plt.get_current_fig_manager()
         mngr.window.setGeometry(5, 5, 1000, 1000)
 
-        plt.subplot(2, 2, 1)
+        plt.subplot(2, 3, 1)
         plt.scatter(self.pos.x, self.pos.y)
         plt.title('Position estimation')
-        plt.suptitle(f'Parameters : {METHOD_RESET_VELOCITY, RESET_VEL_FREQ, RESET_VEL_FREQ_COEF_X, RESET_VEL_FREQ_COEF_Y, RESET_VEL_FREQ_COEF_Z, METHOD_ERROR_ACC_CORRECTION, CORRECTION_ACC}')
+        plt.suptitle(f'Parameters : \n'
+                     f'METHOD_RESET_VELOCITY: {METHOD_RESET_VELOCITY}, RESET_VEL_FREQ : {RESET_VEL_FREQ}, \n'
+                     f'RESET_VEL_FREQ_COEF_X : {RESET_VEL_FREQ_COEF_X}, RESET_VEL_FREQ_COEF_Y : {RESET_VEL_FREQ_COEF_Y}, RESET_VEL_FREQ_COEF_Z : {RESET_VEL_FREQ_COEF_Z}, \n'
+                     f'METHOD_ERROR_ACC_CORRECTION : {METHOD_ERROR_ACC_CORRECTION}, CORRECTION_ACC : {CORRECTION_ACC}')
         plt.xlabel('x [m]')
         plt.ylabel('y [m]')
-        plt.pause(0.0001)
         #
-        plt.subplot(2, 2, 2)
+        plt.subplot(2, 3, 2)
         plt.scatter(self.pos.x, self.pos.z)
         plt.title('Position estimation')
         plt.xlabel('x [m]')
         plt.ylabel('z [m]')
-        plt.pause(0.0001)
         #
-        plt.subplot(2, 2, 3)
+        plt.subplot(2, 3, 3)
         plt.scatter(self.pos.roll, self.pos.pitch)
         plt.title('Angle')
         plt.xlabel('roll [rad]')
         plt.ylabel('pitch [rad]')
-        plt.pause(0.0001)
         #
-        plt.subplot(2, 2, 4)
+        plt.subplot(2, 3, 4)
         plt.scatter(self.pos.roll, self.pos.yaw)
         plt.title('Angle')
         plt.xlabel('roll [rad]')
         plt.ylabel('yaw [rad]')
+        #
+        plt.subplot(2, 3, 5)
+        plt.scatter(frame.ax, frame.ay)
+        plt.title('Acceleration')
+        plt.xlabel('x [acc]')
+        plt.ylabel('y [acc]')
+        #
+        plt.subplot(2, 3, 6)
+        plt.scatter(frame.ax, frame.az)
+        plt.title('Acceleration')
+        plt.xlabel('x [acc]')
+        plt.ylabel('z [acc]')
+        #
         plt.pause(0.0001)
         # plt.show()
 
@@ -205,7 +213,6 @@ class PositionEstimationModule(Module):
             curr_time = monotonic()
             if "velocity_reset" not in self.event_timestamps or \
                     (curr_time - self.event_timestamps["velocity_reset"]) * RESET_VEL_FREQ > 1:
-
                 self.speed["x"] *= RESET_VEL_FREQ_COEF_X
                 self.speed["y"] *= RESET_VEL_FREQ_COEF_Y
                 self.speed["z"] *= RESET_VEL_FREQ_COEF_Z
