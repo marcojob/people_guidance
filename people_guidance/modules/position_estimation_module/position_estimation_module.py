@@ -11,6 +11,8 @@ from queue import Queue
 from pathlib import Path
 import copy
 import collections
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
 from .utils import *
 from ..drivers_module import ACCEL_G
@@ -38,6 +40,8 @@ class PositionEstimationModule(Module):
         self.event_timestamps: Dict[str, float] = {}  # keep track of when events (classified by name) happened last
         self.speed: Dict[str, float] = {"x": 0.0, "y": 0.0, "z": 0.0}
 
+        # self.init_display_position()
+
     def start(self):
         # TODO: evaluate position quality
         # TODO: save last few estimations with absolute timestamp
@@ -57,7 +61,11 @@ class PositionEstimationModule(Module):
                     self.prev_imu_frame = frame
                 else:
                     self.update_position(frame)
+                    # TODO: do not track and do not update if the timestamp did not change (dt = 0)
+                    # ERROR description : 91426359 appears twice in the printed list.
                     self.append_tracked_positions()
+                    # TODO: display in a scatter plot
+                    self.display_position()
 
             self.publish_to_visualization()
 
@@ -79,6 +87,53 @@ class PositionEstimationModule(Module):
 
         if len(self.tracked_positions) > 300:
             self.tracked_positions.pop(0)
+
+    def init_display_position(self):
+        # self.ax1 =
+        plt.subplot(2, 1, 1)
+        plt.axis([-100, 100, -100, 100])
+        # self.ax2 =
+        plt.subplot(2, 1, 2)
+        plt.axis([-100, 100, -100, 100])
+
+        #fig.title('Position estimation')
+        #self.ax1 = plt
+
+    def display_position(self):
+        # place figure in top left corner
+        plt.figure(1, figsize=(10, 5))
+        mngr = plt.get_current_fig_manager()
+        mngr.window.setGeometry(5, 5, 1000, 1000)
+
+        plt.subplot(2, 2, 1)
+        plt.scatter(self.pos.x, self.pos.y)
+        plt.title('Position estimation')
+        plt.suptitle(f'Parameters : {METHOD_RESET_VELOCITY, RESET_VEL_FREQ, RESET_VEL_FREQ_COEF_X, RESET_VEL_FREQ_COEF_Y, RESET_VEL_FREQ_COEF_Z, METHOD_ERROR_ACC_CORRECTION, CORRECTION_ACC}')
+        plt.xlabel('x [m]')
+        plt.ylabel('y [m]')
+        plt.pause(0.0001)
+        #
+        plt.subplot(2, 2, 2)
+        plt.scatter(self.pos.x, self.pos.z)
+        plt.title('Position estimation')
+        plt.xlabel('x [m]')
+        plt.ylabel('z [m]')
+        plt.pause(0.0001)
+        #
+        plt.subplot(2, 2, 3)
+        plt.scatter(self.pos.roll, self.pos.pitch)
+        plt.title('Angle')
+        plt.xlabel('roll [rad]')
+        plt.ylabel('pitch [rad]')
+        plt.pause(0.0001)
+        #
+        plt.subplot(2, 2, 4)
+        plt.scatter(self.pos.roll, self.pos.yaw)
+        plt.title('Angle')
+        plt.xlabel('roll [rad]')
+        plt.ylabel('yaw [rad]')
+        plt.pause(0.0001)
+        # plt.show()
 
     def update_position(self, frame: IMUFrame) -> None:
         dt: float = (frame.ts - self.prev_imu_frame.ts) / 1000.0
