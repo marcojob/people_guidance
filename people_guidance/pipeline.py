@@ -29,12 +29,21 @@ class Pipeline:
                 p.start()
 
             while True:
-                time.sleep(3)
+                time.sleep(2)
                 if not all([proc.is_alive() for proc in self.processes]):
                     self.logger.exception("Found dead child process. Pipeline will terminate all children and exit.")
                     exit()
                 else:
                     self.logger.info(f"Pipeline alive: CPU: {cpu_percent()}, Memory: {virtual_memory()._asdict()['percent']}")
+
+                try:
+                    for module in self.modules.values():
+                        for input_name, input_queue in module.inputs.items():
+                            logging.debug(f"{module.name} input {input_name} queue size {input_queue.qsize()}")
+                        for output_name, output_queue in module.outputs.items():
+                            logging.debug(f"{module.name} output {output_name} queue size {output_queue.qsize()}")
+                except NotImplementedError:
+                    self.logger.debug("Could not load queue size because the platform does not support it.")
 
     @staticmethod
     def start_module(module: Module):
