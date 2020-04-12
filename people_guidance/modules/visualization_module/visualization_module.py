@@ -59,7 +59,6 @@ class VisualizationModule(Module):
 
         while True:
             #sleep(1.0/PREVIEW_PLOT_HZ)
-            sleep(0.1)
             # POS DATA HANDLING
             if pos_last_ms is None:
                 pos_vis = self.get("position_estimation_module:position_vis")
@@ -131,7 +130,7 @@ class VisualizationModule(Module):
                         s.sendall(repoints_buf)
                     else:
                         timestamp = repoints["timestamp"]
-                        for point in repoints["data"]:
+                        for point in repoints["data"][0]:
                             self.repoints_data.write(f"{timestamp}: {point[0]}, {point[1]}, {point[2]}")
 
                         self.repoints_data.flush()
