@@ -18,20 +18,21 @@ from time import sleep
 
 HOST = ""  # Host IP
 PORT = 65432  # Port
-TOPIC_LIST = ["pos_x", "pos_y", "pos_z", "angle_x", "angle_y", "angle_z", "preview"]  # All topics
+TOPIC_LIST = ["pos_x", "pos_y", "pos_z", "angle_x", "angle_y", "angle_z", "preview", "r_pos_x", "r_pos_y", "r_pos_z"]  # All topics
 
 
 # Dictionary for all data
 data_dict = {topic: [0] for topic in TOPIC_LIST}
 DATA_MAX_LEN = 500
 
-FIGSIZE = (9,6)
+FIGSIZE = (13.5,9)
 DPI = 100
 
 KEYS = ["preview", "pos"]
 
 ax_list = dict()
 scatter_p = None
+scatter_r = None
 preview_p = None
 
 counter = 0
@@ -90,6 +91,19 @@ def animate_pos():
         line_z[0].set_xdata([pos_x, pos_x + sc_xy*r[2][0]])
         line_z[0].set_ydata([pos_y, pos_y + sc_xy*r[2][1]])
         line_z[0].set_3d_properties([pos_z, pos_z + sc_z*r[2][2]])
+
+def animate_repoints():
+    global scatter_r
+    print("in animate_repoints")
+    if scatter_r == None:
+        scatter_r = ax_list["pos"].scatter(
+            data_dict["r_pos_x"], data_dict["r_pos_y"], data_dict["r_pos_z"])
+
+        ax_list["pos"].figure.canvas.draw()
+    else:
+        scatter_r._offsets3d = (data_dict["r_pos_x"], data_dict["r_pos_y"], data_dict["r_pos_z"])
+
+    print("done animate")
 
 
 def animate_preview():
@@ -171,6 +185,39 @@ def socket_main():
                             data_dict["angle_z"].append(pos_data[5])
 
                             animate_pos()
+
+                        except Exception as e:
+                            pass
+                            # print(f"pos: {e}")
+                elif data_id_int == 2:
+                    data_len = conn.recv(4)
+                    data_len_int = int.from_bytes(data_len, byteorder='little')
+
+                    if data_len_int > 0:
+                        buf = conn.recv(data_len_int)
+
+                        try:
+                            repoints_data = np.frombuffer(buf, dtype=np.float32)
+                            shape = repoints_data.shape
+
+                            # Needs to be a multiple of 3
+                            if not shape[0] % 3:
+                                new_shape = (int(shape[0]/3), 3)
+                                repoints_data = repoints_data.reshape(new_shape)
+                                print("here")
+                                for point in repoints_data:
+                                    if len(data_dict["r_pos_x"]) > DATA_MAX_LEN:
+                                        del data_dict["r_pos_x"][0]
+                                        del data_dict["r_pos_y"][0]
+                                        del data_dict["r_pos_z"][0]
+
+                                    data_dict["r_pos_x"].append(point[0])
+                                    data_dict["r_pos_y"].append(point[1])
+                                    data_dict["r_pos_z"].append(point[2])
+                                try:
+                                    animate_repoints()
+                                except Exception as e:
+                                    print(e)
 
                         except Exception as e:
                             pass

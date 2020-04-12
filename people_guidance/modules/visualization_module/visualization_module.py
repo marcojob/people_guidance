@@ -13,8 +13,9 @@ from ..module import Module
 HOST = "127.0.0.1"  # Host IP
 PORT = 65432  # Port
 PREVIEW_FRAMESIZE = (640, 480)
-POS_PLOT_HZ = 5  # Discard before plotting
-PREVIEW_PLOT_HZ = 20  # Discard before plotting
+POS_PLOT_HZ = 5
+REPOINTS_PLOT_HZ = 5
+PREVIEW_PLOT_HZ = 20
 
 
 class VisualizationModule(Module):
@@ -22,7 +23,8 @@ class VisualizationModule(Module):
         super(VisualizationModule, self).__init__(name="visualization_module", outputs=[],
                                                   inputs=["drivers_module:preview",
                                                           "position_estimation_module:position_vis",
-                                                          "feature_tracking_module:feature_point_pairs_vis"],
+                                                          "feature_tracking_module:feature_point_pairs_vis",
+                                                          "reprojection_module:points3d"],
                                                   log_dir=log_dir)
         self.args = args
 
@@ -38,12 +40,18 @@ class VisualizationModule(Module):
             (self.files_dir / 'vis').mkdir(parents=True, exist_ok=True)
             self.preview_counter = 0
 
-            self.preview_data = (
-                self.files_dir / 'vis_data.txt').open(mode='w')
+            self.preview_data = (self.files_dir / 'vis_data.txt').open(mode='w')
+
             self.pos_data = (self.files_dir / 'pos_data.txt').open(mode='w')
+
+            self.repoints_data = (self.files_dir / 'repoints_data.txt').open(mode='w')
 
         pos_last_ms = None
         vis_pos_last_ms = self.get_time_ms()
+
+        repoints_last_ms = None
+        vis_repoints_last_ms = self.get_time_ms()
+
         preview_last_ms = None
         vis_preview_last_ms = self.get_time_ms()
 
@@ -93,6 +101,42 @@ class VisualizationModule(Module):
                                             f"angle_y: {pos_vis['data']['angle_y']}, " +
                                             f"angle_z: {pos_vis['data']['angle_z']}\n")
                         self.pos_data.flush()
+
+            # REPOINTS HANDLING
+            if repoints_last_ms is None:
+                repoints = self.get("reprojection_module:points3d")
+
+                repoints_last_ms = repoints.get("timestamp", None)
+                vis_repoints_last_ms = self.get_time_ms()
+            else:
+                repoints = self.get("reprojection_module:points3d")
+                if repoints and self.get_time_ms() - vis_repoints_last_ms > 1000/REPOINTS_PLOT_HZ and repoints["timestamp"] - repoints_last_ms > 1000/REPOINTS_PLOT_HZ:
+                    repoints_last_ms = repoints["timestamp"]
+                    vis_repoints_last_ms = self.get_time_ms()
+
+                    # Encode reprojected points
+                    print(repoints["data"].astype(dtype='float32').shape)
+                    repoints_buf = repoints["data"].astype(dtype='float32').tobytes()
+                    # Len of pos_data
+                    buf_len = np.array([len(repoints_buf)], dtype='uint32')
+
+                    # Encode id to uint8
+                    buf_id = np.array([2], dtype='uint8')
+
+                    if not self.args.save_visualization:
+                        # Send ID first
+                        s.sendall(buf_id)
+                        # Send the image length beforehand
+                        s.sendall(buf_len)
+                        # Send data
+                        s.sendall(repoints_buf)
+                    else:
+                        timestamp = repoints["timestamp"]
+                        for point in repoints["data"]:
+                            self.repoints_data.write(f"{timestamp}: {point[0]}, {point[1]}, {point[2]}")
+
+                        self.repoints_data.flush()
+
 
             # PREVIEW IMAGE HANDLING
             if preview_last_ms is None:

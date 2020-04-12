@@ -41,7 +41,7 @@ class FeatureTrackingModule(Module):
 
             if not img_dict:
                 sleep(0.1)
-                # self.logger.warn("queue was empty")
+                self.logger.warn("queue was empty")
             else:
                 # extract the image data and time stamp
                 img_encoded = img_dict["data"]
@@ -51,7 +51,7 @@ class FeatureTrackingModule(Module):
                 self.make_request("position_estimation_module:position_request", {"id" : self.request_counter, "payload": timestamp})
                 self.request_counter += 1
 
-                # self.logger.debug(f"Processing image with timestamp {timestamp} ...")
+                self.logger.debug(f"Processing image with timestamp {timestamp} ...")
 
                 img = cv2.imdecode(np.frombuffer(img_encoded, dtype=np.int8), flags=cv2.IMREAD_GRAYSCALE)
                 keypoints, descriptors = self.extract_feature_descriptors(img)
@@ -65,8 +65,7 @@ class FeatureTrackingModule(Module):
 
                 # only do feature matching if there were keypoints found in the new image, discard it otherwise
                 if len(keypoints) == 0:
-                    pass
-                    # self.logger.warn(f"Didn't find any features in image with timestamp {timestamp}, skipping...")
+                    self.logger.warn(f"Didn't find any features in image with timestamp {timestamp}, skipping...")
                 else:
                     if self.old_descriptors is not None:  # skip the matching step for the first image
                         # match the feature descriptors of the old and new image
@@ -74,10 +73,9 @@ class FeatureTrackingModule(Module):
                         inliers, total_nr_matches = self.match_features(keypoints, descriptors)
 
                         if inliers.shape[2] == 0:
-                            pass
                             # there were 0 inliers found, print a warning
-                            # self.logger.warn("Couldn't find any matching features in the images with timestamps: " +
-                            #                 f"{old_timestamp} and {timestamp}")
+                            self.logger.warn("Couldn't find any matching features in the images with timestamps: " +
+                                            f"{old_timestamp} and {timestamp}")
                         else:
                             pose_pair = np.concatenate((self.old_pose[np.newaxis, :, :], pose[np.newaxis, :, :]), axis=0)
                             # visualization_img = self.visualize_matches(img, keypoints, inliers, total_nr_matches)
@@ -103,7 +101,7 @@ class FeatureTrackingModule(Module):
         # first detect the ORB keypoints and then compute the feature descriptors of those points
         keypoints = self.orb.detect(img, None)
         keypoints, descriptors = self.orb.compute(img, keypoints)
-        # self.logger.debug(f"Found {len(keypoints)} feautures")
+        self.logger.debug(f"Found {len(keypoints)} feautures")
 
         return (keypoints, descriptors)
 
