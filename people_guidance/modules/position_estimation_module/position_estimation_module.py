@@ -33,7 +33,7 @@ in direction of the plane
 # Position estimation based on the data from the accelerometer and the gyroscope
 class PositionEstimationModule(Module):
     def __init__(self, log_dir: Path, args=None):
-        super(PositionEstimationModule, self).__init__(name="position_estimation_module", outputs=[("position", 10)],
+        super(PositionEstimationModule, self).__init__(name="position_estimation_module", outputs=[("position_vis", 10)],
                                                        inputs=["drivers_module:accelerations"],
                                                        services=["position_request"],
                                                        log_dir=log_dir)
@@ -170,6 +170,7 @@ class PositionEstimationModule(Module):
         roll_vel_gyro = frame.gz + a * math.tan(self.pos.pitch)
         pitch_vel_gyro = frame.gy * math.cos(self.pos.roll) - frame.gz * math.sin(self.pos.roll)
         # Update estimation
+
         b = self.pos.roll + roll_vel_gyro * dt
         self.pos.roll = (1.0 - ALPHA_COMPLEMENTARY_FILTER) * b + ALPHA_COMPLEMENTARY_FILTER * roll_accel
         c = self.pos.pitch + pitch_vel_gyro * dt

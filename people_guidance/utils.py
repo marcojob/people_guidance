@@ -16,15 +16,18 @@ def project_path(relative_path: str) -> pathlib.Path:
 
 def init_logging() -> None:
     logging.basicConfig(level=logging.DEBUG)
-    coloredlogs.install(level=logging.DEBUG)
 
 
-def get_logger(name: str, log_dir: pathlib.Path):
+
+def get_logger(name: str, log_dir: pathlib.Path, level=logging.DEBUG):
     logger = logging.getLogger(name)
     logfile = log_dir / f"{name}_{os.getpid()}.log"
+
+    coloredlogs.install(logger=logger, level=level)
 
     fh = logging.FileHandler(str(logfile))
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     fh.setFormatter(formatter)
     logger.addHandler(fh)
+
     return logger

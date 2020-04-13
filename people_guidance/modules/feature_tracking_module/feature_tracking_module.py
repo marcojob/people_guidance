@@ -16,7 +16,7 @@ from people_guidance.utils import project_path
 class FeatureTrackingModule(Module):
 
     def __init__(self, log_dir: pathlib.Path, args=None):
-        super(FeatureTrackingModule, self).__init__(name="feature_tracking_module", outputs=[("feature_point_pairs", 10), ("matches_visualization", 10)],
+        super(FeatureTrackingModule, self).__init__(name="feature_tracking_module", outputs=[("feature_point_pairs", 10), ("feature_point_pairs_vis", 10)],
                                                     inputs=["drivers_module:images"], requests=[("position_estimation_module:position_request")],
                                                     log_dir=log_dir)
 
@@ -76,17 +76,18 @@ class FeatureTrackingModule(Module):
                         if inliers.shape[2] == 0:
                             # there were 0 inliers found, print a warning
                             self.logger.warn("Couldn't find any matching features in the images with timestamps: " +
-                                             f"{old_timestamp} and {timestamp}")
+                                            f"{old_timestamp} and {timestamp}")
                         else:
                             pose_pair = np.concatenate((self.old_pose[np.newaxis, :, :], pose[np.newaxis, :, :]), axis=0)
-                            visualization_img = self.visualize_matches(img, keypoints, inliers, total_nr_matches)
+                            # visualization_img = self.visualize_matches(img, keypoints, inliers, total_nr_matches)
 
                             self.publish("feature_point_pairs",
                                          {"camera_positions" : pose_pair,
                                           "point_pairs": inliers},
                                          1000, timestamp)
-                            self.publish("matches_visualization",
-                                         visualization_img,
+                            self.publish("feature_point_pairs_vis",
+                                         {"camera_positions" : (pose, pose),
+                                          "point_pairs": inliers},
                                          1000, timestamp)
 
                     # store the date of the new image as old_img... for the next iteration
@@ -104,7 +105,7 @@ class FeatureTrackingModule(Module):
         self.logger.debug(f"Found {len(keypoints)} feautures")
 
         return (keypoints, descriptors)
-    
+
     def match_features(self, keypoints: list, descriptors: np.ndarray) -> np.ndarray:
         matches = self.matcher.match(self.old_descriptors, descriptors)
 
@@ -121,6 +122,8 @@ class FeatureTrackingModule(Module):
             _, mask = cv2.findHomography(old_match_points, match_points, cv2.RANSAC, 1.0)
             old_match_points = old_match_points[mask.ravel().astype(bool)]
             match_points = match_points[mask.ravel().astype(bool)]
+        else:
+            mask = list()
 
         # add the two matrixes together, first dimension are all the matches,
         # second dimension is image 1 and 2, thrid dimension is x and y

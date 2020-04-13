@@ -4,6 +4,7 @@
 /data/
 /sandbox/*
 /sandbox.py
+/sandbox
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
