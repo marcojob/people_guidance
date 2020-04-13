@@ -20,7 +20,6 @@ from ..module import Module
 from ...utils import DEFAULT_DATASET
 from .position import Position, new_empty_position, new_interpolated_position
 
-IMUFrame = collections.namedtuple("IMUFrame", ["ax", "ay", "az", "gx", "gy", "gz", "ts"])
 
 # TODO: IMU data (acceleration) needs to be multiplied by (-1) to compensate for calculation error
 # TODO: Remove the hardcoded change in this file for further datasets recorded after the correction.
@@ -30,10 +29,12 @@ Coordinates valid for the IMU only : looking at the front of the camera,
 x points upwards, y horizontally to the right, z horizontally towards the camera, 
 in direction of the plane
 '''
-# Position estimation based on the data from the accelerometer and the gyroscope
+
+
 class PositionEstimationModule(Module):
     def __init__(self, log_dir: Path, args=None):
-        super(PositionEstimationModule, self).__init__(name="position_estimation_module", outputs=[("position_vis", 10)],
+        super(PositionEstimationModule, self).__init__(name="position_estimation_module",
+                                                       outputs=[("position_vis", 10), ("position", 10)],
                                                        inputs=["drivers_module:accelerations"],
                                                        services=["position_request"],
                                                        log_dir=log_dir)
@@ -70,8 +71,10 @@ class PositionEstimationModule(Module):
                     # TODO: do not track and do not update if the timestamp did not change (dt = 0)
                     # ERROR description : 91426359 appears twice in the printed list.
                     self.append_tracked_positions()
-                    # Display in a scatter plot
-                    self.display_position(frame)
+
+                    if VISUALIZE_LOCALLY:
+                        # Display in a scatter plot
+                        visualize_locally(self.pos, frame)
 
             self.publish_to_visualization()
 
@@ -94,55 +97,6 @@ class PositionEstimationModule(Module):
         if len(self.tracked_positions) > 300:
             self.tracked_positions.pop(0)
 
-    def display_position(self, frame):
-        # place figure in top left corner
-        plt.figure(1, figsize=(10, 5))
-        mngr = plt.get_current_fig_manager()
-        mngr.window.setGeometry(5, 5, 1000, 1000)
-
-        plt.subplot(2, 3, 1)
-        plt.scatter(self.pos.x, self.pos.y)
-        plt.title('Position estimation')
-        plt.suptitle(f'Parameters : \n'
-                     f'METHOD_RESET_VELOCITY: {METHOD_RESET_VELOCITY}, RESET_VEL_FREQ : {RESET_VEL_FREQ}, \n'
-                     f'RESET_VEL_FREQ_COEF_X : {RESET_VEL_FREQ_COEF_X}, RESET_VEL_FREQ_COEF_Y : {RESET_VEL_FREQ_COEF_Y}, RESET_VEL_FREQ_COEF_Z : {RESET_VEL_FREQ_COEF_Z}, \n'
-                     f'METHOD_ERROR_ACC_CORRECTION : {METHOD_ERROR_ACC_CORRECTION}, CORRECTION_ACC : {CORRECTION_ACC}')
-        plt.xlabel('x [m]')
-        plt.ylabel('y [m]')
-        #
-        plt.subplot(2, 3, 2)
-        plt.scatter(self.pos.x, self.pos.z)
-        plt.title('Position estimation')
-        plt.xlabel('x [m]')
-        plt.ylabel('z [m]')
-        #
-        plt.subplot(2, 3, 3)
-        plt.scatter(self.pos.roll, self.pos.pitch)
-        plt.title('Angle')
-        plt.xlabel('roll [rad]')
-        plt.ylabel('pitch [rad]')
-        #
-        plt.subplot(2, 3, 4)
-        plt.scatter(self.pos.roll, self.pos.yaw)
-        plt.title('Angle')
-        plt.xlabel('roll [rad]')
-        plt.ylabel('yaw [rad]')
-        #
-        plt.subplot(2, 3, 5)
-        plt.scatter(frame.ax, frame.ay)
-        plt.title('Acceleration')
-        plt.xlabel('x [acc]')
-        plt.ylabel('y [acc]')
-        #
-        plt.subplot(2, 3, 6)
-        plt.scatter(frame.ax, frame.az)
-        plt.title('Acceleration')
-        plt.xlabel('x [acc]')
-        plt.ylabel('z [acc]')
-        #
-        plt.pause(0.0001)
-        # plt.show()
-
     def update_position(self, frame: IMUFrame) -> None:
         dt: float = (frame.ts - self.prev_imu_frame.ts) / 1000.0
         self.pos.ts = frame.ts
@@ -150,7 +104,8 @@ class PositionEstimationModule(Module):
         self.position_estimation_simple(frame, dt)
         self.prev_imu_frame = frame
 
-    def reset_drift_tracker(self):
+    @staticmethod
+    def reset_drift_tracker():
         return {
             "total_time": 0.0,
             "n_elt_summed": 0,
