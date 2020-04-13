@@ -20,14 +20,16 @@ from ..module import Module
 from ...utils import DEFAULT_DATASET
 from .position import Position, new_empty_position, new_interpolated_position
 
-
 # TODO: IMU data (acceleration) needs to be multiplied by (-1) to compensate for calculation error
 # TODO: Remove the hardcoded change in this file for further datasets recorded after the correction.
 HARDCODED_NEGATIVE_CORRECTION = -1
+
 ''' 
-Coordinates valid for the IMU only : looking at the front of the camera,  
-x points upwards, y horizontally to the right, z horizontally towards the camera, 
-in direction of the plane
+Coordinates valid for the IMU only : looking at the front of the camera,  x points upwards, 
+y horizontally to the right, z horizontally towards the camera, towards the plane.
+Output in camera coordinate system: looking at the front of the camera,  z points upwards, 
+y horizontally to the right, x horizontally from the camera, out of the plane.
+In Camera coordinates: Z = X_IMU, X = -Z_IMU, Y = Y_IMU (-90° rotation around the Y axis)
 '''
 
 
@@ -67,27 +69,27 @@ class PositionEstimationModule(Module):
                     # if the frame we just received is the first one we have received.
                     self.prev_imu_frame = frame
                 else:
-                    self.update_position(frame)
                     # TODO: do not track and do not update if the timestamp did not change (dt = 0)
                     # ERROR description : 91426359 appears twice in the printed list.
+                    self.update_position(frame)
+
                     self.append_tracked_positions()
 
-                    if VISUALIZE_LOCALLY:
-                        # Display in a scatter plot
-                        visualize_locally(self.pos, frame)
+                    # Display in a scatter plot (debug)
+                    visualize_locally(self.pos, frame, self.drift_tracking, plot_pos=True, plot_acc=True, plot_angles=True)
 
             self.publish_to_visualization()
 
     @staticmethod
     def frame_from_input_data(input_data: Dict) -> IMUFrame:
-
+        # In Camera coordinates: Z = X_IMU, X = -Z_IMU, Y = Y_IMU (-90° rotation around the Y axis)
         return IMUFrame(
-            ax=HARDCODED_NEGATIVE_CORRECTION * float(input_data['data']['accel_x']),
+            ax=HARDCODED_NEGATIVE_CORRECTION * -float(input_data['data']['accel_z']),
             ay=HARDCODED_NEGATIVE_CORRECTION * float(input_data['data']['accel_y']),
-            az=HARDCODED_NEGATIVE_CORRECTION * float(input_data['data']['accel_z']),
-            gx=float(input_data['data']['gyro_x']) * math.pi / 180,
+            az=HARDCODED_NEGATIVE_CORRECTION * float(input_data['data']['accel_x']),
+            gx=-float(input_data['data']['gyro_z']) * math.pi / 180,
             gy=float(input_data['data']['gyro_y']) * math.pi / 180,
-            gz=float(input_data['data']['gyro_z']) * math.pi / 180,
+            gz=float(input_data['data']['gyro_x']) * math.pi / 180,
             ts=input_data['timestamp']
         )
 
@@ -109,9 +111,13 @@ class PositionEstimationModule(Module):
         return {
             "total_time": 0.0,
             "n_elt_summed": 0,
-            "toal_acc_x": 0,
-            "toal_acc_y": 0,
-            "toal_acc_z": 0
+            "total_acc_x": 0,
+            "total_acc_y": 0,
+            "total_acc_z": 0,
+            "total_acc_avg_x": 0,
+            "total_acc_avg_y": 0,
+            "total_acc_avg_z": 0
+
         }
 
     def complementary_filter(self, frame: IMUFrame, dt: float):
@@ -130,7 +136,6 @@ class PositionEstimationModule(Module):
         self.pos.roll = (1.0 - ALPHA_COMPLEMENTARY_FILTER) * b + ALPHA_COMPLEMENTARY_FILTER * roll_accel
         c = self.pos.pitch + pitch_vel_gyro * dt
         self.pos.pitch = (1.0 - ALPHA_COMPLEMENTARY_FILTER) * c + ALPHA_COMPLEMENTARY_FILTER * pitch_accel
-        self.logger.info(f"updated timestamp {frame.ts}")
 
     def position_estimation_simple(self, frame: IMUFrame, dt: float):
         # Integrate the acceleration after transforming the acceleration in world coordinates
@@ -138,18 +143,19 @@ class PositionEstimationModule(Module):
         accel_rot = r.apply([frame.ax, frame.ay, frame.az])
         self.speed["x"] += (accel_rot[0] - CORRECTION_ACC[0]) * dt
         self.speed["y"] += (accel_rot[1] - CORRECTION_ACC[1]) * dt
-        self.speed["z"] += (accel_rot[2] + ACCEL_G - CORRECTION_ACC[2]) * dt  # TODO : check coordinate system setup
+        self.speed["z"] += (accel_rot[2] + ACCEL_G - CORRECTION_ACC[2]) * dt
         # Calculate the mean for drift compensation
         if MEASURE_SUMMED_ERROR_ACC:
             self.drift_tracking["total_time"] += dt
             self.drift_tracking["n_elt_summed"] += 1
-            self.drift_tracking["toal_acc_x"] += accel_rot[0]
-            self.drift_tracking["toal_acc_y"] += accel_rot[1]
-            self.drift_tracking["toal_acc_z"] += accel_rot[2] + ACCEL_G
+            self.drift_tracking["total_acc_x"] += accel_rot[0]
+            self.drift_tracking["total_acc_y"] += accel_rot[1]
+            self.drift_tracking["total_acc_z"] += accel_rot[2] + ACCEL_G
+            self.drift_tracking["total_acc_avg_x"] = round(self.drift_tracking["total_acc_x"] / self.drift_tracking["n_elt_summed"], 3)
+            self.drift_tracking["total_acc_avg_y"] = round(self.drift_tracking["total_acc_y"] / self.drift_tracking["n_elt_summed"], 3)
+            self.drift_tracking["total_acc_avg_z"] = round(self.drift_tracking["total_acc_z"] / self.drift_tracking["n_elt_summed"], 3)
 
-            self.const_frequency_log("log_drift_stats", PUBLISH_SUMMED_MEASURE_ERROR_ACC,
-                                     f"Drift {self.drift_tracking}",
-                                     )
+            self.const_frequency_log("log_drift_stats", PUBLISH_SUMMED_MEASURE_ERROR_ACC, f"Drift {self.drift_tracking}")
 
         # Reduce the velocity to reduce the drift
         self.dampen_velocity()
@@ -159,6 +165,7 @@ class PositionEstimationModule(Module):
         self.pos.y += self.speed["y"] * dt
         self.pos.z += self.speed["z"] * dt
 
+        self.logger.warning(f"updated timestamp {frame.ts}")
         self.const_frequency_log("last_summed_acc", POSITION_PUBLISH_ACC_FREQ,
                                  f"Acceleration after rotation :  {accel_rot}, "
                                  f"Corrected speed : {[self.speed['x'], self.speed['y'], self.speed['z']]} ",
