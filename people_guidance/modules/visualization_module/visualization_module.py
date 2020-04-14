@@ -151,7 +151,7 @@ class VisualizationModule(Module):
 
                     # Decode img to bytes
                     img_dec = cv2.imdecode(np.frombuffer(
-                        preview["data"], dtype=np.int8), flags=cv2.IMREAD_COLOR)
+                        preview["data"]["data"], dtype=np.int8), flags=cv2.IMREAD_COLOR)
 
                     # Draw matches onto image
                     matches = features_dict.get(preview["timestamp"], None)
