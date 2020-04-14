@@ -59,7 +59,6 @@ class VisualizationModule(Module):
 
         while True:
             #sleep(1.0/PREVIEW_PLOT_HZ)
-            sleep(0.1)
             # POS DATA HANDLING
             if pos_last_ms is None:
                 pos_vis = self.get("position_estimation_module:position_vis")
@@ -115,7 +114,6 @@ class VisualizationModule(Module):
                     vis_repoints_last_ms = self.get_time_ms()
 
                     # Encode reprojected points
-                    print(repoints["data"].astype(dtype='float32').shape)
                     repoints_buf = repoints["data"].astype(dtype='float32').tobytes()
                     # Len of pos_data
                     buf_len = np.array([len(repoints_buf)], dtype='uint32')
@@ -132,7 +130,7 @@ class VisualizationModule(Module):
                         s.sendall(repoints_buf)
                     else:
                         timestamp = repoints["timestamp"]
-                        for point in repoints["data"]:
+                        for point in repoints["data"][0]:
                             self.repoints_data.write(f"{timestamp}: {point[0]}, {point[1]}, {point[2]}")
 
                         self.repoints_data.flush()
@@ -153,7 +151,7 @@ class VisualizationModule(Module):
 
                     # Decode img to bytes
                     img_dec = cv2.imdecode(np.frombuffer(
-                        preview["data"], dtype=np.int8), flags=cv2.IMREAD_COLOR)
+                        preview["data"]["data"], dtype=np.int8), flags=cv2.IMREAD_COLOR)
 
                     # Draw matches onto image
                     matches = features_dict.get(preview["timestamp"], None)
