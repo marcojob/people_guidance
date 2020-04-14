@@ -44,7 +44,7 @@ class FeatureTrackingModule(Module):
                 self.logger.warn("queue was empty")
             else:
                 # extract the image data and time stamp
-                img_encoded = img_dict["data"]
+                img_encoded = img_dict["data"]["data"]
                 timestamp = img_dict["timestamp"]
 
                 # request the pose of the camera at this time stamp from the position_estimation_module
@@ -58,9 +58,10 @@ class FeatureTrackingModule(Module):
 
                 # get the new pose and compute the difference to the old one
                 position_request_response = self.await_response("position_estimation_module:position_request")
-                position_request = position_request_response["payload"]["payload"]
+                position_request = position_request_response["payload"]
+                self.logger.critical(position_request)
                 r = Rotation.from_euler('xyz', [position_request["roll"], position_request["pitch"], position_request["yaw"]], degrees=True)
-                t = [[position_request["pos_x"]], [position_request["pos_y"]], [position_request["pos_z"]]]
+                t = [[position_request["x"]], [position_request["y"]], [position_request["z"]]]
                 pose = np.concatenate((r.as_matrix(), t), axis=1)
 
                 # only do feature matching if there were keypoints found in the new image, discard it otherwise
