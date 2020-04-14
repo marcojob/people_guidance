@@ -66,7 +66,7 @@ class DriversModule(Module):
         # Get hardware configuration mode
         self.setup_hardware_configuration()
 
-        while(True):
+        while True:
             # Not replay mode, either normal or record mode
             if not self.REPLAY_MODE:
                 # IMU gets sampled at a fixed frequency
@@ -82,7 +82,8 @@ class DriversModule(Module):
                                  'accel_z': self.get_accel_z(),
                                  'gyro_x': self.get_gyro_x(),
                                  'gyro_y': self.get_gyro_y(),
-                                 'gyro_z': self.get_gyro_z()
+                                 'gyro_z': self.get_gyro_z(),
+                                 "timestamp": timestamp
                                  }
 
                     if self.RECORD_MODE:
@@ -97,16 +98,9 @@ class DriversModule(Module):
                         self.imu_data.flush()
                     else:
                         # In normal mode, we just publish the data
-                        self.publish("accelerations", data_dict,
-                                     IMU_VALIDITY_MS, timestamp)
-
-                        # Visualisation needs a copy
-                        self.publish("accelerations_vis", data_dict,
-                                     IMU_VALIDITY_MS, timestamp)
+                        self.publish("accelerations", data_dict, IMU_VALIDITY_MS)
+                        self.publish("accelerations_vis", data_dict, IMU_VALIDITY_MS)
             else:
-                # add a short delay to make it easier to see the features
-                # in the visualization
-                sleep(0.05)
 
                 # We are in replay mode
                 if not self.imu_timestamp:
@@ -128,18 +122,16 @@ class DriversModule(Module):
                                               'accel_z': out.group(4),
                                               'gyro_x': out.group(5),
                                               'gyro_y': out.group(6),
-                                              'gyro_z': out.group(7)
+                                              'gyro_z': out.group(7),
+                                              "timestamp": int(out.group(1))
                                               }
 
                 # If the relative time is correct, we publish the data
-                if self.imu_timestamp and self.get_time_ms() - self.replay_start_timestamp > \
-                        self.imu_timestamp - self.imu_first_timestamp:
-                    self.publish("accelerations", self.imu_data_dict,
-                                 IMU_VALIDITY_MS, self.imu_timestamp)
 
-                    # Visualisation needs a copy
-                    self.publish("accelerations_vis", self.imu_data_dict,
-                                 IMU_VALIDITY_MS, self.imu_timestamp)
+                if self.imu_timestamp and self.get_time_ms() - self.replay_start_timestamp > self.imu_timestamp - self.imu_first_timestamp:
+                    self.publish("accelerations", self.imu_data_dict, IMU_VALIDITY_MS)
+                    self.publish("accelerations_vis", self.imu_data_dict, IMU_VALIDITY_MS)
+
                     # Reset the timestamp so that a new dataset is read
                     self.imu_timestamp = None
 
@@ -149,7 +141,6 @@ class DriversModule(Module):
                 if not self.q_img.empty():
                     # Get next img from queue
                     data_dict = self.q_img.get()
-                    data = data_dict['data']
                     timestamp = data_dict['timestamp']
 
                     if self.RECORD_MODE:
@@ -161,20 +152,23 @@ class DriversModule(Module):
                         # Write image
                         img = self.files_dir / 'imgs' / f"img_{self.img_counter:04d}.jpg"
                         img_f = io.open(img, 'wb')
-                        img_f.write(data)
+                        img_f.write(data_dict['data'])
                         img_f.close()
                     else:
                         # In normal mode we just publish the image
-                        self.publish("images", data,
-                                     IMAGES_VALIDITY_MS, timestamp)
 
-                        # Publish preview
-                        self.publish("preview", data, IMAGES_VALIDITY_MS, timestamp)
+                        self.publish("images", data_dict, IMAGES_VALIDITY_MS)
+                        self.publish("preview", data, IMAGES_VALIDITY_MS)
             else:
                 # We are in replay mode
                 if not self.img_timestamp:
                     # Read from the file that keeps track of timestamps
                     img_str = self.img_data.readline()
+
+                    # No more imgs, exit
+                    if not img_str:
+                        self.logger.warning("Replay file empty, exiting")
+                        raise SystemExit("Replay file empty: Exited with code 0")
 
                     out = re.search(r'([0-9]*): ([0-9]*)', img_str)
                     if out:
@@ -187,18 +181,14 @@ class DriversModule(Module):
                         img_filename = f"img_{int(out.group(1)):04d}.jpg"
                         img_file_path = self.files_dir / 'imgs' / img_filename
 
-                        img_f = io.open(img_file_path, 'rb')
-                        self.img_data_file = img_f.read()
-                        img_f.close()
+                        with open(img_file_path, 'rb') as fp:
+                            self.img_data_file = fp.read()
 
                 # If the relative time is correct, we publish the data
-                if self.img_timestamp and self.get_time_ms() - self.replay_start_timestamp > \
-                        self.img_timestamp - self.img_first_timestamp:
-                    # Publish images
-                    self.publish("images", self.img_data_file,
-                                 IMAGES_VALIDITY_MS, self.img_timestamp)
-                    # Publish preview
-                    self.publish("preview", self.img_data_file, IMAGES_VALIDITY_MS, self.img_timestamp)
+
+                if self.img_timestamp and self.get_time_ms() - self.replay_start_timestamp > self.img_timestamp - self.img_first_timestamp:
+                    self.publish("images", {"data": self.img_data_file, "timestamp": self.img_timestamp}, IMAGES_VALIDITY_MS)
+                    self.publish("preview", {"data": self.img_data_file, "timestamp": self.img_timestamp}, IMAGES_VALIDITY_MS)
 
                     # Reset the timestamp so that a new dataset is read
                     self.img_timestamp = None
