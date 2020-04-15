@@ -22,8 +22,8 @@ if RPI:
 class DriversModule(Module):
     def __init__(self, log_dir: Path, args=None):
         super(DriversModule, self).__init__(name="drivers_module",
-                                            outputs=[("images", 10), ("preview", 1000),
-                                                     ("accelerations", 100), ("accelerations_vis", 1000)],
+                                            outputs=[("images", 10), ("preview", 10),
+                                                     ("accelerations", 100), ("accelerations_vis", 100)],
                                             inputs=[], log_dir=log_dir)
         self.args = args
 
