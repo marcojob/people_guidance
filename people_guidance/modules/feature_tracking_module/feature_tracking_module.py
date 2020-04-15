@@ -40,7 +40,7 @@ class FeatureTrackingModule(Module):
             img_dict = self.get("drivers_module:images")
 
             if not img_dict:
-                sleep(0.1)
+                sleep(1)
                 self.logger.warn("queue was empty")
             else:
                 # extract the image data and time stamp
@@ -58,45 +58,47 @@ class FeatureTrackingModule(Module):
 
                 # get the new pose and compute the difference to the old one
                 position_request_response = self.await_response("position_estimation_module:position_request")
-                position_request = position_request_response["payload"]
-                self.logger.critical(position_request)
-                r = Rotation.from_euler('xyz', [position_request["roll"], position_request["pitch"], position_request["yaw"]], degrees=True)
-                t = [[position_request["x"]], [position_request["y"]], [position_request["z"]]]
-                pose = np.concatenate((r.as_matrix(), t), axis=1)
+                pose = None
+                if position_request_response:
+                    position_request = position_request_response["payload"]
+                    self.logger.info(position_request)
+                    r = Rotation.from_euler('xyz', [position_request["roll"], position_request["pitch"], position_request["yaw"]], degrees=True)
+                    t = [[position_request["x"]], [position_request["y"]], [position_request["z"]]]
+                    pose = np.concatenate((r.as_matrix(), t), axis=1)
 
-                # only do feature matching if there were keypoints found in the new image, discard it otherwise
-                if len(keypoints) == 0:
-                    self.logger.warn(f"Didn't find any features in image with timestamp {timestamp}, skipping...")
-                else:
-                    if self.old_descriptors is not None:  # skip the matching step for the first image
-                        # match the feature descriptors of the old and new image
+                    # only do feature matching if there were keypoints found in the new image, discard it otherwise
+                    if len(keypoints) == 0:
+                        self.logger.warn(f"Didn't find any features in image with timestamp {timestamp}, skipping...")
+                    else:
+                        if self.old_descriptors is not None:  # skip the matching step for the first image
+                            # match the feature descriptors of the old and new image
 
-                        inliers, total_nr_matches = self.match_features(keypoints, descriptors)
+                            inliers, total_nr_matches = self.match_features(keypoints, descriptors)
 
-                        if inliers.shape[2] == 0:
-                            # there were 0 inliers found, print a warning
-                            self.logger.warn("Couldn't find any matching features in the images with timestamps: " +
-                                            f"{old_timestamp} and {timestamp}")
-                        else:
-                            pose_pair = np.concatenate((self.old_pose[np.newaxis, :, :], pose[np.newaxis, :, :]), axis=0)
-                            # visualization_img = self.visualize_matches(img, keypoints, inliers, total_nr_matches)
+                            if inliers.shape[2] == 0:
+                                # there were 0 inliers found, print a warning
+                                self.logger.warn("Couldn't find any matching features in the images with timestamps: " +
+                                                f"{old_timestamp} and {timestamp}")
+                            else:
+                                pose_pair = np.concatenate((self.old_pose[np.newaxis, :, :], pose[np.newaxis, :, :]), axis=0)
+                                # visualization_img = self.visualize_matches(img, keypoints, inliers, total_nr_matches)
 
-                            self.publish("feature_point_pairs",
-                                         {"camera_positions" : pose_pair,
-                                          "point_pairs": inliers},
-                                         1000, timestamp)
-                            self.publish("feature_point_pairs_vis",
-                                         {"camera_positions" : (pose, pose),
-                                          "point_pairs": inliers},
-                                         1000, timestamp)
+                                self.publish("feature_point_pairs",
+                                            {"camera_positions" : pose_pair,
+                                             "point_pairs": inliers},
+                                             1000, timestamp)
+                                self.publish("feature_point_pairs_vis",
+                                            {"camera_positions" : (pose, pose),
+                                             "point_pairs": inliers},
+                                             1000, timestamp)
 
-                    # store the date of the new image as old_img... for the next iteration
-                    # If there are no features found in the new image this step is skipped
-                    # This means that the next image will be compared witht he same old image again
-                    self.old_timestamp = timestamp
-                    self.old_keypoints = keypoints
-                    self.old_descriptors = descriptors
-                    self.old_pose = pose
+                        # store the date of the new image as old_img... for the next iteration
+                        # If there are no features found in the new image this step is skipped
+                        # This means that the next image will be compared witht he same old image again
+                        self.old_timestamp = timestamp
+                        self.old_keypoints = keypoints
+                        self.old_descriptors = descriptors
+                        self.old_pose = pose
 
     def extract_feature_descriptors(self, img: np.ndarray) -> (list, np.ndarray):
         # first detect the ORB keypoints and then compute the feature descriptors of those points

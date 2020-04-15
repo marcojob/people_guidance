@@ -39,7 +39,7 @@ In Camera coordinates: Z = X_IMU, X = -Z_IMU, Y = Y_IMU (-90° rotation around t
 class PositionEstimationModule(Module):
     def __init__(self, log_dir: Path, args=None):
         super(PositionEstimationModule, self).__init__(name="position_estimation_module",
-                                                       outputs=[("position_vis", 10), ("position", 10)],
+                                                       outputs=[("position_vis", 10)],
                                                        inputs=["drivers_module:accelerations"],
                                                        services=["position_request"],
                                                        log_dir=log_dir)
@@ -59,13 +59,14 @@ class PositionEstimationModule(Module):
         # TODO: evaluate position quality
         # TODO: save last few estimations with absolute timestamp
         self.services["position_request"].register_handler(self.position_request)
+        self.first = True
 
         while True:
             input_data = self.get("drivers_module:accelerations")
             self.handle_requests()
 
-            if not input_data:  # m/s^2 // °/s
-                sleep(0.0001)
+            if not input_data:
+                sleep(0.001)
             else:
                 frame = self.frame_from_input_data(input_data)
 
@@ -78,11 +79,13 @@ class PositionEstimationModule(Module):
                     self.update_position(frame)
                     self.append_tracked_positions()
 
-                    # Display in a scatter plot (debug)
-                    visualize_locally(self.pos, frame, self.drift_tracking, self.acceleration, plot_pos=True,
-                                      plot_angles=True, plot_acc_input=True, plot_acc_transformed=True)
+                    # Publish to visualization
+                    self.publish("position_vis", self.pos, POS_VALIDITY_MS)
 
-            self.publish_to_visualization()
+                    # Display in a scatter plot (debug)
+                    # visualize_locally(self.pos, frame, self.drift_tracking, self.acceleration, plot_pos=True,
+                    #                   plot_angles=True, plot_acc_input=True, plot_acc_transformed=True)
+
 
     @staticmethod
     def frame_from_input_data(input_data: Dict) -> IMUFrame:
@@ -221,7 +224,6 @@ class PositionEstimationModule(Module):
             self.event_timestamps[msg_name] = curr_time
 
     def position_request(self, request):
-
         requested_timestamp = request["payload"]
         neighbors = [None, None]
 

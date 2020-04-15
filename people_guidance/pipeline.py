@@ -12,14 +12,15 @@ from .modules import Module
 
 class Pipeline:
 
-    def __init__(self, args=None):
+    def __init__(self, args=None, log_level=logging.DEBUG):
         self.log_dir: pathlib.Path = self.create_log_dir()
         self.logger: logging.Logger = get_logger("pipeline", self.log_dir)
+        self.logger.setLevel(log_level)
         self.modules: Dict[Module] = {}
         self.processes: List[mp.Process] = []
         self.args = args
 
-    def start(self):
+    def start(self, log_level=logging.DEBUG):
         self.connect_subscriptions()
         self.connect_services()
         with self:
@@ -39,9 +40,9 @@ class Pipeline:
                 try:
                     for module in self.modules.values():
                         for input_name, input_queue in module.inputs.items():
-                            logging.debug(f"{module.name} input {input_name} queue size {input_queue.qsize()}")
+                            self.logger.debug(f"{module.name} input {input_name} queue size {input_queue.qsize()}")
                         for output_name, output_queue in module.outputs.items():
-                            logging.debug(f"{module.name} output {output_name} queue size {output_queue.qsize()}")
+                            self.logger.debug(f"{module.name} output {output_name} queue size {output_queue.qsize()}")
                 except NotImplementedError:
                     self.logger.debug("Could not load queue size because the platform does not support it.")
 
