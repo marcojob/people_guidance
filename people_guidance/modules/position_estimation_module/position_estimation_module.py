@@ -22,19 +22,19 @@ from .position import Position, new_empty_position, new_interpolated_position
 
 # TODO: IMU data (acceleration) needs to be multiplied by (-1) to compensate for calculation error
 # TODO: Remove the hardcoded change in this file for further datasets recorded after the correction.
-HARDCODED_NEGATIVE_CORRECTION = 1
+HARDCODED_NEGATIVE_CORRECTION = 1 # |-1| for datasets_3 with old IMU data
 
 ''' 
 Coordinates valid for the IMU only : looking at the front of the camera,  x points upwards, 
 y horizontally to the right, z horizontally towards the camera, towards the plane.
-Output in camera coordinate system: looking at the front of the camera,  z points upwards, 
+Output and calculations in camera coordinate system: looking at the front of the camera,  z points upwards, 
 y horizontally to the right, x horizontally from the camera, out of the plane.
 In Camera coordinates: Z = X_IMU, X = -Z_IMU, Y = Y_IMU (-90° rotation around the Y axis)
 '''
 
 
 # TODO: gravity compensation occurs in the starting frame. Averaging the first few elements for defining precisely the
-#  direction of the gravity and setting the reference cordinate frame can help
+#  direction of the gravity and setting the reference coordinate frame can help
 
 class PositionEstimationModule(Module):
     def __init__(self, log_dir: Path, args=None):
@@ -79,10 +79,17 @@ class PositionEstimationModule(Module):
                     self.append_tracked_positions()
 
                     # Display in a scatter plot (debug)
-                    visualize_locally(self.pos, frame, self.drift_tracking, self.acceleration, plot_pos=True,
-                                      plot_angles=True, plot_acc_input=True, plot_acc_transformed=True)
+                    curr_time = monotonic()
+                    msg_name = "last_visualization"
+                    if VISUALIZE_LOCALLY and (msg_name not in self.event_timestamps or \
+                            (curr_time - self.event_timestamps[msg_name]) * VISUALIZE_LOCALLY_FREQ > 1 or \
+                            VISUALIZE_LOCALLY_FREQ > 99):
+                        self.logger.info(f"Visualization at current time {curr_time} for frame {frame}")
+                        self.event_timestamps[msg_name] = curr_time
+                        visualize_locally(self.pos, frame, self.drift_tracking, self.acceleration, plot_pos=True,
+                                          plot_angles=True, plot_acc_input=True, plot_acc_transformed=True)
 
-            self.publish_to_visualization()
+                self.publish_to_visualization()
 
     @staticmethod
     def frame_from_input_data(input_data: Dict) -> IMUFrame:
@@ -106,7 +113,7 @@ class PositionEstimationModule(Module):
     def update_position(self, frame: IMUFrame) -> None:
         dt: float = (frame.ts - self.prev_imu_frame.ts) / 1000.0
         self.pos.ts = frame.ts
-        self.complementary_filter(frame, dt)
+        self.complementary_filter_new(frame, dt)
         self.position_estimation_simple(frame, dt)
         self.prev_imu_frame = frame
 
@@ -125,20 +132,36 @@ class PositionEstimationModule(Module):
 
     def complementary_filter(self, frame: IMUFrame, dt: float):  # TODO: check formulas
         # Only integrate for the yaw
-        self.pos.yaw += frame.gz * dt
+        self.pos.yaw += frame.gz * dt # |not ok|
         # Compensate for drift with accelerometer data https: // philsal.co.uk / projects / imu - attitude - estimation
-        roll_accel = math.atan(frame.ay / math.sqrt(frame.ax ** 2 + frame.az ** 2)) # scalar to rad
-        pitch_accel = math.atan(frame.ax / math.sqrt(frame.ay ** 2 + frame.az ** 2)) # scalar to rad
+        roll_accel = math.atan2(frame.ay, math.sqrt(frame.ax ** 2 + frame.az ** 2)) # scalar to rad |ok|
+        pitch_accel = math.atan2(-frame.ax, math.sqrt(frame.ay ** 2 + frame.az ** 2)) # scalar to rad |needs a -|
         # Gyro data
-        a = frame.gz * math.sin(self.pos.roll) + frame.gz * math.cos(self.pos.roll)
-        roll_vel_gyro = frame.gz + a * math.tan(self.pos.pitch)
+        roll_vel_gyro = frame.gz + (frame.gz * math.sin(self.pos.roll) + frame.gz * math.cos(self.pos.roll)) * math.tan(self.pos.pitch)
         pitch_vel_gyro = frame.gy * math.cos(self.pos.roll) - frame.gz * math.sin(self.pos.roll)
         # Update estimation
 
-        b = self.pos.roll + roll_vel_gyro * dt
-        self.pos.roll = (1.0 - ALPHA_COMPLEMENTARY_FILTER) * b + ALPHA_COMPLEMENTARY_FILTER * roll_accel
-        c = self.pos.pitch + pitch_vel_gyro * dt
-        self.pos.pitch = (1.0 - ALPHA_COMPLEMENTARY_FILTER) * c + ALPHA_COMPLEMENTARY_FILTER * pitch_accel
+        self.pos.roll = (1.0 - ALPHA_COMPLEMENTARY_FILTER) * (self.pos.roll + roll_vel_gyro * dt) \
+                        + ALPHA_COMPLEMENTARY_FILTER * roll_accel
+        self.pos.pitch = (1.0 - ALPHA_COMPLEMENTARY_FILTER) * self.pos.pitch + pitch_vel_gyro * dt \
+                         + ALPHA_COMPLEMENTARY_FILTER * pitch_accel
+
+    def complementary_filter_new(self, frame: IMUFrame, dt: float):  # TODO: check formulas
+        roll_accel_hat = math.atan2(frame.ay, math.sqrt(frame.ax ** 2 + frame.az ** 2))  # scalar to rad |ok|
+        pitch_accel_hat = math.atan2(-frame.ax, math.sqrt(frame.ay ** 2 + frame.az ** 2))  # scalar to rad |ok|
+
+        roll_gyr_hat = self.pos.roll + dt * (frame.gx + math.sin(self.pos.roll) * math.tan(self.pos.pitch) * frame.gy
+                                             + math.cos(self.pos.roll) * math.tan(self.pos.pitch) * frame.gz) # not sure
+        pitch_gyr_hat = self.pos.pitch + dt * (math.cos(self.pos.roll) * frame.gy - math.sin(self.pos.roll) * frame.gz) # not sure
+
+        math_cos_pitch = math.cos(self.pos.pitch)
+        if not round(math_cos_pitch, 4) : # no division by 0 allowed
+            math_cos_pitch = 0.001
+        self.pos.yaw = self.pos.yaw + dt * (math.sin(self.pos.roll) / math_cos_pitch * frame.gy
+                                            + math.cos(self.pos.roll) / math_cos_pitch * frame.gz) # not sure
+
+        self.pos.roll = (1.0 - ALPHA_COMPLEMENTARY_FILTER) * roll_gyr_hat + ALPHA_COMPLEMENTARY_FILTER * roll_accel_hat # |ok|
+        self.pos.pitch = (1.0 - ALPHA_COMPLEMENTARY_FILTER) * pitch_gyr_hat + ALPHA_COMPLEMENTARY_FILTER * pitch_accel_hat # |ok|
 
     def position_estimation_simple(self, frame: IMUFrame, dt: float):
         # Integrate the acceleration after transforming the acceleration in world coordinates
@@ -163,14 +186,13 @@ class PositionEstimationModule(Module):
                                  )
         self.const_frequency_log("last_summed_acc", POSITION_PUBLISH_ACC_FREQ,
                                  f"Acceleration after rotation :  {[self.acceleration['x'], self.acceleration['y'], self.acceleration['z']]}, "
-                                 f"Corrected speed : {[self.speed['x'], self.speed['y'], self.speed['z']]} ",
+                                 f"Corrected speed : {[self.speed['x'], self.speed['y'], self.speed['z']]} "
                                  )
 
     def acceleration_after_rotation_gravity_compensation(self, frame: IMUFrame):
         r = R.from_euler('xyz', [self.pos.roll, self.pos.pitch, self.pos.yaw], degrees=True)
         # rotation to starting coordinates and gravity compensation
-        [self.acceleration["x"], self.acceleration["y"], self.acceleration["z"]] = \
-            r.apply([frame.ax, frame.ay, frame.az]) - [0, 0, ACCEL_G]
+        [self.acceleration["x"], self.acceleration["y"], self.acceleration["z"]] = r.apply([frame.ax, frame.ay, frame.az]) - [0, 0, ACCEL_G]
 
     def drift_measurement(self, dt: float):  # TODO: add type Vorschlag
         # Calculate the mean for drift compensation
@@ -204,8 +226,9 @@ class PositionEstimationModule(Module):
 
     def publish_to_visualization(self):
         curr_time = monotonic()
-        if "last_visu_pub" not in self.event_timestamps or self.last_visualized_pos is None or \
-                (curr_time - self.event_timestamps["last_visu_pub"]) * POSITION_PUBLISH_FREQ > 1:
+        if "last_visu_pub" not in self.event_timestamps or self.last_visualized_pos is None \
+                or (curr_time - self.event_timestamps["last_visu_pub"]) * POSITION_PUBLISH_FREQ > 1\
+                or POSITION_PUBLISH_FREQ > 99:
 
             if self.pos != self.last_visualized_pos:
                 self.publish("position", self.pos.__dict__, POS_VALIDITY_MS)
@@ -220,7 +243,7 @@ class PositionEstimationModule(Module):
             self.logger.info(msg)
             self.event_timestamps[msg_name] = curr_time
 
-    def position_request(self, request):
+    def position_request(self, request): # TODO: check timeout errors
 
         requested_timestamp = request["payload"]
         neighbors = [None, None]
