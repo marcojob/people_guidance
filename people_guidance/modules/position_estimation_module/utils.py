@@ -14,12 +14,17 @@ VISUALIZE_LOCALLY = False
 
 # Queue output
 POS_VALIDITY_MS = 100
+# Debug output frequency. A value above 99 means that new elements are always published
+POSITION_PUBLISH_NEW_TIMESTAMP = 0
 POSITION_PUBLISH_FREQ = 1
-POSITION_PUBLISH_ACC_FREQ = 0
-POSITION_PUBLISH_INPUT_FREQ = 0
+POSITION_PUBLISH_ACC_FREQ = 1
+POSITION_PUBLISH_INPUT_FREQ = 1
 
 # Requests
 TRACK_FOR_REQUEST_POSITION_NUMBER_ELT_KEEP = 1000
+
+# Complementary filter parameter
+ALPHA_COMPLEMENTARY_FILTER = 0.1
 
 # Reduce the velocity to reduce drift
 METHOD_RESET_VELOCITY = False
@@ -43,15 +48,9 @@ if METHOD_ERROR_ACC_CORRECTION:
 else:
     CORRECTION_ACC = [0, 0, 0]
 
-# Time calculation to get an output in seconds
-DIVIDER_OUTPUTS_SECONDS = 1000000000
-DIVIDER_OUTPUTS_mSECONDS = 1000
 
-# Complementary filter parameter
-ALPHA_COMPLEMENTARY_FILTER = 0.02
-
-
-def visualize_locally(pos, frame: IMUFrame, drift_tracking, plot_pos: bool = True, plot_acc: bool = False, plot_angles: bool = False):
+def visualize_locally(pos, frame: IMUFrame, drift_tracking, acceleration, plot_pos: bool = True, plot_angles: bool = False,
+                      plot_acc_input: bool = False, plot_acc_transformed: bool = False):
     """
     :param pos: the position to visualize
     :param frame: the IMUFrame to visualize
@@ -63,7 +62,7 @@ def visualize_locally(pos, frame: IMUFrame, drift_tracking, plot_pos: bool = Tru
     """
     if (plot_pos or plot_acc or plot_angles) and VISUALIZE_LOCALLY:
         # place figure in top left corner
-        plt.figure(1, figsize=(12, 12))
+        plt.figure(1, figsize=(12, 15))
         plt.tight_layout()
         if platform.system() != "Windows":
             mngr = plt.get_current_fig_manager()
@@ -72,13 +71,17 @@ def visualize_locally(pos, frame: IMUFrame, drift_tracking, plot_pos: bool = Tru
         # responsive window size and subplot init
         responsive_shift = 0 # Number of plots to be shown
         responsive_window_size_col = 0 # Number of columns to display
+        responsive_shift_acc = 0 # adding another column
         if plot_pos:
             responsive_shift += 2
             responsive_window_size_col += 1
         if plot_angles:
             responsive_shift += 2
             responsive_window_size_col += 1
-        if plot_acc:
+        if plot_acc_input:
+            responsive_window_size_col += 1
+            responsive_shift_acc = 2
+        if plot_acc_transformed:
             responsive_window_size_col += 1
 
         correction_acc_display = CORRECTION_ACC
@@ -122,16 +125,29 @@ def visualize_locally(pos, frame: IMUFrame, drift_tracking, plot_pos: bool = Tru
             plt.xlabel('roll [rad]')
             plt.ylabel('yaw [rad]')
 
-        if plot_acc:
+        if plot_acc_input:
             plt.subplot(2, responsive_window_size_col, responsive_shift + 1)
             plt.scatter(frame.ax, frame.ay)
-            plt.title('Acceleration')
+            plt.title('Acceleration IN')
             plt.xlabel('x [acc]')
             plt.ylabel('y [acc]')
 
             plt.subplot(2, responsive_window_size_col, responsive_shift + 2)
             plt.scatter(frame.ax, frame.az)
-            plt.title('Acceleration')
+            plt.title('Acceleration IN')
+            plt.xlabel('x [acc]')
+            plt.ylabel('z [acc]')
+
+        if plot_acc_transformed:
+            plt.subplot(2, responsive_window_size_col, responsive_shift + responsive_shift_acc + 1)
+            plt.scatter(acceleration['x'], acceleration['y'])
+            plt.title('Acceleration OUT')
+            plt.xlabel('x [acc]')
+            plt.ylabel('y [acc]')
+
+            plt.subplot(2, responsive_window_size_col, responsive_shift + responsive_shift_acc + 2)
+            plt.scatter(acceleration['x'], acceleration['z'])
+            plt.title('Acceleration OUT')
             plt.xlabel('x [acc]')
             plt.ylabel('z [acc]')
 
