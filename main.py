@@ -54,8 +54,8 @@ if __name__ == '__main__':
         # Handles reprojection
         pipeline.add_module(ReprojectionModule, log_level=logging.WARNING)
 
-    # If argument is specified we start visualization
-    if args.visualize:
+        # If argument is specified we start visualization
+        # if args.visualize:
         pipeline.add_module(VisualizationModule, log_level=logging.WARNING)
 
     pipeline.start()
