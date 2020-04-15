@@ -3,7 +3,7 @@ import platform
 import re
 import math
 import logging
-from time import sleep, monotonic, perf_counter
+from time import sleep, monotonic
 from scipy.spatial.transform import Rotation as R
 import numpy as np
 from typing import List, Optional, Dict
@@ -22,7 +22,7 @@ from .position import Position, new_empty_position, new_interpolated_position
 
 # TODO: IMU data (acceleration) needs to be multiplied by (-1) to compensate for calculation error
 # TODO: Remove the hardcoded change in this file for further datasets recorded after the correction.
-HARDCODED_NEGATIVE_CORRECTION = -1
+HARDCODED_NEGATIVE_CORRECTION = 1
 
 ''' 
 Coordinates valid for the IMU only : looking at the front of the camera,  x points upwards, 
@@ -32,6 +32,9 @@ y horizontally to the right, x horizontally from the camera, out of the plane.
 In Camera coordinates: Z = X_IMU, X = -Z_IMU, Y = Y_IMU (-90° rotation around the Y axis)
 '''
 
+
+# TODO: gravity compensation occurs in the starting frame. Averaging the first few elements for defining precisely the
+#  direction of the gravity and setting the reference cordinate frame can help
 
 class PositionEstimationModule(Module):
     def __init__(self, log_dir: Path, args=None):
@@ -50,6 +53,7 @@ class PositionEstimationModule(Module):
 
         self.event_timestamps: Dict[str, float] = {}  # keep track of when events (classified by name) happened last
         self.speed: Dict[str, float] = {"x": 0.0, "y": 0.0, "z": 0.0}
+        self.acceleration: Dict[str, float] = {"x": 0.0, "y": 0.0, "z": 0.0}
 
     def start(self):
         # TODO: evaluate position quality
@@ -67,16 +71,16 @@ class PositionEstimationModule(Module):
 
                 if self.prev_imu_frame is None:
                     # if the frame we just received is the first one we have received.
-                    self.prev_imu_frame = frame
+                    self.prev_imu_frame = frame  # TODO: check where used. should use rotated elements instead?
                 else:
                     # TODO: do not track and do not update if the timestamp did not change (dt = 0)
                     # ERROR description : 91426359 appears twice in the printed list.
                     self.update_position(frame)
-
                     self.append_tracked_positions()
 
                     # Display in a scatter plot (debug)
-                    visualize_locally(self.pos, frame, self.drift_tracking, plot_pos=True, plot_acc=True, plot_angles=True)
+                    visualize_locally(self.pos, frame, self.drift_tracking, self.acceleration, plot_pos=True,
+                                      plot_angles=True, plot_acc_input=True, plot_acc_transformed=True)
 
             self.publish_to_visualization()
 
@@ -117,15 +121,14 @@ class PositionEstimationModule(Module):
             "total_acc_avg_x": 0,
             "total_acc_avg_y": 0,
             "total_acc_avg_z": 0
-
         }
 
-    def complementary_filter(self, frame: IMUFrame, dt: float):
+    def complementary_filter(self, frame: IMUFrame, dt: float):  # TODO: check formulas
         # Only integrate for the yaw
         self.pos.yaw += frame.gz * dt
-        # Compensate for drift with accelerometer data
-        roll_accel = math.atan(frame.ay / math.sqrt(frame.ax ** 2 + frame.az ** 2))
-        pitch_accel = math.atan(frame.ax / math.sqrt(frame.ay ** 2 + frame.az ** 2))
+        # Compensate for drift with accelerometer data https: // philsal.co.uk / projects / imu - attitude - estimation
+        roll_accel = math.atan(frame.ay / math.sqrt(frame.ax ** 2 + frame.az ** 2)) # scalar to rad
+        pitch_accel = math.atan(frame.ax / math.sqrt(frame.ay ** 2 + frame.az ** 2)) # scalar to rad
         # Gyro data
         a = frame.gz * math.sin(self.pos.roll) + frame.gz * math.cos(self.pos.roll)
         roll_vel_gyro = frame.gz + a * math.tan(self.pos.pitch)
@@ -139,23 +142,13 @@ class PositionEstimationModule(Module):
 
     def position_estimation_simple(self, frame: IMUFrame, dt: float):
         # Integrate the acceleration after transforming the acceleration in world coordinates
-        r = R.from_euler('xyz', [self.pos.roll, self.pos.pitch, self.pos.yaw], degrees=True)
-        accel_rot = r.apply([frame.ax, frame.ay, frame.az])
-        self.speed["x"] += (accel_rot[0] - CORRECTION_ACC[0]) * dt
-        self.speed["y"] += (accel_rot[1] - CORRECTION_ACC[1]) * dt
-        self.speed["z"] += (accel_rot[2] + ACCEL_G - CORRECTION_ACC[2]) * dt
-        # Calculate the mean for drift compensation
-        if MEASURE_SUMMED_ERROR_ACC:
-            self.drift_tracking["total_time"] += dt
-            self.drift_tracking["n_elt_summed"] += 1
-            self.drift_tracking["total_acc_x"] += accel_rot[0]
-            self.drift_tracking["total_acc_y"] += accel_rot[1]
-            self.drift_tracking["total_acc_z"] += accel_rot[2] + ACCEL_G
-            self.drift_tracking["total_acc_avg_x"] = round(self.drift_tracking["total_acc_x"] / self.drift_tracking["n_elt_summed"], 3)
-            self.drift_tracking["total_acc_avg_y"] = round(self.drift_tracking["total_acc_y"] / self.drift_tracking["n_elt_summed"], 3)
-            self.drift_tracking["total_acc_avg_z"] = round(self.drift_tracking["total_acc_z"] / self.drift_tracking["n_elt_summed"], 3)
+        self.acceleration_after_rotation_gravity_compensation(frame)
+        self.speed["x"] += (self.acceleration["x"] - CORRECTION_ACC[0]) * dt
+        self.speed["y"] += (self.acceleration["y"] - CORRECTION_ACC[1]) * dt
+        self.speed["z"] += (self.acceleration["z"] - CORRECTION_ACC[2]) * dt
 
-            self.const_frequency_log("log_drift_stats", PUBLISH_SUMMED_MEASURE_ERROR_ACC, f"Drift {self.drift_tracking}")
+        # Measure the sum of the deviation from 0
+        self.drift_measurement(dt)
 
         # Reduce the velocity to reduce the drift
         self.dampen_velocity()
@@ -165,17 +158,44 @@ class PositionEstimationModule(Module):
         self.pos.y += self.speed["y"] * dt
         self.pos.z += self.speed["z"] * dt
 
-        self.logger.warning(f"updated timestamp {frame.ts}")
+        self.const_frequency_log("new_element_and_timestamp", POSITION_PUBLISH_NEW_TIMESTAMP,
+                                 f"Position updated at timestamp: {frame.ts}, time interval: {dt}",
+                                 )
         self.const_frequency_log("last_summed_acc", POSITION_PUBLISH_ACC_FREQ,
-                                 f"Acceleration after rotation :  {accel_rot}, "
+                                 f"Acceleration after rotation :  {[self.acceleration['x'], self.acceleration['y'], self.acceleration['z']]}, "
                                  f"Corrected speed : {[self.speed['x'], self.speed['y'], self.speed['z']]} ",
                                  )
 
-    def dampen_velocity(self):
+    def acceleration_after_rotation_gravity_compensation(self, frame: IMUFrame):
+        r = R.from_euler('xyz', [self.pos.roll, self.pos.pitch, self.pos.yaw], degrees=True)
+        # rotation to starting coordinates and gravity compensation
+        [self.acceleration["x"], self.acceleration["y"], self.acceleration["z"]] = \
+            r.apply([frame.ax, frame.ay, frame.az]) - [0, 0, ACCEL_G]
+
+    def drift_measurement(self, dt: float):  # TODO: add type Vorschlag
+        # Calculate the mean for drift compensation
+        if MEASURE_SUMMED_ERROR_ACC:
+            self.drift_tracking["total_time"] += dt
+            self.drift_tracking["n_elt_summed"] += 1
+            self.drift_tracking["total_acc_x"] += self.acceleration["x"]
+            self.drift_tracking["total_acc_y"] += self.acceleration["y"]
+            self.drift_tracking["total_acc_z"] += self.acceleration["z"]
+            self.drift_tracking["total_acc_avg_x"] = round(
+                self.drift_tracking["total_acc_x"] / self.drift_tracking["n_elt_summed"], 3)
+            self.drift_tracking["total_acc_avg_y"] = round(
+                self.drift_tracking["total_acc_y"] / self.drift_tracking["n_elt_summed"], 3)
+            self.drift_tracking["total_acc_avg_z"] = round(
+                self.drift_tracking["total_acc_z"] / self.drift_tracking["n_elt_summed"], 3)
+
+            self.const_frequency_log("log_drift_stats", PUBLISH_SUMMED_MEASURE_ERROR_ACC,
+                                     f"Drift {self.drift_tracking}")
+
+    def dampen_velocity(self):  # TODO : reset dependent on dt
         if METHOD_RESET_VELOCITY:
             curr_time = monotonic()
             if "velocity_reset" not in self.event_timestamps or \
-                    (curr_time - self.event_timestamps["velocity_reset"]) * RESET_VEL_FREQ > 1:
+                    (curr_time - self.event_timestamps["velocity_reset"]) * RESET_VEL_FREQ > 1 or \
+                    RESET_VEL_FREQ > 99:
                 self.speed["x"] *= RESET_VEL_FREQ_COEF_X
                 self.speed["y"] *= RESET_VEL_FREQ_COEF_Y
                 self.speed["z"] *= RESET_VEL_FREQ_COEF_Z
@@ -195,7 +215,8 @@ class PositionEstimationModule(Module):
     def const_frequency_log(self, msg_name: str, frequency: int, msg: str, level=logging.INFO):
         curr_time = monotonic()
         if msg_name not in self.event_timestamps or \
-                (curr_time - self.event_timestamps[msg_name]) * frequency > 1:
+                (curr_time - self.event_timestamps[msg_name]) * frequency > 1 or \
+                frequency > 99:
             self.logger.info(msg)
             self.event_timestamps[msg_name] = curr_time
 
