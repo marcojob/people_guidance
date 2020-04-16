@@ -81,13 +81,14 @@ class PositionEstimationModule(Module):
                     # Display in a scatter plot (debug)
                     curr_time = monotonic()
                     msg_name = "last_visualization"
-                    if VISUALIZE_LOCALLY and (msg_name not in self.event_timestamps or \
-                            (curr_time - self.event_timestamps[msg_name]) * VISUALIZE_LOCALLY_FREQ > 1 or \
-                            VISUALIZE_LOCALLY_FREQ > 99):
-                        self.logger.info(f"Visualization at current time {curr_time} for frame {frame}")
-                        self.event_timestamps[msg_name] = curr_time
-                        visualize_locally(self.pos, frame, self.drift_tracking, self.acceleration, plot_pos=True,
-                                          plot_angles=True, plot_acc_input=True, plot_acc_transformed=True)
+                    if not MEASURE_SUMMED_ERROR_ACC_AUTO or (self.drift_tracking["auto_state"] and MEASURE_SUMMED_ERROR_ACC_AUTO):
+                        if VISUALIZE_LOCALLY and (msg_name not in self.event_timestamps or \
+                                (curr_time - self.event_timestamps[msg_name]) * VISUALIZE_LOCALLY_FREQ > 1 or \
+                                VISUALIZE_LOCALLY_FREQ > 99):
+                            self.logger.info(f"Visualization at current time {curr_time} for frame {frame}")
+                            self.event_timestamps[msg_name] = curr_time
+                            visualize_locally(self.pos, frame, self.drift_tracking, self.acceleration, plot_pos=True,
+                                              plot_angles=True, plot_acc_input=True, plot_acc_transformed=True)
 
                 self.publish_to_visualization()
 
@@ -127,7 +128,9 @@ class PositionEstimationModule(Module):
             "total_acc_z": 0,
             "total_acc_avg_x": 0,
             "total_acc_avg_y": 0,
-            "total_acc_avg_z": 0
+            "total_acc_avg_z": 0,
+            "auto_state": 0,   # start at 0, changes to 1 when done measuring
+            "auto_result": [0, 0, 0] # correction result of automatic measurements
         }
 
     def complementary_filter(self, frame: IMUFrame, dt: float):  # TODO: check formulas
@@ -165,10 +168,15 @@ class PositionEstimationModule(Module):
 
     def position_estimation_simple(self, frame: IMUFrame, dt: float):
         # Integrate the acceleration after transforming the acceleration in world coordinates
-        self.acceleration_after_rotation_gravity_compensation(frame)
-        self.speed["x"] += (self.acceleration["x"] - CORRECTION_ACC[0]) * dt
-        self.speed["y"] += (self.acceleration["y"] - CORRECTION_ACC[1]) * dt
-        self.speed["z"] += (self.acceleration["z"] - CORRECTION_ACC[2]) * dt
+        if METHOD_ERROR_ACC_CORRECTION:
+            corr_acc = CORRECTION_ACC
+        elif METHOD_ERROR_ACC_CORRECTION:
+            corr_acc = self.drift_tracking["auto_result"]
+        self.acceleration_after_rotation_gravity_compensation_correction(frame, corr_from_measurements=CORRECTION_ACC)
+
+        self.speed["x"] += self.acceleration["x"] * dt
+        self.speed["y"] += self.acceleration["y"] * dt
+        self.speed["z"] += self.acceleration["z"] * dt
 
         # Measure the sum of the deviation from 0
         self.drift_measurement(dt)
@@ -189,10 +197,11 @@ class PositionEstimationModule(Module):
                                  f"Corrected speed : {[self.speed['x'], self.speed['y'], self.speed['z']]} "
                                  )
 
-    def acceleration_after_rotation_gravity_compensation(self, frame: IMUFrame):
+    def acceleration_after_rotation_gravity_compensation_correction(self, frame: IMUFrame, corr_from_measurements):
         r = R.from_euler('xyz', [self.pos.roll, self.pos.pitch, self.pos.yaw], degrees=True)
         # rotation to starting coordinates and gravity compensation
-        [self.acceleration["x"], self.acceleration["y"], self.acceleration["z"]] = r.apply([frame.ax, frame.ay, frame.az]) - [0, 0, ACCEL_G]
+        [self.acceleration["x"], self.acceleration["y"], self.acceleration["z"]] = r.apply([frame.ax, frame.ay, frame.az]) \
+                                                                                   - [0, 0, ACCEL_G] - corr_from_measurements
 
     def drift_measurement(self, dt: float):  # TODO: add type Vorschlag
         # Calculate the mean for drift compensation
@@ -212,6 +221,36 @@ class PositionEstimationModule(Module):
             self.const_frequency_log("log_drift_stats", PUBLISH_SUMMED_MEASURE_ERROR_ACC,
                                      f"Drift {self.drift_tracking}")
 
+        elif MEASURE_SUMMED_ERROR_ACC_AUTO and not self.drift_tracking["auto_state"]:
+            self.drift_tracking["total_time"] += dt
+            if self.drift_tracking["total_time"] > MEASURE_ERROR_TIME_START:
+                if self.drift_tracking["total_time"] < MEASURE_ERROR_TIME_STOP:
+                    self.drift_tracking["n_elt_summed"] += 1
+                    self.drift_tracking["total_acc_x"] += self.acceleration["x"]
+                    self.drift_tracking["total_acc_y"] += self.acceleration["y"]
+                    self.drift_tracking["total_acc_z"] += self.acceleration["z"]
+                    self.drift_tracking["total_acc_avg_x"] = round(
+                        self.drift_tracking["total_acc_x"] / self.drift_tracking["n_elt_summed"], 3)
+                    self.drift_tracking["total_acc_avg_y"] = round(
+                        self.drift_tracking["total_acc_y"] / self.drift_tracking["n_elt_summed"], 3)
+                    self.drift_tracking["total_acc_avg_z"] = round(
+                        self.drift_tracking["total_acc_z"] / self.drift_tracking["n_elt_summed"], 3)
+
+                    self.const_frequency_log("log_drift_stats", PUBLISH_SUMMED_MEASURE_ERROR_ACC,
+                                         f"Drift - AUTOMATIC {self.drift_tracking}")
+                else:
+                    # done measuring
+                    self.drift_tracking["auto_state"] = 1
+                    self.drift_tracking["auto_result"] = [self.drift_tracking["total_acc_x"],
+                                                          self.drift_tracking["total_acc_y"],
+                                                          self.drift_tracking["total_acc_z"]]
+                    self.logger.info(f"Automatic measurement done, correction : {self.drift_tracking['auto_result']}")
+                    self.speed["x"], self.speed["y"], self.speed["z"] = 0, 0, 0
+                    self.pos.x, self.pos.y, self.pos.z = 0, 0, 0
+                    self.pos.roll *= 0.1
+                    self.pos.pitch *= 0.1
+                    self.pos.yaw *= 0.1
+
     def dampen_velocity(self):  # TODO : reset dependent on dt
         if METHOD_RESET_VELOCITY:
             curr_time = monotonic()
@@ -223,6 +262,10 @@ class PositionEstimationModule(Module):
                 self.speed["z"] *= RESET_VEL_FREQ_COEF_Z
 
                 self.event_timestamps["velocity_reset"] = curr_time
+
+    def limit_velocity(self):
+        # Walking velocity cannot be above 2m/s # TODO
+        return
 
     def publish_to_visualization(self):
         curr_time = monotonic()

@@ -11,7 +11,7 @@ IMUFrame = collections.namedtuple("IMUFrame", ["ax", "ay", "az", "gx", "gy", "gz
 
 # Debug mode
 VISUALIZE_LOCALLY = False
-VISUALIZE_LOCALLY_FREQ = 0.5
+VISUALIZE_LOCALLY_FREQ = 100
 
 # Queue output
 POS_VALIDITY_MS = 100
@@ -30,12 +30,15 @@ ALPHA_COMPLEMENTARY_FILTER = 0.2
 # Reduce the velocity to reduce drift
 METHOD_RESET_VELOCITY = True
 RESET_VEL_FREQ = 100 # select value above 100 to compensate after each step  TODO : prone to dt
-RESET_VEL_FREQ_COEF_X = 0.98
-RESET_VEL_FREQ_COEF_Y = 0.98
-RESET_VEL_FREQ_COEF_Z = 0.98
+RESET_VEL_FREQ_COEF_X = 0.8
+RESET_VEL_FREQ_COEF_Y = 0.8
+RESET_VEL_FREQ_COEF_Z = 0.8
 
 # Error calculation
-MEASURE_SUMMED_ERROR_ACC = False
+MEASURE_SUMMED_ERROR_ACC = False        # cannot use both
+MEASURE_SUMMED_ERROR_ACC_AUTO = True    # cannot use both
+MEASURE_ERROR_TIME_START = 0.2          # Start Calibration after [s]
+MEASURE_ERROR_TIME_STOP = 3             # Stop Calibration after [s]
 PUBLISH_SUMMED_MEASURE_ERROR_ACC = 0
 METHOD_ERROR_ACC_CORRECTION = True # True, worse otherwise
 
@@ -51,7 +54,7 @@ SUM_ACC_DATASET_1 = [-2486.947147099424, 2300.0872754909888, -1320.6316410854672
 
 
 if METHOD_ERROR_ACC_CORRECTION:
-    CORRECTION_ACC = np.divide(SUM_ACC_DATASET_1, SUM_ELT_DATASET_1)
+    CORRECTION_ACC = np.divide(SUM_ACC_DATASET_1, SUM_ELT_DATASET_1) + [0.1, 0.1, 0]
 else:
     CORRECTION_ACC = [0, 0, 0]
 
@@ -108,15 +111,15 @@ def visualize_locally(pos, frame: IMUFrame, drift_tracking, acceleration, plot_p
 
         if plot_pos:
             plt.subplot(2, responsive_window_size_col, 1)
-            plt.scatter(pos.x, pos.y)
+            plt.scatter(pos.y, pos.x)
             plt.title('Position estimation')
-            plt.xlabel('x [m]')
-            plt.ylabel('y [m]')
+            plt.xlabel('y [m]')
+            plt.ylabel('x [m]')
 
             plt.subplot(2, responsive_window_size_col, 2)
-            plt.scatter(pos.x, pos.z)
+            plt.scatter(pos.y, pos.z)
             plt.title('Position estimation')
-            plt.xlabel('x [m]')
+            plt.xlabel('y [m]')
             plt.ylabel('z [m]')
 
         if plot_angles:
@@ -134,28 +137,28 @@ def visualize_locally(pos, frame: IMUFrame, drift_tracking, acceleration, plot_p
 
         if plot_acc_input:
             plt.subplot(2, responsive_window_size_col, responsive_shift + 1)
-            plt.scatter(frame.ax, frame.ay)
+            plt.scatter(frame.ay, frame.ax)
             plt.title('Acceleration IN')
-            plt.xlabel('x [acc]')
-            plt.ylabel('y [acc]')
+            plt.xlabel('y [acc]')
+            plt.ylabel('x [acc]')
 
             plt.subplot(2, responsive_window_size_col, responsive_shift + 2)
-            plt.scatter(frame.ax, frame.az)
+            plt.scatter(frame.ay, frame.az)
             plt.title('Acceleration IN')
-            plt.xlabel('x [acc]')
+            plt.xlabel('y [acc]')
             plt.ylabel('z [acc]')
 
         if plot_acc_transformed:
             plt.subplot(2, responsive_window_size_col, responsive_shift + responsive_shift_acc + 1)
-            plt.scatter(acceleration['x'], acceleration['y'])
+            plt.scatter(acceleration['y'], acceleration['x'])
             plt.title('Acceleration OUT')
-            plt.xlabel('x [acc]')
-            plt.ylabel('y [acc]')
+            plt.xlabel('y [acc]')
+            plt.ylabel('x [acc]')
 
             plt.subplot(2, responsive_window_size_col, responsive_shift + responsive_shift_acc + 2)
-            plt.scatter(acceleration['x'], acceleration['z'])
+            plt.scatter(acceleration['y'], acceleration['z'])
             plt.title('Acceleration OUT')
-            plt.xlabel('x [acc]')
+            plt.xlabel('y [acc]')
             plt.ylabel('z [acc]')
 
         plt.pause(0.0001)
