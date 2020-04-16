@@ -11,6 +11,9 @@ IMUFrame = collections.namedtuple("IMUFrame", ["ax", "ay", "az", "gx", "gy", "gz
 
 # Debug mode
 VISUALIZE_LOCALLY = False
+if VISUALIZE_LOCALLY:
+    import matplotlib.pyplot as plt
+
 VISUALIZE_LOCALLY_FREQ = 100
 
 # Queue output
@@ -25,20 +28,20 @@ POSITION_PUBLISH_INPUT_FREQ = 0
 TRACK_FOR_REQUEST_POSITION_NUMBER_ELT_KEEP = 200
 
 # Complementary filter parameter
-ALPHA_COMPLEMENTARY_FILTER = 0.2
+ALPHA_COMPLEMENTARY_FILTER = 1
 
 # Reduce the velocity to reduce drift
-METHOD_RESET_VELOCITY = True
+METHOD_RESET_VELOCITY = False
 RESET_VEL_FREQ = 100 # select value above 100 to compensate after each step  TODO : prone to dt
-RESET_VEL_FREQ_COEF_X = 0.8
-RESET_VEL_FREQ_COEF_Y = 0.8
-RESET_VEL_FREQ_COEF_Z = 0.8
+RESET_VEL_FREQ_COEF_X = 0.9
+RESET_VEL_FREQ_COEF_Y = 0.9
+RESET_VEL_FREQ_COEF_Z = 0.9
 
 # Error calculation
 MEASURE_SUMMED_ERROR_ACC = False        # cannot use both
-MEASURE_SUMMED_ERROR_ACC_AUTO = True    # cannot use both
+MEASURE_SUMMED_ERROR_ACC_AUTO = False    # cannot use both
 MEASURE_ERROR_TIME_START = 0.2          # Start Calibration after [s]
-MEASURE_ERROR_TIME_STOP = 3             # Stop Calibration after [s]
+MEASURE_ERROR_TIME_STOP = 5             # Stop Calibration after [s]
 PUBLISH_SUMMED_MEASURE_ERROR_ACC = 0
 METHOD_ERROR_ACC_CORRECTION = True # True, worse otherwise
 

@@ -55,42 +55,46 @@ class PositionEstimationModule(Module):
         self.speed: Dict[str, float] = {"x": 0.0, "y": 0.0, "z": 0.0}
         self.acceleration: Dict[str, float] = {"x": 0.0, "y": 0.0, "z": 0.0}
 
+        self.counter_same_request = 0
+
     def start(self):
         # TODO: evaluate position quality
         # TODO: save last few estimations with absolute timestamp
         self.services["position_request"].register_handler(self.position_request)
 
         while True:
-            input_data = self.get("drivers_module:accelerations")
+            self.handle_data()
             self.handle_requests()
 
-            if not input_data:  # m/s^2 // °/s
-                sleep(0.0001)
+    def handle_data(self):
+        input_data = self.get("drivers_module:accelerations")
+        if not input_data:
+            sleep(0.0001)
+        else:
+            frame = self.frame_from_input_data(input_data)  # m/s^2 // °/s to rad/s # TODO : check if always °?
+
+            if self.prev_imu_frame is None:
+                # if the frame we just received is the first one we have received.
+                self.prev_imu_frame = frame  # TODO: check where used. should use rotated elements instead?
             else:
-                frame = self.frame_from_input_data(input_data)
+                # TODO: do not track and do not update if the timestamp did not change (dt = 0)
+                # ERROR description : 91426359 appears twice in the printed list.
+                self.update_position(frame)
+                self.append_tracked_positions()
 
-                if self.prev_imu_frame is None:
-                    # if the frame we just received is the first one we have received.
-                    self.prev_imu_frame = frame  # TODO: check where used. should use rotated elements instead?
-                else:
-                    # TODO: do not track and do not update if the timestamp did not change (dt = 0)
-                    # ERROR description : 91426359 appears twice in the printed list.
-                    self.update_position(frame)
-                    self.append_tracked_positions()
+                # Display in a scatter plot (debug)
+                curr_time = monotonic()
+                msg_name = "last_visualization"
+                if not MEASURE_SUMMED_ERROR_ACC_AUTO or (self.drift_tracking["auto_state"] and MEASURE_SUMMED_ERROR_ACC_AUTO):
+                    if VISUALIZE_LOCALLY and (msg_name not in self.event_timestamps or \
+                            (curr_time - self.event_timestamps[msg_name]) * VISUALIZE_LOCALLY_FREQ > 1 or \
+                            VISUALIZE_LOCALLY_FREQ > 99):
+                        self.logger.info(f"Visualization at current time {curr_time} for frame {frame}")
+                        self.event_timestamps[msg_name] = curr_time
+                        visualize_locally(self.pos, frame, self.drift_tracking, self.acceleration, plot_pos=True,
+                                          plot_angles=True, plot_acc_input=True, plot_acc_transformed=True)
 
-                    # Display in a scatter plot (debug)
-                    curr_time = monotonic()
-                    msg_name = "last_visualization"
-                    if not MEASURE_SUMMED_ERROR_ACC_AUTO or (self.drift_tracking["auto_state"] and MEASURE_SUMMED_ERROR_ACC_AUTO):
-                        if VISUALIZE_LOCALLY and (msg_name not in self.event_timestamps or \
-                                (curr_time - self.event_timestamps[msg_name]) * VISUALIZE_LOCALLY_FREQ > 1 or \
-                                VISUALIZE_LOCALLY_FREQ > 99):
-                            self.logger.info(f"Visualization at current time {curr_time} for frame {frame}")
-                            self.event_timestamps[msg_name] = curr_time
-                            visualize_locally(self.pos, frame, self.drift_tracking, self.acceleration, plot_pos=True,
-                                              plot_angles=True, plot_acc_input=True, plot_acc_transformed=True)
-
-                self.publish_to_visualization()
+            self.publish_to_visualization()
 
     @staticmethod
     def frame_from_input_data(input_data: Dict) -> IMUFrame:
@@ -129,6 +133,12 @@ class PositionEstimationModule(Module):
             "total_acc_avg_x": 0,
             "total_acc_avg_y": 0,
             "total_acc_avg_z": 0,
+            "total_g_x": 0,
+            "total_g_y": 0,
+            "total_g_z": 0,
+            "total_g_avg_x": 0,
+            "total_g_avg_y": 0,
+            "total_g_avg_z": 0,
             "auto_state": 0,   # start at 0, changes to 1 when done measuring
             "auto_result": [0, 0, 0] # correction result of automatic measurements
         }
@@ -198,7 +208,7 @@ class PositionEstimationModule(Module):
                                  )
 
     def acceleration_after_rotation_gravity_compensation_correction(self, frame: IMUFrame, corr_from_measurements):
-        r = R.from_euler('xyz', [self.pos.roll, self.pos.pitch, self.pos.yaw], degrees=True)
+        r = R.from_euler('xyz', [self.pos.roll, self.pos.pitch, self.pos.yaw], degrees=False) # Rad!
         # rotation to starting coordinates and gravity compensation
         [self.acceleration["x"], self.acceleration["y"], self.acceleration["z"]] = r.apply([frame.ax, frame.ay, frame.az]) \
                                                                                    - [0, 0, ACCEL_G] - corr_from_measurements
@@ -235,21 +245,31 @@ class PositionEstimationModule(Module):
                         self.drift_tracking["total_acc_y"] / self.drift_tracking["n_elt_summed"], 3)
                     self.drift_tracking["total_acc_avg_z"] = round(
                         self.drift_tracking["total_acc_z"] / self.drift_tracking["n_elt_summed"], 3)
-
-                    self.const_frequency_log("log_drift_stats", PUBLISH_SUMMED_MEASURE_ERROR_ACC,
-                                         f"Drift - AUTOMATIC {self.drift_tracking}")
+                    self.drift_tracking["total_g_x"] += self.acceleration["x"]
+                    self.drift_tracking["total_g_y"] += self.acceleration["y"]
+                    self.drift_tracking["total_g_z"] += self.acceleration["z"]
+                    self.drift_tracking["total_g_avg_x"] = round(
+                        self.drift_tracking["total_g_x"] / self.drift_tracking["n_elt_summed"], 3)
+                    self.drift_tracking["total_g_avg_y"] = round(
+                        self.drift_tracking["total_g_y"] / self.drift_tracking["n_elt_summed"], 3)
+                    self.drift_tracking["total_g_avg_z"] = round(
+                        self.drift_tracking["total_g_z"] / self.drift_tracking["n_elt_summed"], 3)
                 else:
                     # done measuring
                     self.drift_tracking["auto_state"] = 1
-                    self.drift_tracking["auto_result"] = [self.drift_tracking["total_acc_x"],
-                                                          self.drift_tracking["total_acc_y"],
-                                                          self.drift_tracking["total_acc_z"]]
+                    self.drift_tracking["auto_result"] = [self.drift_tracking["total_acc_avg_x"],
+                                                          self.drift_tracking["total_acc_avg_y"],
+                                                          self.drift_tracking["total_acc_avg_z"]]
                     self.logger.info(f"Automatic measurement done, correction : {self.drift_tracking['auto_result']}")
                     self.speed["x"], self.speed["y"], self.speed["z"] = 0, 0, 0
                     self.pos.x, self.pos.y, self.pos.z = 0, 0, 0
-                    self.pos.roll *= 0.1
-                    self.pos.pitch *= 0.1
-                    self.pos.yaw *= 0.1
+                    self.pos.roll *= 0.01
+                    self.pos.pitch *= 0.01
+                    self.pos.yaw *= 0.01
+                    self.logger.info(f"Done_measuring Drift - AUTOMATIC {self.drift_tracking}")
+
+                self.const_frequency_log("log_drift_stats", PUBLISH_SUMMED_MEASURE_ERROR_ACC,
+                                         f"Drift - AUTOMATIC {self.drift_tracking}")
 
     def dampen_velocity(self):  # TODO : reset dependent on dt
         if METHOD_RESET_VELOCITY:
@@ -291,7 +311,7 @@ class PositionEstimationModule(Module):
         requested_timestamp = request["payload"]
         neighbors = [None, None]
 
-        self.logger.info(f"{len(self.tracked_positions)}  - {[str(pos.ts) for pos in self.tracked_positions]}")
+        self.logger.debug(f"{len(self.tracked_positions)}  - {[str(pos.ts) for pos in self.tracked_positions]}")
 
         for idx, position in enumerate(self.tracked_positions):
             # this assumes that our positions are sorted old to new.
@@ -302,10 +322,13 @@ class PositionEstimationModule(Module):
                 break
 
         if neighbors[0] is not None and neighbors[1] is not None:
+            self.counter_same_request = 0
+            self.logger.debug(f"Normal interpolation, asking for ts {requested_timestamp}")
             interp_position = new_interpolated_position(requested_timestamp, neighbors[0][1], neighbors[1][1])
             return interp_position.__dict__
 
         elif neighbors[0] is None and neighbors[1] is not None and neighbors[1][0] < len(self.tracked_positions) - 1:
+            self.counter_same_request = 0
             self.logger.critical("Extrapolating backwards!")
             interp_position = new_interpolated_position(requested_timestamp, neighbors[1][1],
                                                         self.tracked_positions[neighbors[1][0] + 1])
@@ -313,6 +336,12 @@ class PositionEstimationModule(Module):
 
         else:
             offset = self.pos.ts - requested_timestamp
-            self.logger.info(f"Could not interpolate for position with timestamp {requested_timestamp}."
-                             f"Current offset {offset}")
+            self.logger.info(f"Could not interpolate for position with timestamp {requested_timestamp}. "
+                             f"Current offset {offset}, asked {self.counter_same_request} times")
+            if self.counter_same_request > 200:
+                self.logger.warning(f"Not interpolating. Quick fix. requested {requested_timestamp}, "
+                                    f"sending {self.tracked_positions[-1]}")
+                self.counter_same_request = 0
+                return self.tracked_positions[-1]
+            self.counter_same_request += 1
             return None
