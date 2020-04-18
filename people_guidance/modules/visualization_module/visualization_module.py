@@ -22,9 +22,7 @@ class VisualizationModule(Module):
     def __init__(self, log_dir: pathlib.Path, args=None):
         super(VisualizationModule, self).__init__(name="visualization_module", outputs=[],
                                                   inputs=["drivers_module:preview",
-                                                          "position_estimation_module:position_vis",
-                                                          "feature_tracking_module:feature_point_pairs_vis",
-                                                          "reprojection_module:points3d"],
+                                                          "ekf_module:position_vis"],
                                                   log_dir=log_dir)
         self.args = args
 
@@ -61,12 +59,12 @@ class VisualizationModule(Module):
             #sleep(1.0/PREVIEW_PLOT_HZ)
             # POS DATA HANDLING
             if pos_last_ms is None:
-                pos_vis = self.get("position_estimation_module:position_vis")
+                pos_vis = self.get("ekf_module:position_vis")
 
                 pos_last_ms = pos_vis.get("timestamp", None)
                 vis_pos_last_ms = self.get_time_ms()
             else:
-                pos_vis = self.get("position_estimation_module:position_vis")
+                pos_vis = self.get("ekf_module:position_vis")
                 if pos_vis and self.get_time_ms() - vis_pos_last_ms > 1000/POS_PLOT_HZ and pos_vis["timestamp"] - pos_last_ms > 1000/POS_PLOT_HZ:
                     pos_last_ms = pos_vis["timestamp"]
                     vis_pos_last_ms = self.get_time_ms()
@@ -102,38 +100,38 @@ class VisualizationModule(Module):
                         self.pos_data.flush()
 
             # REPOINTS HANDLING
-            if repoints_last_ms is None:
-                repoints = self.get("reprojection_module:points3d")
+            # if repoints_last_ms is None:
+            #     repoints = self.get("reprojection_module:points3d")
 
-                repoints_last_ms = repoints.get("timestamp", None)
-                vis_repoints_last_ms = self.get_time_ms()
-            else:
-                repoints = self.get("reprojection_module:points3d")
-                if repoints and self.get_time_ms() - vis_repoints_last_ms > 1000/REPOINTS_PLOT_HZ and repoints["timestamp"] - repoints_last_ms > 1000/REPOINTS_PLOT_HZ:
-                    repoints_last_ms = repoints["timestamp"]
-                    vis_repoints_last_ms = self.get_time_ms()
+            #     repoints_last_ms = repoints.get("timestamp", None)
+            #     vis_repoints_last_ms = self.get_time_ms()
+            # else:
+            #     repoints = self.get("reprojection_module:points3d")
+            #     if repoints and self.get_time_ms() - vis_repoints_last_ms > 1000/REPOINTS_PLOT_HZ and repoints["timestamp"] - repoints_last_ms > 1000/REPOINTS_PLOT_HZ:
+            #         repoints_last_ms = repoints["timestamp"]
+            #         vis_repoints_last_ms = self.get_time_ms()
 
-                    # Encode reprojected points
-                    repoints_buf = repoints["data"].astype(dtype='float32').tobytes()
-                    # Len of pos_data
-                    buf_len = np.array([len(repoints_buf)], dtype='uint32')
+            #         # Encode reprojected points
+            #         repoints_buf = repoints["data"].astype(dtype='float32').tobytes()
+            #         # Len of pos_data
+            #         buf_len = np.array([len(repoints_buf)], dtype='uint32')
 
-                    # Encode id to uint8
-                    buf_id = np.array([2], dtype='uint8')
+            #         # Encode id to uint8
+            #         buf_id = np.array([2], dtype='uint8')
 
-                    if not self.args.save_visualization:
-                        # Send ID first
-                        s.sendall(buf_id)
-                        # Send the image length beforehand
-                        s.sendall(buf_len)
-                        # Send data
-                        s.sendall(repoints_buf)
-                    else:
-                        timestamp = repoints["timestamp"]
-                        for point in repoints["data"][0]:
-                            self.repoints_data.write(f"{timestamp}: {point[0]}, {point[1]}, {point[2]}")
+            #         if not self.args.save_visualization:
+            #             # Send ID first
+            #             s.sendall(buf_id)
+            #             # Send the image length beforehand
+            #             s.sendall(buf_len)
+            #             # Send data
+            #             s.sendall(repoints_buf)
+            #         else:
+            #             timestamp = repoints["timestamp"]
+            #             for point in repoints["data"][0]:
+            #                 self.repoints_data.write(f"{timestamp}: {point[0]}, {point[1]}, {point[2]}")
 
-                        self.repoints_data.flush()
+            #             self.repoints_data.flush()
 
 
             # PREVIEW IMAGE HANDLING
@@ -141,9 +139,11 @@ class VisualizationModule(Module):
                 preview = self.get("drivers_module:preview")
 
                 preview_last_ms = preview.get("timestamp", None)
+                print(preview)
                 vis_preview_last_ms = self.get_time_ms()
             else:
                 preview = self.get("drivers_module:preview")
+                print("got preview")
                 if preview and self.get_time_ms() - vis_preview_last_ms > 1000/PREVIEW_PLOT_HZ \
                         and preview["timestamp"] - preview_last_ms > 1000/PREVIEW_PLOT_HZ:
                     preview_last_ms = preview["timestamp"]
@@ -185,10 +185,10 @@ class VisualizationModule(Module):
                         self.preview_data.write(f"{self.preview_counter}: {timestamp}\n")
                         self.preview_data.flush()
 
-                features = self.get("feature_tracking_module:feature_point_pairs_vis")
-                if features:
-                    features_dict[features["timestamp"]
-                                ] = features["data"]["point_pairs"]
+                # features = self.get("feature_tracking_module:feature_point_pairs_vis")
+                # if features:
+                #     features_dict[features["timestamp"]
+                #                 ] = features["data"]["point_pairs"]
 
         # Send EOF to detect end of file
         s.shutdown(socket.SHUT_WR)

@@ -165,8 +165,7 @@ def socket_main():
                             data_dict["preview"][0] = img_dec
                             animate_preview()
                         except Exception as e:
-                            pass
-                            # print(f"preview: {e}")
+                            print(f"preview: {e}")
 
                 elif data_id_int == 1:
                     data_len = conn.recv(4)
@@ -183,12 +182,11 @@ def socket_main():
                             data_dict["angle_x"].append(pos_data[3])
                             data_dict["angle_y"].append(pos_data[4])
                             data_dict["angle_z"].append(pos_data[5])
-
+                            print("received pos")
                             animate_pos()
 
                         except Exception as e:
-                            pass
-                            # print(f"pos: {e}")
+                            print(f"pos: {e}")
                 elif data_id_int == 2:
                     data_len = conn.recv(4)
                     data_len_int = int.from_bytes(data_len, byteorder='little')

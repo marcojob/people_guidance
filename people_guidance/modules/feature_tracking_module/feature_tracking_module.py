@@ -1,6 +1,7 @@
 import pathlib
 import cv2
 import numpy as np
+import math
 
 from time import sleep
 from scipy.spatial.transform import Rotation
@@ -8,23 +9,18 @@ from scipy.spatial.transform import Rotation
 from people_guidance.modules.module import Module
 from people_guidance.utils import project_path
 
-
-
-
-
-
 class FeatureTrackingModule(Module):
 
     def __init__(self, log_dir: pathlib.Path, args=None):
         super(FeatureTrackingModule, self).__init__(name="feature_tracking_module", outputs=[("feature_point_pairs", 10), ("feature_point_pairs_vis", 10)],
-                                                    inputs=["drivers_module:images"], requests=[("position_estimation_module:position_request")],
+                                                    inputs=["drivers_module:images"],
                                                     log_dir=log_dir)
 
     def start(self):
         self.old_timestamp = None
         self.old_keypoints = None
         self.old_descriptors = None
-        self.old_pose = None
+        # self.old_pose = None
 
         self.request_counter = 0
 
@@ -35,6 +31,8 @@ class FeatureTrackingModule(Module):
         # create cv2 ORB feature descriptor and brute force matcher object
         self.orb = cv2.ORB_create(nfeatures=self.max_num_keypoints)
         self.matcher = cv2.BFMatcher_create(cv2.NORM_HAMMING, crossCheck=True)
+
+        self.intrinsic_matrix = np.array([[2581.33211, 0, 320], [0, 2576, 240], [0, 0, 1]])
 
         while True:
             img_dict = self.get("drivers_module:images")
@@ -48,7 +46,7 @@ class FeatureTrackingModule(Module):
                 timestamp = img_dict["timestamp"]
 
                 # request the pose of the camera at this time stamp from the position_estimation_module
-                self.make_request("position_estimation_module:position_request", {"id" : self.request_counter, "payload": timestamp})
+                # self.make_request("position_estimation_module:position_request", {"id" : self.request_counter, "payload": timestamp})
                 self.request_counter += 1
 
                 self.logger.debug(f"Processing image with timestamp {timestamp} ...")
@@ -57,12 +55,12 @@ class FeatureTrackingModule(Module):
                 keypoints, descriptors = self.extract_feature_descriptors(img)
 
                 # get the new pose and compute the difference to the old one
-                position_request_response = self.await_response("position_estimation_module:position_request")
-                position_request = position_request_response["payload"]
-                self.logger.critical(position_request)
-                r = Rotation.from_euler('xyz', [position_request["roll"], position_request["pitch"], position_request["yaw"]], degrees=True)
-                t = [[position_request["x"]], [position_request["y"]], [position_request["z"]]]
-                pose = np.concatenate((r.as_matrix(), t), axis=1)
+                # position_request_response = self.await_response("position_estimation_module:position_request")
+                # position_request = position_request_response["payload"]
+                # self.logger.critical(position_request)
+                # r = Rotation.from_euler('xyz', [position_request["roll"], position_request["pitch"], position_request["yaw"]], degrees=True)
+                # t = [[position_request["x"]], [position_request["y"]], [position_request["z"]]]
+                # pose = np.concatenate((r.as_matrix(), t), axis=1)
 
                 # only do feature matching if there were keypoints found in the new image, discard it otherwise
                 if len(keypoints) == 0:
@@ -78,17 +76,18 @@ class FeatureTrackingModule(Module):
                             self.logger.warn("Couldn't find any matching features in the images with timestamps: " +
                                             f"{old_timestamp} and {timestamp}")
                         else:
-                            pose_pair = np.concatenate((self.old_pose[np.newaxis, :, :], pose[np.newaxis, :, :]), axis=0)
+                            pass
+                            # pose_pair = np.concatenate((self.old_pose[np.newaxis, :, :], pose[np.newaxis, :, :]), axis=0)
                             # visualization_img = self.visualize_matches(img, keypoints, inliers, total_nr_matches)
 
-                            self.publish("feature_point_pairs",
-                                         {"camera_positions" : pose_pair,
-                                          "point_pairs": inliers},
-                                         1000, timestamp)
-                            self.publish("feature_point_pairs_vis",
-                                         {"camera_positions" : (pose, pose),
-                                          "point_pairs": inliers},
-                                         1000, timestamp)
+                            # self.publish("feature_point_pairs",
+                            #              {"camera_positions" : pose_pair,
+                            #               "point_pairs": inliers},
+                            #              1000, timestamp)
+                            # self.publish("feature_point_pairs_vis",
+                            #              {"camera_positions" : (pose, pose),
+                            #               "point_pairs": inliers},
+                            #              1000, timestamp)
 
                     # store the date of the new image as old_img... for the next iteration
                     # If there are no features found in the new image this step is skipped
@@ -96,7 +95,7 @@ class FeatureTrackingModule(Module):
                     self.old_timestamp = timestamp
                     self.old_keypoints = keypoints
                     self.old_descriptors = descriptors
-                    self.old_pose = pose
+                    # self.old_pose = pose
 
     def extract_feature_descriptors(self, img: np.ndarray) -> (list, np.ndarray):
         # first detect the ORB keypoints and then compute the feature descriptors of those points
@@ -119,7 +118,10 @@ class FeatureTrackingModule(Module):
         if len(matches) > 10:
             # if we found enough matches do a RANSAC search to find inliers corresponding to one homography
             # TODO: add camera pose info to improve matching
-            _, mask = cv2.findHomography(old_match_points, match_points, cv2.RANSAC, 1.0)
+            homography, mask = cv2.findHomography(old_match_points, match_points, cv2.RANSAC, 1.0)
+            ret = cv2.decomposeHomographyMat(homography, self.intrinsic_matrix)
+            angles = self.rotationMatrixToEulerAngles(ret[1][0])
+            print(angles)
             old_match_points = old_match_points[mask.ravel().astype(bool)]
             match_points = match_points[mask.ravel().astype(bool)]
         else:
@@ -153,3 +155,28 @@ class FeatureTrackingModule(Module):
                    (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
 
         return visualization_img
+
+    # Checks if a matrix is a valid rotation matrix.
+    def isRotationMatrix(self, R) :
+        Rt = np.transpose(R)
+        shouldBeIdentity = np.dot(Rt, R)
+        I = np.identity(3, dtype = R.dtype)
+        n = np.linalg.norm(I - shouldBeIdentity)
+        print(n)
+        return n < 0.01
+
+    def rotationMatrixToEulerAngles(self, R) :
+        assert(self.isRotationMatrix(R))
+
+        sy = math.sqrt(R[0,0] * R[0,0] +  R[1,0] * R[1,0])
+        singular = sy < 1e-6
+
+        if  not singular :
+            x = math.atan2(R[2,1] , R[2,2])
+            y = math.atan2(-R[2,0], sy)
+            z = math.atan2(R[1,0], R[0,0])
+        else :
+            x = math.atan2(-R[1,2], R[1,1])
+            y = math.atan2(-R[2,0], sy)
+            z = 0
+        return np.array([x, y, z])

@@ -47,12 +47,12 @@ if __name__ == '__main__':
 
     pipeline.add_module(EkfModule, log_level=logging.DEBUG)
 
-    # if not args.record:
+    if not args.record:
         # Handles IMU data to compute a position estimation
-        # pipeline.add_module(PositionEstimationModule, log_level=logging.WARNING)
+        # pipeline.add_module(PositionEstimationModule, log_level=logging.WARNING)
 
         # Handles feature tracking
-        # pipeline.add_module(FeatureTrackingModule, log_level=logging.WARNING)
+        pipeline.add_module(FeatureTrackingModule, log_level=logging.WARNING)
 
         # Handles reprojection
         # pipeline.add_module(ReprojectionModule, log_level=logging.WARNING)
