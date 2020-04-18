@@ -4,6 +4,8 @@ from time import sleep
 from math import *
 from scipy.spatial.transform import Rotation as R
 
+import numpy as np
+
 from ..module import Module
 from ...utils import DEFAULT_DATASET
 
@@ -17,12 +19,13 @@ class EkfModule(Module):
     def __init__(self, log_dir: Path, args=None):
         super(EkfModule, self).__init__(name="ekf_module",
                                             outputs=[("position_vis", 10)],
-                                            inputs=["drivers_module:accelerations"], log_dir=log_dir)
+                                            inputs=["drivers_module:accelerations", "feature_tracking_module:visual_data"],
+                                            log_dir=log_dir)
         self.args = args
 
     def start(self):
         # Contains window of raw accel data
-        self.imu_data_raw = {var: list() for var in ["accel_x", "accel_y", "accel_z", "gyro_x", "gyro_y", "gyro_z"]}
+        self.data_raw = {var: list() for var in ["accel_x", "accel_y", "accel_z", "gyro_x", "gyro_y", "gyro_z", "angle_x_vis", "angle_y_vis", "angle_z_vis"]}
 
         # Low pass filtered sensor values
         self.accel_x_lp = 0.0 # IMU Frame low pass filtered accel x data
@@ -31,6 +34,15 @@ class EkfModule(Module):
         self.gyro_x_lp = 0.0 # IMU Frame low pass filtered gyro x data
         self.gyro_y_lp = 0.0 # IMU Frame low pass filtered gyro y data
         self.gyro_z_lp = 0.0 # IMU Frame low pass filtered gyro z data
+
+        # Visual odometry
+        self.angle_x_vis = 0.0
+        self.angle_y_vis = 0.0
+        self.angle_z_vis = 0.0
+        self.angle_x_vis_lp = 0.0 # Visual odometry x angle low pass filtered
+        self.angle_y_vis_lp = 0.0 # Visual odometry y angle low pass filtered
+        self.angle_z_vis_lp = 0.0 # Visual odometry z angle low pass filtered
+        self.got_odometry_data = False
 
         # Pitch, roll, yaw estimates
         self.pitch_est = 0.0
@@ -48,11 +60,11 @@ class EkfModule(Module):
         self.world_z = 0
 
         while True:
-            sleep(0.05)
-
             # Get the data
             data = self.get("drivers_module:accelerations")
             if data:
+                data_pos = data["data"]
+
                 # Dt calculation
                 self.ts_last_ms = self.ts_ms
                 self.ts_ms = data["data"]["timestamp"]
@@ -63,8 +75,17 @@ class EkfModule(Module):
 
                 self.dt_s = (self.ts_ms - self.ts_last_ms)/1000.0
 
+                # Try to get visual data for position
+                visual_data = self.get("feature_tracking_module:visual_data")
+                if visual_data and not visual_data["data"]["angles"].any() == np.nan:
+                    self.angle_x_vis += visual_data["data"]["angles"][0]
+                    self.angle_y_vis += visual_data["data"]["angles"][1]
+                    self.angle_z_vis += visual_data["data"]["angles"][2]
+                    self.got_odometry_data = True
+
+
                 # Low pass filter the data, updates _lp values
-                self.apply_low_pass_filters(data["data"])
+                self.apply_low_pass_filters(data_pos)
 
                 # Complementary filter
                 self.apply_complementary_filter()
@@ -90,7 +111,7 @@ class EkfModule(Module):
                      "angle_y": self.pitch_est,
                      "angle_z": self.yaw_est}
 
-        self.publish("position_vis", data_dict, 1000, timestamp=self.ts_ms)
+        self.publish("position_vis", data_dict, 1000)
 
     def apply_complementary_filter(self):
         # Pitch and roll based on accel
@@ -109,23 +130,32 @@ class EkfModule(Module):
         # Apply complementary filter
         self.pitch_est = (1.0 - ALPHA_CF)*(self.pitch_est + pitch_gyro*self.dt_s) + ALPHA_CF * pitch_accel
         self.roll_est = (1.0 - ALPHA_CF)*(self.roll_est + roll_gyro*self.dt_s) + ALPHA_CF * roll_accel
-        self.yaw_est = yaw_gyro
+        self.yaw_est += yaw_gyro*self.dt_s
 
     def apply_low_pass_filters(self, data):
         # Low pass filter accel data
-        self.accel_x_lp = self.low_pass(data["accel_x"], self.imu_data_raw["accel_x"])
-        self.accel_y_lp = self.low_pass(data["accel_y"], self.imu_data_raw["accel_y"])
-        self.accel_z_lp = self.low_pass(data["accel_z"], self.imu_data_raw["accel_z"])
+        self.accel_x_lp = self.low_pass(data["accel_x"], self.data_raw["accel_x"])
+        self.accel_y_lp = self.low_pass(data["accel_y"], self.data_raw["accel_y"])
+        self.accel_z_lp = self.low_pass(data["accel_z"], self.data_raw["accel_z"])
 
-        # Low pass filter
-        self.gyro_x_lp = self.low_pass(data["gyro_x"], self.imu_data_raw["gyro_x"], is_angle=True)
-        self.gyro_y_lp = self.low_pass(data["gyro_y"], self.imu_data_raw["gyro_y"], is_angle=True)
-        self.gyro_z_lp = self.low_pass(data["gyro_z"], self.imu_data_raw["gyro_z"], is_angle=True)
+        # Low pass filter gyro data
+        self.gyro_x_lp = self.low_pass(data["gyro_x"], self.data_raw["gyro_x"], is_degrees=True)
+        self.gyro_y_lp = self.low_pass(data["gyro_y"], self.data_raw["gyro_y"], is_degrees=True)
+        self.gyro_z_lp = self.low_pass(data["gyro_z"], self.data_raw["gyro_z"], is_degrees=True)
 
-    def low_pass(self, val, data_raw, max_len=LP_LEN, is_angle=False):
+        # Low pass filter visual data
+        if self.got_odometry_data:
+            self.got_odometry_data = False
+            self.angle_x_vis_lp = self.low_pass(self.angle_x_vis, self.data_raw["angle_x_vis"])
+            self.angle_y_vis_lp = self.low_pass(self.angle_y_vis, self.data_raw["angle_y_vis"])
+            self.angle_z_vis_lp = self.low_pass(self.angle_z_vis, self.data_raw["angle_z_vis"])
+
+
+    def low_pass(self, val, data_raw, max_len=LP_LEN, is_degrees=False):
         val = float(val)
 
-        if is_angle:
+        # If it is in degrees, convert to radians
+        if is_degrees:
             val = val*DEG_TO_RAD
 
         # Only keep LP_LEN data points

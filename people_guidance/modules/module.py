@@ -78,7 +78,7 @@ class Module:
 
         def is_valid(msg_body_item: Dict):
             return msg_body_item is not None and msg_body_item['timestamp'] + \
-                   msg_body_item['validity'] < self.get_time_ms()
+                   msg_body_item['validity'] > self.get_time_ms()
 
         try:
             msg_body = None

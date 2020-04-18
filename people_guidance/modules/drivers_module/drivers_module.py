@@ -158,7 +158,7 @@ class DriversModule(Module):
                         # In normal mode we just publish the image
 
                         self.publish("images", data_dict, IMAGES_VALIDITY_MS)
-                        self.publish("preview", data, IMAGES_VALIDITY_MS)
+                        self.publish("preview", data_dict, IMAGES_VALIDITY_MS)
             else:
                 # We are in replay mode
                 if not self.img_timestamp:

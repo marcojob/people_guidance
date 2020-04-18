@@ -11,7 +11,7 @@ from pathlib import Path
 from ..module import Module
 
 HOST = "127.0.0.1"  # Host IP
-PORT = 65432  # Port
+PORT = 65431  # Port
 PREVIEW_FRAMESIZE = (640, 480)
 POS_PLOT_HZ = 5
 REPOINTS_PLOT_HZ = 5
@@ -56,7 +56,7 @@ class VisualizationModule(Module):
         features_dict = dict()
 
         while True:
-            sleep(2.0/PREVIEW_PLOT_HZ)
+            sleep(1.0/PREVIEW_PLOT_HZ)
             # POS DATA HANDLING
             if pos_last_ms is None:
                 pos_vis = self.get("ekf_module:position_vis")
@@ -77,6 +77,7 @@ class VisualizationModule(Module):
                                         pos_vis["data"]["angle_x"],
                                         pos_vis["data"]["angle_y"],
                                         pos_vis["data"]["angle_z"]], dtype='float32').tobytes()
+                    print(pos_vis["data"]["angle_z"])
                     # Len of pos_data
                     buf_len = np.array([len(pos_buf)], dtype='uint32')
 

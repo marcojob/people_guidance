@@ -17,7 +17,7 @@ from scipy.spatial.transform import Rotation as R
 from time import sleep
 
 HOST = ""  # Host IP
-PORT = 65432  # Port
+PORT = 65431  # Port
 TOPIC_LIST = ["pos_x", "pos_y", "pos_z", "angle_x", "angle_y", "angle_z", "preview", "r_pos_x", "r_pos_y", "r_pos_z"]  # All topics
 
 
@@ -53,21 +53,22 @@ def animate_pos():
     global line_x, line_y, line_z
 
     # Current position and angles
-    pos_x = data_dict["pos_x"][-1]
-    pos_y = data_dict["pos_y"][-1]
-    pos_z = data_dict["pos_z"][-1]
+    pos_x = 0#data_dict["pos_x"][-1]
+    pos_y = 0#data_dict["pos_y"][-1]
+    pos_z = 0#data_dict["pos_z"][-1]
     angle_x = data_dict["angle_x"][-1]
     angle_y = data_dict["angle_y"][-1]
     angle_z = data_dict["angle_z"][-1]
-    r = R.from_rotvec(np.array([0, 0, angle_z])).as_matrix()
+    r = R.from_rotvec(np.array([0, 0, -angle_z])).as_matrix()
+    print(angle_z)
     sc_xy = 5
-    sc_z = 0.5
+    sc_z = 1
 
     if scatter_p == None:
         ax_list["pos"].set_title("pos")
-        ax_list["pos"].set_xlim((-5, 15))
-        ax_list["pos"].set_ylim((-5, 15))
-        ax_list["pos"].set_zlim((-0.5, 1.5))
+        ax_list["pos"].set_xlim((-5, 5))
+        ax_list["pos"].set_ylim((-5, 5))
+        ax_list["pos"].set_zlim((-0, 2))
 
         scatter_p = ax_list["pos"].scatter(
             data_dict["pos_x"], data_dict["pos_y"], data_dict["pos_z"])

@@ -12,7 +12,8 @@ from people_guidance.utils import project_path
 class FeatureTrackingModule(Module):
 
     def __init__(self, log_dir: pathlib.Path, args=None):
-        super(FeatureTrackingModule, self).__init__(name="feature_tracking_module", outputs=[("feature_point_pairs", 10), ("feature_point_pairs_vis", 10)],
+        super(FeatureTrackingModule, self).__init__(name="feature_tracking_module",
+                                                    outputs=[("feature_point_pairs", 10), ("feature_point_pairs_vis", 10), ("visual_data", 100)],
                                                     inputs=["drivers_module:images"],
                                                     log_dir=log_dir)
 
@@ -36,11 +37,7 @@ class FeatureTrackingModule(Module):
 
         while True:
             img_dict = self.get("drivers_module:images")
-
-            if not img_dict:
-                sleep(1)
-                self.logger.warn("queue was empty")
-            else:
+            if img_dict:
                 # extract the image data and time stamp
                 img_encoded = img_dict["data"]["data"]
                 timestamp = img_dict["timestamp"]
@@ -69,14 +66,13 @@ class FeatureTrackingModule(Module):
                     if self.old_descriptors is not None:  # skip the matching step for the first image
                         # match the feature descriptors of the old and new image
 
-                        inliers, total_nr_matches = self.match_features(keypoints, descriptors)
+                        inliers, total_nr_matches, visual_angles = self.match_features(keypoints, descriptors)
 
                         if inliers.shape[2] == 0:
                             # there were 0 inliers found, print a warning
                             self.logger.warn("Couldn't find any matching features in the images with timestamps: " +
                                             f"{old_timestamp} and {timestamp}")
                         else:
-                            pass
                             # pose_pair = np.concatenate((self.old_pose[np.newaxis, :, :], pose[np.newaxis, :, :]), axis=0)
                             # visualization_img = self.visualize_matches(img, keypoints, inliers, total_nr_matches)
 
@@ -88,6 +84,9 @@ class FeatureTrackingModule(Module):
                             #              {"camera_positions" : (pose, pose),
                             #               "point_pairs": inliers},
                             #              1000, timestamp)
+                            if isinstance(visual_angles, type(None)):
+                                visual_angles = np.array([np.nan, np.nan, np.nan])
+                            self.publish("visual_data", {"angles": visual_angles}, 500)
 
                     # store the date of the new image as old_img... for the next iteration
                     # If there are no features found in the new image this step is skipped
@@ -119,13 +118,15 @@ class FeatureTrackingModule(Module):
             # if we found enough matches do a RANSAC search to find inliers corresponding to one homography
             # TODO: add camera pose info to improve matching
             homography, mask = cv2.findHomography(old_match_points, match_points, cv2.RANSAC, 1.0)
+
             ret = cv2.decomposeHomographyMat(homography, self.intrinsic_matrix)
             angles = self.rotationMatrixToEulerAngles(ret[1][0])
-            print(angles*180.0/math.pi)
+
             old_match_points = old_match_points[mask.ravel().astype(bool)]
             match_points = match_points[mask.ravel().astype(bool)]
         else:
             mask = list()
+            angles = None
 
         # add the two matrixes together, first dimension are all the matches,
         # second dimension is image 1 and 2, thrid dimension is x and y
@@ -138,7 +139,7 @@ class FeatureTrackingModule(Module):
 
         total_nr_matches = len(matches) if len(matches) <= 10 else len(mask)
 
-        return (matches_paired, total_nr_matches)
+        return (matches_paired, total_nr_matches, angles)
 
     def visualize_matches(self, img, keypoints, inliers, nb_matches):
         visualization_img = cv2.drawKeypoints(img, keypoints, None, color=(0,255,0), flags=0)
