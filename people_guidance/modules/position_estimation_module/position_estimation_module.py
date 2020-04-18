@@ -1,7 +1,7 @@
 import io
 import platform
 import re
-import math
+from math import tan, atan2, cos, sin, pi, sqrt
 import logging
 from time import sleep, monotonic
 from scipy.spatial.transform import Rotation as R
@@ -20,9 +20,9 @@ from ..module import Module
 from ...utils import DEFAULT_DATASET
 from .position import Position, new_empty_position, new_interpolated_position
 
-# TODO: IMU data (acceleration) needs to be multiplied by (-1) to compensate for calculation error
+# TODO: IMU data (acceleration) needs to be multiplied by (-1) to compensate for calculation errors in previous datasets
 # TODO: Remove the hardcoded change in this file for further datasets recorded after the correction.
-HARDCODED_NEGATIVE_CORRECTION = 1 # |-1| for datasets_3 with old IMU data
+HARDCODED_NEGATIVE_CORRECTION = 1 # |-1| for datasets_3 with old IMU data or earlier datasets
 
 ''' 
 Coordinates valid for the IMU only : looking at the front of the camera,  x points upwards, 
@@ -53,13 +53,12 @@ class PositionEstimationModule(Module):
 
         self.event_timestamps: Dict[str, float] = {}  # keep track of when events (classified by name) happened last
         self.speed: Dict[str, float] = {"x": 0.0, "y": 0.0, "z": 0.0}
-        self.acceleration: Dict[str, float] = {"x": 0.0, "y": 0.0, "z": 0.0}
+        self.acceleration: Dict[str, float] = {"x": 0.0, "y": 0.0, "z": 0.0, "x_last": 0.0, "y_last": 0.0, "z_last": 0.0}
 
         self.counter_same_request = 0
 
     def start(self):
         # TODO: evaluate position quality
-        # TODO: save last few estimations with absolute timestamp
         self.services["position_request"].register_handler(self.position_request)
 
         while True:
@@ -71,14 +70,14 @@ class PositionEstimationModule(Module):
         if not input_data:
             sleep(0.0001)
         else:
-            frame = self.frame_from_input_data(input_data)  # m/s^2 // °/s to rad/s # TODO : check if always °?
+            frame = self.frame_from_input_data(input_data)  # m/s^2 // °/s to rad/s
 
             if self.prev_imu_frame is None:
                 # if the frame we just received is the first one we have received.
                 self.prev_imu_frame = frame  # TODO: check where used. should use rotated elements instead?
             else:
                 # TODO: do not track and do not update if the timestamp did not change (dt = 0)
-                # ERROR description : 91426359 appears twice in the printed list.
+                # ERROR description : 91426359 appears twice in the printed list (old dataset_3).
                 self.update_position(frame)
                 self.append_tracked_positions()
 
@@ -100,12 +99,13 @@ class PositionEstimationModule(Module):
     def frame_from_input_data(input_data: Dict) -> IMUFrame:
         # In Camera coordinates: Z = X_IMU, X = -Z_IMU, Y = Y_IMU (-90° rotation around the Y axis)
         return IMUFrame(
-            ax=HARDCODED_NEGATIVE_CORRECTION * -float(input_data['data']['accel_z']),
+            ax=HARDCODED_NEGATIVE_CORRECTION * float(input_data['data']['accel_z']),
+            # ^Correction, no sign '-' for dataset 3 & onwards needed
             ay=HARDCODED_NEGATIVE_CORRECTION * float(input_data['data']['accel_y']),
             az=HARDCODED_NEGATIVE_CORRECTION * float(input_data['data']['accel_x']),
-            gx=-float(input_data['data']['gyro_z']) * math.pi / 180,
-            gy=float(input_data['data']['gyro_y']) * math.pi / 180,
-            gz=float(input_data['data']['gyro_x']) * math.pi / 180,
+            gx=-float(input_data['data']['gyro_z']) * pi / 180,
+            gy=float(input_data['data']['gyro_y']) * pi / 180,
+            gz=float(input_data['data']['gyro_x']) * pi / 180,
             ts=input_data['timestamp']
         )
 
@@ -147,11 +147,11 @@ class PositionEstimationModule(Module):
         # Only integrate for the yaw
         self.pos.yaw += frame.gz * dt # |not ok|
         # Compensate for drift with accelerometer data https: // philsal.co.uk / projects / imu - attitude - estimation
-        roll_accel = math.atan2(frame.ay, math.sqrt(frame.ax ** 2 + frame.az ** 2)) # scalar to rad |ok|
-        pitch_accel = math.atan2(-frame.ax, math.sqrt(frame.ay ** 2 + frame.az ** 2)) # scalar to rad |needs a -|
+        roll_accel = atan2(frame.ay, sqrt(frame.ax ** 2 + frame.az ** 2)) # scalar to rad |ok|
+        pitch_accel = atan2(-frame.ax, sqrt(frame.ay ** 2 + frame.az ** 2)) # scalar to rad |needs a -|
         # Gyro data
-        roll_vel_gyro = frame.gz + (frame.gz * math.sin(self.pos.roll) + frame.gz * math.cos(self.pos.roll)) * math.tan(self.pos.pitch)
-        pitch_vel_gyro = frame.gy * math.cos(self.pos.roll) - frame.gz * math.sin(self.pos.roll)
+        roll_vel_gyro = frame.gz + (frame.gz * sin(self.pos.roll) + frame.gz * cos(self.pos.roll)) * tan(self.pos.pitch)
+        pitch_vel_gyro = frame.gy * cos(self.pos.roll) - frame.gz * sin(self.pos.roll)
         # Update estimation
 
         self.pos.roll = (1.0 - ALPHA_COMPLEMENTARY_FILTER) * (self.pos.roll + roll_vel_gyro * dt) \
@@ -160,18 +160,20 @@ class PositionEstimationModule(Module):
                          + ALPHA_COMPLEMENTARY_FILTER * pitch_accel
 
     def complementary_filter_new(self, frame: IMUFrame, dt: float):  # TODO: check formulas
-        roll_accel_hat = math.atan2(frame.ay, math.sqrt(frame.ax ** 2 + frame.az ** 2))  # scalar to rad |ok|
-        pitch_accel_hat = math.atan2(-frame.ax, math.sqrt(frame.ay ** 2 + frame.az ** 2))  # scalar to rad |ok|
+        roll_accel_hat = atan2(frame.ay, sqrt(frame.ax ** 2 + frame.az ** 2))  # scalar to rad |ok|
+        pitch_accel_hat = atan2(-frame.ax, sqrt(frame.ay ** 2 + frame.az ** 2))  # scalar to rad |ok|
 
-        roll_gyr_hat = self.pos.roll + dt * (frame.gx + math.sin(self.pos.roll) * math.tan(self.pos.pitch) * frame.gy
-                                             + math.cos(self.pos.roll) * math.tan(self.pos.pitch) * frame.gz) # not sure
-        pitch_gyr_hat = self.pos.pitch + dt * (math.cos(self.pos.roll) * frame.gy - math.sin(self.pos.roll) * frame.gz) # not sure
+        #TODO : g drehen???
 
-        math_cos_pitch = math.cos(self.pos.pitch)
+        roll_gyr_hat = self.pos.roll + dt * (frame.gx + sin(self.pos.roll) * tan(self.pos.pitch) * frame.gy
+                                             + cos(self.pos.roll) * tan(self.pos.pitch) * frame.gz) # not sure
+        pitch_gyr_hat = self.pos.pitch + dt * (cos(self.pos.roll) * frame.gy - sin(self.pos.roll) * frame.gz) # not sure
+
+        math_cos_pitch = cos(self.pos.pitch)
         if not round(math_cos_pitch, 4) : # no division by 0 allowed
             math_cos_pitch = 0.001
-        self.pos.yaw = self.pos.yaw + dt * (math.sin(self.pos.roll) / math_cos_pitch * frame.gy
-                                            + math.cos(self.pos.roll) / math_cos_pitch * frame.gz) # not sure
+        self.pos.yaw = self.pos.yaw + dt * (sin(self.pos.roll) / math_cos_pitch * frame.gy
+                                            + cos(self.pos.roll) / math_cos_pitch * frame.gz) # not sure
 
         self.pos.roll = (1.0 - ALPHA_COMPLEMENTARY_FILTER) * roll_gyr_hat + ALPHA_COMPLEMENTARY_FILTER * roll_accel_hat # |ok|
         self.pos.pitch = (1.0 - ALPHA_COMPLEMENTARY_FILTER) * pitch_gyr_hat + ALPHA_COMPLEMENTARY_FILTER * pitch_accel_hat # |ok|
@@ -180,13 +182,20 @@ class PositionEstimationModule(Module):
         # Integrate the acceleration after transforming the acceleration in world coordinates
         if METHOD_ERROR_ACC_CORRECTION:
             corr_acc = CORRECTION_ACC
-        elif METHOD_ERROR_ACC_CORRECTION:
+        if METHOD_ERROR_ACC_CORRECTION_AUTO:
             corr_acc = self.drift_tracking["auto_result"]
-        self.acceleration_after_rotation_gravity_compensation_correction(frame, corr_from_measurements=CORRECTION_ACC)
 
-        self.speed["x"] += self.acceleration["x"] * dt
-        self.speed["y"] += self.acceleration["y"] * dt
-        self.speed["z"] += self.acceleration["z"] * dt
+        [self.acceleration["x_alt"], self.acceleration["x_alt"], self.acceleration["x_alt"]] = [
+            self.acceleration["x"], self.acceleration["y"], self.acceleration["z"]
+        ]
+
+        if METHOD_SCIPY_ROTATION:
+            self.acceleration_after_rotation_gravity_compensation_correction(frame, corr_from_measurements=CORRECTION_ACC)
+        else:
+            acc_vector_imu_frame = self.rotation_coordinate_frame([frame.ax, frame.ay, frame.az], way="IMU_to_inertial")
+            self.gravity_compensation_correction(acc_vector_imu_frame, corr_from_measurements=CORRECTION_ACC)
+
+        #self.direct_2_integration()
 
         # Measure the sum of the deviation from 0
         self.drift_measurement(dt)
@@ -195,9 +204,14 @@ class PositionEstimationModule(Module):
         self.dampen_velocity()
 
         # Integrate to get the position
-        self.pos.x += self.speed["x"] * dt
-        self.pos.y += self.speed["y"] * dt
-        self.pos.z += self.speed["z"] * dt
+        self.pos.x += self.speed["x"] * dt + 0.5 * self.acceleration["x"] * dt * dt
+        self.pos.y += self.speed["y"] * dt + 0.5 * self.acceleration["y"] * dt * dt
+        self.pos.z += self.speed["z"] * dt + 0.5 * self.acceleration["z"] * dt * dt
+
+        # Update speed
+        self.speed["x"] += self.acceleration["x"] * dt
+        self.speed["y"] += self.acceleration["y"] * dt
+        self.speed["z"] += self.acceleration["z"] * dt
 
         self.const_frequency_log("new_element_and_timestamp", POSITION_PUBLISH_NEW_TIMESTAMP,
                                  f"Position updated at timestamp: {frame.ts}, time interval: {dt}",
@@ -207,13 +221,55 @@ class PositionEstimationModule(Module):
                                  f"Corrected speed : {[self.speed['x'], self.speed['y'], self.speed['z']]} "
                                  )
 
+    def direct_2_integration(self):
+        if NO_VELOCITY_ONLY_ACC_INTEGRATION:
+            self.speed["x"] = 0
+            self.speed["y"] = 0
+            self.speed["z"] = 0
+
+    def rotation_coordinate_frame(self, vector: List, way="none") -> List:
+        # rotate a given vector expressed in the inertial coordinate system so that it is expressed in the IMU coordinate system
+        # rotation around the axis of the inertial frame!
+        # Radians only!
+        # Rotations possible: way="inertial_to_IMU", way="IMU_to_inertial"
+        if len(vector) != 3:
+            print("Wrong vector input for rotation, returning original input vector")
+            return vector
+        [xx, yy, zz] = [self.pos.roll, self.pos.pitch, self.pos.yaw]
+        x = np.array(
+            [[1,    0.,         0.],
+             [0.,   cos(xx),    -sin(xx)],
+             [0,    sin(xx),    cos(xx)]])
+        y = np.array(
+            [[cos(yy),  0., sin(yy)],
+             [0.,       1,  0],
+             [-sin(yy), 0,  cos(yy)]])
+        z = np.array(
+            [[cos(zz),  -sin(zz),   0.],
+             [sin(zz),  cos(zz),    0],
+             [0,        0,          1]])
+        rotation = np.round(np.matmul(np.matmul(x, y), z), 6)
+        if way=="inertial_to_IMU":
+            # forward, all good
+            pass
+        elif way=="IMU_to_inertial":
+            # backward, need to transpose
+            rotation = rotation.transpose()
+        else:
+            self.logger.critical("no compatible rotation direction given, returning forward rotation")
+        return rotation.dot(vector)
+
+    def gravity_compensation_correction(self, vector, corr_from_measurements) -> None:
+        # rotation to starting coordinates and gravity compensation
+        [self.acceleration["x"], self.acceleration["y"], self.acceleration["z"]] = vector - [0, 0, ACCEL_G] - corr_from_measurements #TODO: corr gyro
+
     def acceleration_after_rotation_gravity_compensation_correction(self, frame: IMUFrame, corr_from_measurements):
-        r = R.from_euler('xyz', [self.pos.roll, self.pos.pitch, self.pos.yaw], degrees=False) # Rad!
+        r = R.from_euler('xyz', [self.pos.roll, self.pos.pitch, self.pos.yaw], degrees=False).inv() # Rad!
         # rotation to starting coordinates and gravity compensation
         [self.acceleration["x"], self.acceleration["y"], self.acceleration["z"]] = r.apply([frame.ax, frame.ay, frame.az]) \
                                                                                    - [0, 0, ACCEL_G] - corr_from_measurements
 
-    def drift_measurement(self, dt: float):  # TODO: add type Vorschlag
+    def drift_measurement(self, dt: float) -> None:  # TODO add gyro reset
         # Calculate the mean for drift compensation
         if MEASURE_SUMMED_ERROR_ACC:
             self.drift_tracking["total_time"] += dt
@@ -240,20 +296,20 @@ class PositionEstimationModule(Module):
                     self.drift_tracking["total_acc_y"] += self.acceleration["y"]
                     self.drift_tracking["total_acc_z"] += self.acceleration["z"]
                     self.drift_tracking["total_acc_avg_x"] = round(
-                        self.drift_tracking["total_acc_x"] / self.drift_tracking["n_elt_summed"], 3)
+                        self.drift_tracking["total_acc_x"] / self.drift_tracking["n_elt_summed"], 6)
                     self.drift_tracking["total_acc_avg_y"] = round(
-                        self.drift_tracking["total_acc_y"] / self.drift_tracking["n_elt_summed"], 3)
+                        self.drift_tracking["total_acc_y"] / self.drift_tracking["n_elt_summed"], 6)
                     self.drift_tracking["total_acc_avg_z"] = round(
-                        self.drift_tracking["total_acc_z"] / self.drift_tracking["n_elt_summed"], 3)
-                    self.drift_tracking["total_g_x"] += self.acceleration["x"]
-                    self.drift_tracking["total_g_y"] += self.acceleration["y"]
-                    self.drift_tracking["total_g_z"] += self.acceleration["z"]
-                    self.drift_tracking["total_g_avg_x"] = round(
-                        self.drift_tracking["total_g_x"] / self.drift_tracking["n_elt_summed"], 3)
-                    self.drift_tracking["total_g_avg_y"] = round(
-                        self.drift_tracking["total_g_y"] / self.drift_tracking["n_elt_summed"], 3)
-                    self.drift_tracking["total_g_avg_z"] = round(
-                        self.drift_tracking["total_g_z"] / self.drift_tracking["n_elt_summed"], 3)
+                        self.drift_tracking["total_acc_z"] / self.drift_tracking["n_elt_summed"], 6)
+                    # self.drift_tracking["total_g_x"] += self.acceleration["x"]
+                    # self.drift_tracking["total_g_y"] += self.acceleration["y"]
+                    # self.drift_tracking["total_g_z"] += self.acceleration["z"]
+                    # self.drift_tracking["total_g_avg_x"] = round(
+                    #     self.drift_tracking["total_g_x"] / self.drift_tracking["n_elt_summed"], 6)
+                    # self.drift_tracking["total_g_avg_y"] = round(
+                    #     self.drift_tracking["total_g_y"] / self.drift_tracking["n_elt_summed"], 6)
+                    # self.drift_tracking["total_g_avg_z"] = round(
+                    #     self.drift_tracking["total_g_z"] / self.drift_tracking["n_elt_summed"], 6)
                 else:
                     # done measuring
                     self.drift_tracking["auto_state"] = 1
@@ -263,15 +319,15 @@ class PositionEstimationModule(Module):
                     self.logger.info(f"Automatic measurement done, correction : {self.drift_tracking['auto_result']}")
                     self.speed["x"], self.speed["y"], self.speed["z"] = 0, 0, 0
                     self.pos.x, self.pos.y, self.pos.z = 0, 0, 0
-                    self.pos.roll *= 0.01
-                    self.pos.pitch *= 0.01
-                    self.pos.yaw *= 0.01
+                    self.pos.roll = 0.0
+                    self.pos.pitch = 0.0
+                    self.pos.yaw = 0.0
                     self.logger.info(f"Done_measuring Drift - AUTOMATIC {self.drift_tracking}")
 
                 self.const_frequency_log("log_drift_stats", PUBLISH_SUMMED_MEASURE_ERROR_ACC,
                                          f"Drift - AUTOMATIC {self.drift_tracking}")
 
-    def dampen_velocity(self):  # TODO : reset dependent on dt
+    def dampen_velocity(self) -> None:  # TODO : reset dependent on dt
         if METHOD_RESET_VELOCITY:
             curr_time = monotonic()
             if "velocity_reset" not in self.event_timestamps or \
@@ -283,11 +339,11 @@ class PositionEstimationModule(Module):
 
                 self.event_timestamps["velocity_reset"] = curr_time
 
-    def limit_velocity(self):
+    def limit_velocity(self) -> None:
         # Walking velocity cannot be above 2m/s # TODO
-        return
+        pass
 
-    def publish_to_visualization(self):
+    def publish_to_visualization(self) -> None:
         curr_time = monotonic()
         if "last_visu_pub" not in self.event_timestamps or self.last_visualized_pos is None \
                 or (curr_time - self.event_timestamps["last_visu_pub"]) * POSITION_PUBLISH_FREQ > 1\
@@ -298,7 +354,7 @@ class PositionEstimationModule(Module):
                 self.last_visualized_pos = copy.deepcopy(self.pos)
                 self.event_timestamps["last_visu_pub"] = curr_time
 
-    def const_frequency_log(self, msg_name: str, frequency: int, msg: str, level=logging.INFO):
+    def const_frequency_log(self, msg_name: str, frequency: int, msg: str, level=logging.INFO) -> None:
         curr_time = monotonic()
         if msg_name not in self.event_timestamps or \
                 (curr_time - self.event_timestamps[msg_name]) * frequency > 1 or \
@@ -338,7 +394,7 @@ class PositionEstimationModule(Module):
             offset = self.pos.ts - requested_timestamp
             self.logger.info(f"Could not interpolate for position with timestamp {requested_timestamp}. "
                              f"Current offset {offset}, asked {self.counter_same_request} times")
-            if self.counter_same_request > 200:
+            if self.counter_same_request > 200: #TODO: REMOVE Quick fix
                 self.logger.warning(f"Not interpolating. Quick fix. requested {requested_timestamp}, "
                                     f"sending {self.tracked_positions[-1]}")
                 self.counter_same_request = 0

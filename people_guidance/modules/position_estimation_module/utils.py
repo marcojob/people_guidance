@@ -1,6 +1,5 @@
 import collections
 import platform
-import random
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -8,9 +7,11 @@ import matplotlib.pyplot as plt
 
 IMUFrame = collections.namedtuple("IMUFrame", ["ax", "ay", "az", "gx", "gy", "gz", "ts"])
 
+# Method for the rotation matrix
+METHOD_SCIPY_ROTATION = False
 
 # Debug mode
-VISUALIZE_LOCALLY = False
+VISUALIZE_LOCALLY = True
 if VISUALIZE_LOCALLY:
     import matplotlib.pyplot as plt
 
@@ -30,8 +31,11 @@ TRACK_FOR_REQUEST_POSITION_NUMBER_ELT_KEEP = 200
 # Complementary filter parameter
 ALPHA_COMPLEMENTARY_FILTER = 1
 
+# Direct double integration instead of acc -> vel -> pos
+NO_VELOCITY_ONLY_ACC_INTEGRATION = False
+
 # Reduce the velocity to reduce drift
-METHOD_RESET_VELOCITY = False
+METHOD_RESET_VELOCITY = True
 RESET_VEL_FREQ = 100 # select value above 100 to compensate after each step  TODO : prone to dt
 RESET_VEL_FREQ_COEF_X = 0.9
 RESET_VEL_FREQ_COEF_Y = 0.9
@@ -39,11 +43,13 @@ RESET_VEL_FREQ_COEF_Z = 0.9
 
 # Error calculation
 MEASURE_SUMMED_ERROR_ACC = False        # cannot use both
+METHOD_ERROR_ACC_CORRECTION = False # True, worse otherwise
+
 MEASURE_SUMMED_ERROR_ACC_AUTO = False    # cannot use both
+METHOD_ERROR_ACC_CORRECTION_AUTO = MEASURE_SUMMED_ERROR_ACC_AUTO
 MEASURE_ERROR_TIME_START = 0.2          # Start Calibration after [s]
 MEASURE_ERROR_TIME_STOP = 5             # Stop Calibration after [s]
 PUBLISH_SUMMED_MEASURE_ERROR_ACC = 0
-METHOD_ERROR_ACC_CORRECTION = True # True, worse otherwise
 
 # # dataset_1
 # SUM_DT_DATASET_1 = 9.622
