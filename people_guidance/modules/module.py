@@ -50,7 +50,7 @@ class Module:
         self.services: Dict[str, ModuleService] = {} if services is None \
             else {name: ModuleService(name) for name in services}
 
-        self.request_timeout = 5  # seconds
+        self.request_timeout = 1  # seconds
 
     def subscribe(self, channel: str, queue_obj: mp.Queue):
         return self.inputs.update({channel: queue_obj})
@@ -104,7 +104,11 @@ class Module:
 
     def await_response(self, target_name) -> Any:
         # this call blocks until a response is received.
-        return self.requests[target_name]["responses"].get(timeout=self.request_timeout)
+        try:
+            response = self.requests[target_name]["responses"].get(timeout=self.request_timeout)
+        except:
+            response = None
+        return response
 
     def handle_requests(self):
         for service_name in self.services:
@@ -126,12 +130,10 @@ class Module:
         if not service.responses.full() or service.active_request is not None:
             try:
                 handler_response = service.handler(request)
-                if handler_response is None:
-                    service.add_active_request(request)
-                else:
+                if not handler_response is None:
                     response = {"id": request["id"], "payload": handler_response}
                     service.responses.put_nowait(response)
-                    service.reset_active_request()
+                service.reset_active_request()
             except queue.Full:
                 raise full_exc
         else:

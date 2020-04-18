@@ -40,7 +40,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    pipeline = Pipeline(args)
+    pipeline = Pipeline(args, log_level=logging.INFO)
 
     # Handles hardware drivers and interfaces
     pipeline.add_module(DriversModule, log_level=logging.WARNING)
@@ -58,7 +58,7 @@ if __name__ == '__main__':
         # pipeline.add_module(ReprojectionModule, log_level=logging.WARNING)
 
     # If argument is specified we start visualization
-    if args.visualize:
+    if args.visualize or args.save_visualization:
         pipeline.add_module(VisualizationModule, log_level=logging.WARNING)
 
     pipeline.start()

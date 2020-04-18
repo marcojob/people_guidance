@@ -38,7 +38,7 @@ class FeatureTrackingModule(Module):
             img_dict = self.get("drivers_module:images")
 
             if not img_dict:
-                sleep(0.1)
+                sleep(1)
                 self.logger.warn("queue was empty")
             else:
                 # extract the image data and time stamp
@@ -121,7 +121,7 @@ class FeatureTrackingModule(Module):
             homography, mask = cv2.findHomography(old_match_points, match_points, cv2.RANSAC, 1.0)
             ret = cv2.decomposeHomographyMat(homography, self.intrinsic_matrix)
             angles = self.rotationMatrixToEulerAngles(ret[1][0])
-            print(angles)
+            print(angles*180.0/math.pi)
             old_match_points = old_match_points[mask.ravel().astype(bool)]
             match_points = match_points[mask.ravel().astype(bool)]
         else:
@@ -162,7 +162,6 @@ class FeatureTrackingModule(Module):
         shouldBeIdentity = np.dot(Rt, R)
         I = np.identity(3, dtype = R.dtype)
         n = np.linalg.norm(I - shouldBeIdentity)
-        print(n)
         return n < 0.01
 
     def rotationMatrixToEulerAngles(self, R) :

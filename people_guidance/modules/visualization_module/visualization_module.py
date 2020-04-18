@@ -15,7 +15,7 @@ PORT = 65432  # Port
 PREVIEW_FRAMESIZE = (640, 480)
 POS_PLOT_HZ = 5
 REPOINTS_PLOT_HZ = 5
-PREVIEW_PLOT_HZ = 20
+PREVIEW_PLOT_HZ = 10
 
 
 class VisualizationModule(Module):
@@ -56,12 +56,13 @@ class VisualizationModule(Module):
         features_dict = dict()
 
         while True:
-            #sleep(1.0/PREVIEW_PLOT_HZ)
+            sleep(2.0/PREVIEW_PLOT_HZ)
             # POS DATA HANDLING
             if pos_last_ms is None:
                 pos_vis = self.get("ekf_module:position_vis")
 
                 pos_last_ms = pos_vis.get("timestamp", None)
+
                 vis_pos_last_ms = self.get_time_ms()
             else:
                 pos_vis = self.get("ekf_module:position_vis")
@@ -91,12 +92,12 @@ class VisualizationModule(Module):
                         s.sendall(pos_buf)
                     else:
                         self.pos_data.write(f"{pos_vis['timestamp']}: " +
-                                            f"pos_x: {pos_vis['data']['pos_x']}, " +
-                                            f"pos_y: {pos_vis['data']['pos_y']}, " +
-                                            f"pos_z: {pos_vis['data']['pos_z']}, " +
-                                            f"angle_x: {pos_vis['data']['angle_x']}, " +
-                                            f"angle_y: {pos_vis['data']['angle_y']}, " +
-                                            f"angle_z: {pos_vis['data']['angle_z']}\n")
+                                            f"pos_x: {pos_vis['data'].x}, " +
+                                            f"pos_y: {pos_vis['data'].y}, " +
+                                            f"pos_z: {pos_vis['data'].z}, " +
+                                            f"angle_x: {pos_vis['data'].roll}, " +
+                                            f"angle_y: {pos_vis['data'].pitch}, " +
+                                            f"angle_z: {pos_vis['data'].yaw}\n")
                         self.pos_data.flush()
 
             # REPOINTS HANDLING
@@ -139,11 +140,9 @@ class VisualizationModule(Module):
                 preview = self.get("drivers_module:preview")
 
                 preview_last_ms = preview.get("timestamp", None)
-                print(preview)
                 vis_preview_last_ms = self.get_time_ms()
             else:
                 preview = self.get("drivers_module:preview")
-                print("got preview")
                 if preview and self.get_time_ms() - vis_preview_last_ms > 1000/PREVIEW_PLOT_HZ \
                         and preview["timestamp"] - preview_last_ms > 1000/PREVIEW_PLOT_HZ:
                     preview_last_ms = preview["timestamp"]
