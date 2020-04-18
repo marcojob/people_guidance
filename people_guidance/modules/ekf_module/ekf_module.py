@@ -75,6 +75,7 @@ class EkfModule(Module):
 
                 self.dt_s = (self.ts_ms - self.ts_last_ms)/1000.0
 
+                # TODO: Data not actually used yet
                 # Try to get visual data for position
                 visual_data = self.get("feature_tracking_module:visual_data")
                 if visual_data and not visual_data["data"]["angles"].any() == np.nan:

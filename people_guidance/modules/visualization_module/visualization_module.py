@@ -15,14 +15,15 @@ PORT = 65431  # Port
 PREVIEW_FRAMESIZE = (640, 480)
 POS_PLOT_HZ = 5
 REPOINTS_PLOT_HZ = 5
-PREVIEW_PLOT_HZ = 10
+PREVIEW_PLOT_HZ = 40
 
 
 class VisualizationModule(Module):
     def __init__(self, log_dir: pathlib.Path, args=None):
         super(VisualizationModule, self).__init__(name="visualization_module", outputs=[],
                                                   inputs=["drivers_module:preview",
-                                                          "ekf_module:position_vis"],
+                                                          "ekf_module:position_vis",
+                                                          "feature_tracking_module:feature_point_pairs_vis"],
                                                   log_dir=log_dir)
         self.args = args
 
@@ -55,6 +56,7 @@ class VisualizationModule(Module):
 
         features_dict = dict()
 
+        ready_for_plot = True
         while True:
             sleep(1.0/PREVIEW_PLOT_HZ)
             # POS DATA HANDLING
@@ -77,7 +79,6 @@ class VisualizationModule(Module):
                                         pos_vis["data"]["angle_x"],
                                         pos_vis["data"]["angle_y"],
                                         pos_vis["data"]["angle_z"]], dtype='float32').tobytes()
-                    print(pos_vis["data"]["angle_z"])
                     # Len of pos_data
                     buf_len = np.array([len(pos_buf)], dtype='uint32')
 
@@ -93,12 +94,12 @@ class VisualizationModule(Module):
                         s.sendall(pos_buf)
                     else:
                         self.pos_data.write(f"{pos_vis['timestamp']}: " +
-                                            f"pos_x: {pos_vis['data'].x}, " +
-                                            f"pos_y: {pos_vis['data'].y}, " +
-                                            f"pos_z: {pos_vis['data'].z}, " +
-                                            f"angle_x: {pos_vis['data'].roll}, " +
-                                            f"angle_y: {pos_vis['data'].pitch}, " +
-                                            f"angle_z: {pos_vis['data'].yaw}\n")
+                                            f"pos_x: {pos_vis['data']['pos_x']}, " +
+                                            f"pos_y: {pos_vis['data']['pos_y']}, " +
+                                            f"pos_z: {pos_vis['data']['pos_z']}, " +
+                                            f"angle_x: {pos_vis['data']['angle_x']}, " +
+                                            f"angle_y: {pos_vis['data']['angle_y']}, " +
+                                            f"angle_z: {pos_vis['data']['angle_z']}\n")
                         self.pos_data.flush()
 
             # REPOINTS HANDLING
@@ -135,27 +136,42 @@ class VisualizationModule(Module):
 
             #             self.repoints_data.flush()
 
+            # Features handling
+            features = self.get("feature_tracking_module:feature_point_pairs_vis")
+            if features:
+                features_dict[features["data"]["timestamp"]] = features["data"]["point_pairs"]
 
             # PREVIEW IMAGE HANDLING
             if preview_last_ms is None:
-                preview = self.get("drivers_module:preview")
+                    preview = self.get("drivers_module:preview")
+                    if preview:
+                        preview_last_ms = preview["data"]["timestamp"]
+                        preview_ts = preview_last_ms
 
-                preview_last_ms = preview.get("timestamp", None)
-                vis_preview_last_ms = self.get_time_ms()
-            else:
-                preview = self.get("drivers_module:preview")
-                if preview and self.get_time_ms() - vis_preview_last_ms > 1000/PREVIEW_PLOT_HZ \
-                        and preview["timestamp"] - preview_last_ms > 1000/PREVIEW_PLOT_HZ:
-                    preview_last_ms = preview["timestamp"]
                     vis_preview_last_ms = self.get_time_ms()
+            else:
+                if ready_for_plot:
+                    preview = self.get("drivers_module:preview")
+                    if preview:
+                        preview_ts = preview["data"]["timestamp"]
+                        ready_for_plot = False
+
+                matches = features_dict.get(preview_ts, None)
+                if matches is not None or (features_dict.keys() and max(features_dict.keys()) > preview_ts):
+                    ready_for_plot = True
+
+                if ready_for_plot and self.get_time_ms() - 1000 - vis_preview_last_ms > 1000/PREVIEW_PLOT_HZ \
+                        and preview_ts - preview_last_ms > 1000/PREVIEW_PLOT_HZ:
+                    preview_last_ms = preview_ts
+                    vis_preview_last_ms = self.get_time_ms() - 1000
 
                     # Decode img to bytes
                     img_dec = cv2.imdecode(np.frombuffer(
                         preview["data"]["data"], dtype=np.int8), flags=cv2.IMREAD_COLOR)
 
                     # Draw matches onto image
-                    matches = features_dict.get(preview["timestamp"], None)
                     img_dec = self.draw_matches(img_dec, matches)
+                    ready_for_plot = False
 
                     # Resize image
                     img_rs = self.resize_image(img_dec)
@@ -184,11 +200,6 @@ class VisualizationModule(Module):
                         timestamp = preview["timestamp"]
                         self.preview_data.write(f"{self.preview_counter}: {timestamp}\n")
                         self.preview_data.flush()
-
-                # features = self.get("feature_tracking_module:feature_point_pairs_vis")
-                # if features:
-                #     features_dict[features["timestamp"]
-                #                 ] = features["data"]["point_pairs"]
 
         # Send EOF to detect end of file
         s.shutdown(socket.SHUT_WR)

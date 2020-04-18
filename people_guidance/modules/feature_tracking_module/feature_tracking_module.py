@@ -13,7 +13,7 @@ class FeatureTrackingModule(Module):
 
     def __init__(self, log_dir: pathlib.Path, args=None):
         super(FeatureTrackingModule, self).__init__(name="feature_tracking_module",
-                                                    outputs=[("feature_point_pairs", 10), ("feature_point_pairs_vis", 10), ("visual_data", 100)],
+                                                    outputs=[("feature_point_pairs", 10), ("feature_point_pairs_vis", 100), ("visual_data", 100)],
                                                     inputs=["drivers_module:images"],
                                                     log_dir=log_dir)
 
@@ -21,7 +21,7 @@ class FeatureTrackingModule(Module):
         self.old_timestamp = None
         self.old_keypoints = None
         self.old_descriptors = None
-        # self.old_pose = None
+        self.old_pose = None
 
         self.request_counter = 0
 
@@ -40,7 +40,7 @@ class FeatureTrackingModule(Module):
             if img_dict:
                 # extract the image data and time stamp
                 img_encoded = img_dict["data"]["data"]
-                timestamp = img_dict["timestamp"]
+                timestamp = img_dict["data"]["timestamp"]
 
                 # request the pose of the camera at this time stamp from the position_estimation_module
                 # self.make_request("position_estimation_module:position_request", {"id" : self.request_counter, "payload": timestamp})
@@ -80,10 +80,12 @@ class FeatureTrackingModule(Module):
                             #              {"camera_positions" : pose_pair,
                             #               "point_pairs": inliers},
                             #              1000, timestamp)
-                            # self.publish("feature_point_pairs_vis",
-                            #              {"camera_positions" : (pose, pose),
-                            #               "point_pairs": inliers},
-                            #              1000, timestamp)
+
+                            self.publish("feature_point_pairs_vis",
+                                        {"point_pairs": inliers,
+                                         "timestamp": timestamp},
+                                          1000)
+
                             if isinstance(visual_angles, type(None)):
                                 visual_angles = np.array([np.nan, np.nan, np.nan])
                             self.publish("visual_data", {"angles": visual_angles}, 500)

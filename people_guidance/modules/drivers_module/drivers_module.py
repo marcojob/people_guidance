@@ -188,7 +188,7 @@ class DriversModule(Module):
 
                 if self.img_timestamp and self.get_time_ms() - self.replay_start_timestamp > self.img_timestamp - self.img_first_timestamp:
                     self.publish("images", {"data": self.img_data_file, "timestamp": self.img_timestamp}, IMAGES_VALIDITY_MS)
-                    self.publish("preview", {"data": self.img_data_file, "timestamp": self.img_timestamp}, IMAGES_VALIDITY_MS)
+                    self.publish("preview", {"data": self.img_data_file, "timestamp": self.img_timestamp}, 2000)
 
                     # Reset the timestamp so that a new dataset is read
                     self.img_timestamp = None

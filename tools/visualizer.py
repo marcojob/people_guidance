@@ -53,25 +53,24 @@ def animate_pos():
     global line_x, line_y, line_z
 
     # Current position and angles
-    pos_x = 0#data_dict["pos_x"][-1]
-    pos_y = 0#data_dict["pos_y"][-1]
-    pos_z = 0#data_dict["pos_z"][-1]
+    pos_x = data_dict["pos_x"][-1]
+    pos_y = data_dict["pos_y"][-1]
+    pos_z = data_dict["pos_z"][-1]
     angle_x = data_dict["angle_x"][-1]
     angle_y = data_dict["angle_y"][-1]
     angle_z = data_dict["angle_z"][-1]
-    r = R.from_rotvec(np.array([0, 0, -angle_z])).as_matrix()
-    print(angle_z)
-    sc_xy = 5
-    sc_z = 1
+    r = R.from_rotvec(np.array([0, 0, angle_z])).as_matrix()
+    sc_xy = 1
+    sc_z = 0.5
 
     if scatter_p == None:
         ax_list["pos"].set_title("pos")
-        ax_list["pos"].set_xlim((-5, 5))
-        ax_list["pos"].set_ylim((-5, 5))
+        ax_list["pos"].set_xlim((-2, 2))
+        ax_list["pos"].set_ylim((-2, 2))
         ax_list["pos"].set_zlim((-0, 2))
 
         scatter_p = ax_list["pos"].scatter(
-            data_dict["pos_x"], data_dict["pos_y"], data_dict["pos_z"])
+            data_dict["pos_x"], data_dict["pos_y"], data_dict["pos_z"], alpha=0.1)
 
         line_x = ax_list["pos"].plot([pos_x, pos_x + sc_xy*r[0][0]], [pos_y, pos_y + sc_xy*r[0][1]], [pos_z, pos_z + sc_z*r[0][2]])
         line_y = ax_list["pos"].plot([pos_x, pos_x + sc_xy*r[1][0]], [pos_y, pos_y + sc_xy*r[1][1]], [pos_z, pos_z + sc_z*r[1][2]])
@@ -93,9 +92,9 @@ def animate_pos():
         line_z[0].set_ydata([pos_y, pos_y + sc_xy*r[2][1]])
         line_z[0].set_3d_properties([pos_z, pos_z + sc_z*r[2][2]])
 
+
 def animate_repoints():
     global scatter_r
-    print("in animate_repoints")
     if scatter_r == None:
         scatter_r = ax_list["pos"].scatter(
             data_dict["r_pos_x"], data_dict["r_pos_y"], data_dict["r_pos_z"])
@@ -103,8 +102,6 @@ def animate_repoints():
         ax_list["pos"].figure.canvas.draw()
     else:
         scatter_r._offsets3d = (data_dict["r_pos_x"], data_dict["r_pos_y"], data_dict["r_pos_z"])
-
-    print("done animate")
 
 
 def animate_preview():
@@ -183,7 +180,6 @@ def socket_main():
                             data_dict["angle_x"].append(pos_data[3])
                             data_dict["angle_y"].append(pos_data[4])
                             data_dict["angle_z"].append(pos_data[5])
-                            print("received pos")
                             animate_pos()
 
                         except Exception as e:
