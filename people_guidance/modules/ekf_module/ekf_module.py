@@ -10,7 +10,7 @@ from ..module import Module
 from ...utils import DEFAULT_DATASET
 
 LP_LEN = 100
-ALPHA_CF = 0.1
+ALPHA_CF = 0.4
 DEG_TO_RAD = pi/180.0
 RAD_TO_DEG = 180.0/pi
 ACCEL_G = -9.80600

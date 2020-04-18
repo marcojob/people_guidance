@@ -25,7 +25,7 @@ TOPIC_LIST = ["pos_x", "pos_y", "pos_z", "angle_x", "angle_y", "angle_z", "previ
 data_dict = {topic: [0] for topic in TOPIC_LIST}
 DATA_MAX_LEN = 500
 
-FIGSIZE = (13.5,9)
+FIGSIZE = (14,9)
 DPI = 100
 
 KEYS = ["preview", "pos"]
@@ -70,7 +70,7 @@ def animate_pos():
         ax_list["pos"].set_zlim((-0, 2))
 
         scatter_p = ax_list["pos"].scatter(
-            data_dict["pos_x"], data_dict["pos_y"], data_dict["pos_z"], alpha=0.1)
+            data_dict["pos_x"], data_dict["pos_y"], data_dict["pos_z"], alpha=0.01)
 
         line_x = ax_list["pos"].plot([pos_x, pos_x + sc_xy*r[0][0]], [pos_y, pos_y + sc_xy*r[0][1]], [pos_z, pos_z + sc_z*r[0][2]])
         line_y = ax_list["pos"].plot([pos_x, pos_x + sc_xy*r[1][0]], [pos_y, pos_y + sc_xy*r[1][1]], [pos_z, pos_z + sc_z*r[1][2]])

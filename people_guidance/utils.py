@@ -7,8 +7,8 @@ import coloredlogs
 ROOT_DIR = pathlib.Path(__file__).parent.parent
 ROOT_LOG_DIR = ROOT_DIR / "logs"
 ROOT_DATA_DIR = ROOT_DIR / "data"
-DEFAULT_DATASET = ROOT_DATA_DIR / "indoor_dataset_4"
-
+#DEFAULT_DATASET = ROOT_DATA_DIR / "indoor_dataset_4"
+DEFAULT_DATASET = pathlib.Path("/media/marco/SSD/indoor_dataset_5")
 
 def project_path(relative_path: str) -> pathlib.Path:
     return ROOT_DIR / relative_path
