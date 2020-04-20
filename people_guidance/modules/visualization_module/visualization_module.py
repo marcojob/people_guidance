@@ -56,9 +56,10 @@ class VisualizationModule(Module):
         vis_preview_last_ms = self.get_time_ms()
 
         features_dict = dict()
+        ready_for_plot = True
 
         while True:
-            #sleep(1.0/PREVIEW_PLOT_HZ)
+            sleep(1.0/PREVIEW_PLOT_HZ)
             # POS DATA HANDLING
             if pos_last_ms is None:
                 pos_vis = self.get("position_estimation_module:position_vis")
@@ -135,19 +136,32 @@ class VisualizationModule(Module):
 
                         self.repoints_data.flush()
 
+            features = self.get("feature_tracking_module:feature_point_pairs_vis")
+            if features:
+                features_dict[features["timestamp"]] = features["data"]["point_pairs"]
 
             # PREVIEW IMAGE HANDLING
             if preview_last_ms is None:
                 preview = self.get("drivers_module:preview")
-
-                preview_last_ms = preview.get("timestamp", None)
-                vis_preview_last_ms = self.get_time_ms()
-            else:
-                preview = self.get("drivers_module:preview")
-                if preview and self.get_time_ms() - vis_preview_last_ms > 1000/PREVIEW_PLOT_HZ \
-                        and preview["timestamp"] - preview_last_ms > 1000/PREVIEW_PLOT_HZ:
-                    preview_last_ms = preview["timestamp"]
+                if preview:
+                    preview_last_ms = preview["data"]["timestamp"]
+                    preview_ts = preview_last_ms
                     vis_preview_last_ms = self.get_time_ms()
+            else:
+                if ready_for_plot:
+                    preview = self.get("drivers_module:preview")
+                    if preview:
+                        preview_ts = preview["data"]["timestamp"]
+                        ready_for_plot = False
+
+                matches = features_dict.get(preview_ts, None)
+                if matches is not None or (features_dict.keys() and max(features_dict.keys()) > preview_ts):
+                    ready_for_plot = True
+
+                if ready_for_plot and self.get_time_ms() - 1000 - vis_preview_last_ms > 1000/PREVIEW_PLOT_HZ \
+                        and preview_ts - preview_last_ms > 1000/PREVIEW_PLOT_HZ:
+                    preview_last_ms = preview_ts
+                    vis_preview_last_ms = self.get_time_ms() - 1000
 
                     # Decode img to bytes
                     img_dec = cv2.imdecode(np.frombuffer(
@@ -156,6 +170,8 @@ class VisualizationModule(Module):
                     # Draw matches onto image
                     matches = features_dict.get(preview["timestamp"], None)
                     img_dec = self.draw_matches(img_dec, matches)
+
+                    ready_for_plot = False
 
                     # Resize image
                     img_rs = self.resize_image(img_dec)
@@ -184,11 +200,6 @@ class VisualizationModule(Module):
                         timestamp = preview["timestamp"]
                         self.preview_data.write(f"{self.preview_counter}: {timestamp}\n")
                         self.preview_data.flush()
-
-                features = self.get("feature_tracking_module:feature_point_pairs_vis")
-                if features:
-                    features_dict[features["timestamp"]
-                                ] = features["data"]["point_pairs"]
 
         # Send EOF to detect end of file
         s.shutdown(socket.SHUT_WR)

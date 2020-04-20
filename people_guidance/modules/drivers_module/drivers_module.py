@@ -158,7 +158,7 @@ class DriversModule(Module):
                         # In normal mode we just publish the image
 
                         self.publish("images", data_dict, IMAGES_VALIDITY_MS)
-                        self.publish("preview", data, IMAGES_VALIDITY_MS)
+                        self.publish("preview", data_dict, IMAGES_VALIDITY_MS)
             else:
                 # We are in replay mode
                 if not self.img_timestamp:
@@ -188,7 +188,7 @@ class DriversModule(Module):
 
                 if self.img_timestamp and self.get_time_ms() - self.replay_start_timestamp > self.img_timestamp - self.img_first_timestamp:
                     self.publish("images", {"data": self.img_data_file, "timestamp": self.img_timestamp}, IMAGES_VALIDITY_MS)
-                    self.publish("preview", {"data": self.img_data_file, "timestamp": self.img_timestamp}, IMAGES_VALIDITY_MS)
+                    self.publish("preview", {"data": self.img_data_file, "timestamp": self.img_timestamp}, IMAGES_VALIDITY_MS*10.0)
 
                     # Reset the timestamp so that a new dataset is read
                     self.img_timestamp = None
@@ -286,44 +286,6 @@ class DriversModule(Module):
             return -((65535 - val) + 1)
         else:
             return val
-
-    def imu_calibration(self, samples=100):
-        self.logger.warning("IMU Calibration is starting now")
-        ACCEL_CALIB_X = 0.0
-        ACCEL_CALIB_Y = 0.0
-        ACCEL_CALIB_Z = 0.0
-
-        GYRO_CALIB_X = 0.0
-        GYRO_CALIB_Y = 0.0
-        GYRO_CALIB_Z = 0.0
-        self.logger.warning("Calibrating X-axis")
-        sleep(5)
-        for s in range(samples):
-            ACCEL_CALIB_X += self.get_accel_x() - ACCEL_G
-            GYRO_CALIB_X += self.get_gyro_x()
-            sleep(0.01)
-        self.logger.warning("Calibrating Y-axis")
-        sleep(5)
-        for s in range(samples):
-            ACCEL_CALIB_Y += self.get_accel_y() - ACCEL_G
-            GYRO_CALIB_Y += self.get_gyro_y()
-            sleep(0.01)
-        self.logger.warning("Calibrating Z-axis")
-        sleep(5)
-        for s in range(samples):
-            ACCEL_CALIB_Z += self.get_accel_z() + ACCEL_G
-            GYRO_CALIB_Z += self.get_gyro_z()
-            sleep(0.01)
-
-        ACCEL_CALIB_X /= samples
-        ACCEL_CALIB_Y /= samples
-        ACCEL_CALIB_Z /= samples
-        GYRO_CALIB_X /= samples
-        GYRO_CALIB_Y /= samples
-        GYRO_CALIB_Z /= samples
-
-        self.logger.warning("AX: {}, AY: {}, AZ: {}, GX: {}, GY: {}, GZ: {}".format(
-            ACCEL_CALIB_X, ACCEL_CALIB_Y, ACCEL_CALIB_Z, GYRO_CALIB_X, GYRO_CALIB_Y, GYRO_CALIB_Z))
 
     def setup_hardware_configuration(self):
         # Cannot replay and record at the same time

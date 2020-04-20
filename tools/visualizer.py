@@ -25,7 +25,7 @@ TOPIC_LIST = ["pos_x", "pos_y", "pos_z", "angle_x", "angle_y", "angle_z", "previ
 data_dict = {topic: [0] for topic in TOPIC_LIST}
 DATA_MAX_LEN = 500
 
-FIGSIZE = (13.5,9)
+FIGSIZE = (14,9)
 DPI = 100
 
 KEYS = ["preview", "pos"]
@@ -60,17 +60,17 @@ def animate_pos():
     angle_y = data_dict["angle_y"][-1]
     angle_z = data_dict["angle_z"][-1]
     r = R.from_rotvec(np.array([0, 0, angle_z])).as_matrix()
-    sc_xy = 5
+    sc_xy = 1
     sc_z = 0.5
 
     if scatter_p == None:
         ax_list["pos"].set_title("pos")
-        ax_list["pos"].set_xlim((-5, 15))
-        ax_list["pos"].set_ylim((-5, 15))
-        ax_list["pos"].set_zlim((-0.5, 1.5))
+        ax_list["pos"].set_xlim((-2, 2))
+        ax_list["pos"].set_ylim((-2, 2))
+        ax_list["pos"].set_zlim((-0, 2))
 
         scatter_p = ax_list["pos"].scatter(
-            data_dict["pos_x"], data_dict["pos_y"], data_dict["pos_z"])
+            data_dict["pos_x"], data_dict["pos_y"], data_dict["pos_z"], alpha=0.01)
 
         line_x = ax_list["pos"].plot([pos_x, pos_x + sc_xy*r[0][0]], [pos_y, pos_y + sc_xy*r[0][1]], [pos_z, pos_z + sc_z*r[0][2]])
         line_y = ax_list["pos"].plot([pos_x, pos_x + sc_xy*r[1][0]], [pos_y, pos_y + sc_xy*r[1][1]], [pos_z, pos_z + sc_z*r[1][2]])
@@ -91,6 +91,7 @@ def animate_pos():
         line_z[0].set_xdata([pos_x, pos_x + sc_xy*r[2][0]])
         line_z[0].set_ydata([pos_y, pos_y + sc_xy*r[2][1]])
         line_z[0].set_3d_properties([pos_z, pos_z + sc_z*r[2][2]])
+
 
 def animate_repoints():
     global scatter_r
@@ -187,8 +188,8 @@ def socket_main():
                             animate_pos()
 
                         except Exception as e:
-                            pass
-                            # print(f"pos: {e}")
+                            print(f"pos: {e}")
+
                 elif data_id_int == 2:
                     data_len = conn.recv(4)
                     data_len_int = int.from_bytes(data_len, byteorder='little')
