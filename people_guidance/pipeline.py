@@ -12,9 +12,10 @@ from .modules import Module
 
 class Pipeline:
 
-    def __init__(self, args=None):
+    def __init__(self, args=None, log_level=logging.DEBUG):
         self.log_dir: pathlib.Path = self.create_log_dir()
         self.logger: logging.Logger = get_logger("pipeline", self.log_dir)
+        self.logger.setLevel(log_level)
         self.modules: Dict[Module] = {}
         self.processes: List[mp.Process] = []
         self.args = args
