@@ -1,6 +1,5 @@
 import collections
 import platform
-import random
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -8,43 +7,63 @@ import matplotlib.pyplot as plt
 
 IMUFrame = collections.namedtuple("IMUFrame", ["ax", "ay", "az", "gx", "gy", "gz", "ts"])
 
+# Method for the rotation matrix
+METHOD_SCIPY_ROTATION = False
 
 # Debug mode
 VISUALIZE_LOCALLY = False
+if VISUALIZE_LOCALLY:
+    import matplotlib.pyplot as plt
+
+VISUALIZE_LOCALLY_FREQ = 100
 
 # Queue output
 POS_VALIDITY_MS = 100
 # Debug output frequency. A value above 99 means that new elements are always published
 POSITION_PUBLISH_NEW_TIMESTAMP = 0
-POSITION_PUBLISH_FREQ = 1
-POSITION_PUBLISH_ACC_FREQ = 1
-POSITION_PUBLISH_INPUT_FREQ = 1
+POSITION_PUBLISH_FREQ = 100
+POSITION_PUBLISH_ACC_FREQ = 0
+POSITION_PUBLISH_INPUT_FREQ = 0
 
 # Requests
-TRACK_FOR_REQUEST_POSITION_NUMBER_ELT_KEEP = 1000
+TRACK_FOR_REQUEST_POSITION_NUMBER_ELT_KEEP = 200
 
 # Complementary filter parameter
-ALPHA_COMPLEMENTARY_FILTER = 0.1
+ALPHA_CF = 0.4
+
+# Direct double integration instead of acc -> vel -> pos
+NO_VELOCITY_ONLY_ACC_INTEGRATION = False
 
 # Reduce the velocity to reduce drift
-METHOD_RESET_VELOCITY = False
-RESET_VEL_FREQ = 200 # select value above 100 to compensate after each step  TODO : prone to dt
-RESET_VEL_FREQ_COEF_X = 0.991
-RESET_VEL_FREQ_COEF_Y = 0.991
-RESET_VEL_FREQ_COEF_Z = 0.97
+METHOD_RESET_VELOCITY = True
+RESET_VEL_FREQ = 100 # select value above 100 to compensate after each step  TODO : prone to dt
+RESET_VEL_FREQ_COEF_X = 0.9
+RESET_VEL_FREQ_COEF_Y = 0.9
+RESET_VEL_FREQ_COEF_Z = 0.9
 
 # Error calculation
-MEASURE_SUMMED_ERROR_ACC = False
+MEASURE_SUMMED_ERROR_ACC = False        # cannot use both
 METHOD_ERROR_ACC_CORRECTION = False # True, worse otherwise
-PUBLISH_SUMMED_MEASURE_ERROR_ACC = 4
 
-# dataset_1
-SUM_DT_DATASET_1 = 9.622
-SUM_ELT_DATASET_1 = 2751
-SUM_ACC_DATASET_1 = [-42.77572310263783, -170.8575616629757, -1633.801397779215]
+MEASURE_SUMMED_ERROR_ACC_AUTO = False    # cannot use both
+METHOD_ERROR_ACC_CORRECTION_AUTO = MEASURE_SUMMED_ERROR_ACC_AUTO
+MEASURE_ERROR_TIME_START = 0.2          # Start Calibration after [s]
+MEASURE_ERROR_TIME_STOP = 5             # Stop Calibration after [s]
+PUBLISH_SUMMED_MEASURE_ERROR_ACC = 0
+
+# # dataset_1
+# SUM_DT_DATASET_1 = 9.622
+# SUM_ELT_DATASET_1 = 2751
+# SUM_ACC_DATASET_1 = [-42.77572310263783, -170.8575616629757, -1633.801397779215]
+
+# dataset_3 NEW
+SUM_DT_DATASET_1 = 54.3909
+SUM_ELT_DATASET_1 = 1735
+SUM_ACC_DATASET_1 = [-2486.947147099424, 2300.0872754909888, -1320.6316410854672]
+
 
 if METHOD_ERROR_ACC_CORRECTION:
-    CORRECTION_ACC = np.divide(SUM_ACC_DATASET_1, SUM_ELT_DATASET_1)
+    CORRECTION_ACC = np.divide(SUM_ACC_DATASET_1, SUM_ELT_DATASET_1) + [0.1, 0.1, 0]
 else:
     CORRECTION_ACC = [0, 0, 0]
 
@@ -101,15 +120,15 @@ def visualize_locally(pos, frame: IMUFrame, drift_tracking, acceleration, plot_p
 
         if plot_pos:
             plt.subplot(2, responsive_window_size_col, 1)
-            plt.scatter(pos.x, pos.y)
+            plt.scatter(pos.y, pos.x)
             plt.title('Position estimation')
-            plt.xlabel('x [m]')
-            plt.ylabel('y [m]')
+            plt.xlabel('y [m]')
+            plt.ylabel('x [m]')
 
             plt.subplot(2, responsive_window_size_col, 2)
-            plt.scatter(pos.x, pos.z)
+            plt.scatter(pos.y, pos.z)
             plt.title('Position estimation')
-            plt.xlabel('x [m]')
+            plt.xlabel('y [m]')
             plt.ylabel('z [m]')
 
         if plot_angles:
@@ -127,28 +146,28 @@ def visualize_locally(pos, frame: IMUFrame, drift_tracking, acceleration, plot_p
 
         if plot_acc_input:
             plt.subplot(2, responsive_window_size_col, responsive_shift + 1)
-            plt.scatter(frame.ax, frame.ay)
+            plt.scatter(frame.ay, frame.ax)
             plt.title('Acceleration IN')
-            plt.xlabel('x [acc]')
-            plt.ylabel('y [acc]')
+            plt.xlabel('y [acc]')
+            plt.ylabel('x [acc]')
 
             plt.subplot(2, responsive_window_size_col, responsive_shift + 2)
-            plt.scatter(frame.ax, frame.az)
+            plt.scatter(frame.ay, frame.az)
             plt.title('Acceleration IN')
-            plt.xlabel('x [acc]')
+            plt.xlabel('y [acc]')
             plt.ylabel('z [acc]')
 
         if plot_acc_transformed:
             plt.subplot(2, responsive_window_size_col, responsive_shift + responsive_shift_acc + 1)
-            plt.scatter(acceleration['x'], acceleration['y'])
+            plt.scatter(acceleration['y'], acceleration['x'])
             plt.title('Acceleration OUT')
-            plt.xlabel('x [acc]')
-            plt.ylabel('y [acc]')
+            plt.xlabel('y [acc]')
+            plt.ylabel('x [acc]')
 
             plt.subplot(2, responsive_window_size_col, responsive_shift + responsive_shift_acc + 2)
-            plt.scatter(acceleration['x'], acceleration['z'])
+            plt.scatter(acceleration['y'], acceleration['z'])
             plt.title('Acceleration OUT')
-            plt.xlabel('x [acc]')
+            plt.xlabel('y [acc]')
             plt.ylabel('z [acc]')
 
         plt.pause(0.0001)

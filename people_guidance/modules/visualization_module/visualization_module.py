@@ -73,12 +73,12 @@ class VisualizationModule(Module):
                     vis_pos_last_ms = self.get_time_ms()
 
                     # Encode position data
-                    pos_buf = np.array([pos_vis["data"]["pos_x"],
-                                        pos_vis["data"]["pos_y"],
-                                        pos_vis["data"]["pos_z"],
-                                        pos_vis["data"]["angle_x"],
-                                        pos_vis["data"]["angle_y"],
-                                        pos_vis["data"]["angle_z"]], dtype='float32').tobytes()
+                    pos_buf = np.array([pos_vis["data"]["x"],
+                                        pos_vis["data"]["y"],
+                                        pos_vis["data"]["z"],
+                                        pos_vis["data"]["roll"],
+                                        pos_vis["data"]["pitch"],
+                                        pos_vis["data"]["yaw"]], dtype='float32').tobytes()
                     # Len of pos_data
                     buf_len = np.array([len(pos_buf)], dtype='uint32')
 
@@ -94,12 +94,12 @@ class VisualizationModule(Module):
                         s.sendall(pos_buf)
                     else:
                         self.pos_data.write(f"{pos_vis['timestamp']}: " +
-                                            f"pos_x: {pos_vis['data']['pos_x']}, " +
-                                            f"pos_y: {pos_vis['data']['pos_y']}, " +
-                                            f"pos_z: {pos_vis['data']['pos_z']}, " +
-                                            f"angle_x: {pos_vis['data']['angle_x']}, " +
-                                            f"angle_y: {pos_vis['data']['angle_y']}, " +
-                                            f"angle_z: {pos_vis['data']['angle_z']}\n")
+                                            f"pos_x: {pos_vis['data']['x']}, " +
+                                            f"pos_y: {pos_vis['data']['y']}, " +
+                                            f"pos_z: {pos_vis['data']['z']}, " +
+                                            f"angle_x: {pos_vis['data']['roll']}, " +
+                                            f"angle_y: {pos_vis['data']['pitch']}, " +
+                                            f"angle_z: {pos_vis['data']['yaw']}\n")
                         self.pos_data.flush()
 
             # REPOINTS HANDLING
