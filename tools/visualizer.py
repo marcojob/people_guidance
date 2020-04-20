@@ -94,17 +94,15 @@ def animate_pos():
 
 
 def animate_repoints():
-    global scatter_r
-    print("in animate_repoints")
-    if scatter_r == None:
-        scatter_r = ax_list["pos"].scatter(
-            data_dict["r_pos_x"], data_dict["r_pos_y"], data_dict["r_pos_z"])
+    pass
+    # global scatter_r
+    # if scatter_r == None:
+    #     scatter_r = ax_list["pos"].scatter(
+    #         data_dict["r_pos_x"], data_dict["r_pos_y"], data_dict["r_pos_z"])
 
-        ax_list["pos"].figure.canvas.draw()
-    else:
-        scatter_r._offsets3d = (data_dict["r_pos_x"], data_dict["r_pos_y"], data_dict["r_pos_z"])
-
-    print("done animate")
+    #     ax_list["pos"].figure.canvas.draw()
+    # else:
+    #     scatter_r._offsets3d = (data_dict["r_pos_x"], data_dict["r_pos_y"], data_dict["r_pos_z"])
 
 
 def animate_preview():
@@ -205,7 +203,6 @@ def socket_main():
                             if not shape[0] % 3:
                                 new_shape = (int(shape[0]/3), 3)
                                 repoints_data = repoints_data.reshape(new_shape)
-                                print("here")
                                 for point in repoints_data:
                                     if len(data_dict["r_pos_x"]) > DATA_MAX_LEN:
                                         del data_dict["r_pos_x"][0]
