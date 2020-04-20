@@ -158,7 +158,7 @@ class DriversModule(Module):
                         # In normal mode we just publish the image
 
                         self.publish("images", data_dict, IMAGES_VALIDITY_MS)
-                        self.publish("preview", data, IMAGES_VALIDITY_MS)
+                        self.publish("preview", data_dict, IMAGES_VALIDITY_MS)
             else:
                 # We are in replay mode
                 if not self.img_timestamp:
@@ -188,7 +188,7 @@ class DriversModule(Module):
 
                 if self.img_timestamp and self.get_time_ms() - self.replay_start_timestamp > self.img_timestamp - self.img_first_timestamp:
                     self.publish("images", {"data": self.img_data_file, "timestamp": self.img_timestamp}, IMAGES_VALIDITY_MS)
-                    self.publish("preview", {"data": self.img_data_file, "timestamp": self.img_timestamp}, IMAGES_VALIDITY_MS)
+                    self.publish("preview", {"data": self.img_data_file, "timestamp": self.img_timestamp}, IMAGES_VALIDITY_MS*10.0)
 
                     # Reset the timestamp so that a new dataset is read
                     self.img_timestamp = None
