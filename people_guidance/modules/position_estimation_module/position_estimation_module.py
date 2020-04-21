@@ -144,7 +144,6 @@ class PositionEstimationModule(Module):
         neighbors = [None, None]
 
         self.logger.debug(f"{len(self.tracked_positions)}  - {[str(pos.ts) for pos in self.tracked_positions]}")
-
         for idx, position in enumerate(self.tracked_positions):
             # this assumes that our positions are sorted old to new.
             if position.ts <= requested_timestamp:
@@ -188,7 +187,7 @@ class PositionEstimationModule(Module):
             gx=float(input_data['data']['gyro_x']),
             gy=float(input_data['data']['gyro_y']),
             gz=float(input_data['data']['gyro_z']),
-            ts=input_data['timestamp']
+            ts=input_data['data']['timestamp']
         )
 
     def visualize_locally(self):

@@ -45,7 +45,7 @@ class FeatureTrackingModule(Module):
             else:
                 # extract the image data and time stamp
                 img_encoded = img_dict["data"]["data"]
-                timestamp = img_dict["timestamp"]
+                timestamp = img_dict["data"]["timestamp"]
 
                 # request the pose of the camera at this time stamp from the position_estimation_module
                 self.make_request("position_estimation_module:position_request", {"id" : self.request_counter, "payload": timestamp})
@@ -61,7 +61,7 @@ class FeatureTrackingModule(Module):
                 if position_request_response is not None:
                     position_request = position_request_response.get("payload", None)
                     self.logger.debug(position_request)
-                    r = Rotation.from_euler('xyz', [position_request["roll"], position_request["pitch"], position_request["yaw"]], degrees=True)
+                    r = Rotation.from_euler('xyz', [-position_request["roll"], -position_request["pitch"], -position_request["yaw"]], degrees=False)
                     t = [[position_request["x"]], [position_request["y"]], [position_request["z"]]]
                     pose = np.concatenate((r.as_matrix(), t), axis=1)
 
@@ -81,15 +81,16 @@ class FeatureTrackingModule(Module):
                         else:
                             pose_pair = np.concatenate((self.old_pose[np.newaxis, :, :], pose[np.newaxis, :, :]), axis=0)
                             # visualization_img = self.visualize_matches(img, keypoints, inliers, total_nr_matches)
-
                             self.publish("feature_point_pairs",
                                          {"camera_positions" : pose_pair,
-                                          "point_pairs": inliers},
-                                         1000, timestamp)
+                                          "point_pairs": inliers,
+                                          "timestamp": timestamp},
+                                         1000)
                             self.publish("feature_point_pairs_vis",
                                          {"camera_positions" : (pose, pose),
-                                          "point_pairs": inliers},
-                                         1000, timestamp)
+                                          "point_pairs": inliers,
+                                          "timestamp": timestamp},
+                                         1000)
 
                     # store the date of the new image as old_img... for the next iteration
                     # If there are no features found in the new image this step is skipped
