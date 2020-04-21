@@ -37,6 +37,10 @@ if __name__ == '__main__':
                         type=str,
                         default='')
 
+    parser.add_argument('--visualize_locally', '-l',
+                        help='Turn on local visualisation',
+                        action='store_true')
+
     args = parser.parse_args()
 
     pipeline = Pipeline(args)
