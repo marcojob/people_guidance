@@ -39,7 +39,7 @@ class DriversModule(Module):
         self.RECORD_MODE = False
         self.REPLAY_MODE = False
 
-        self.data_window = {topic: list() for topic in ['accel_x', 'accel_y', 'accel_x', 'gyro_x', 'gyro_y', 'gyro_z']}
+        self.data_window = {topic: list() for topic in ['accel_x', 'accel_y', 'accel_z', 'gyro_x', 'gyro_y', 'gyro_z']}
 
         # IMU INITS
         self.imu_next_sample_ms = self.get_time_ms()
@@ -242,7 +242,7 @@ class DriversModule(Module):
         self.encoder.connection.disable()
 
     def track_val_median_filter(self, data_dict):
-        for key in data_dict:
+        for key in self.data_window.keys():
             # If longer than median filter window size, delete
             if len(self.data_window[key]) > LEN_MEDIAN:
                 del self.data_window[key][0]
