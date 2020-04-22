@@ -52,7 +52,7 @@ if __name__ == '__main__':
         pipeline.add_module(FeatureTrackingModule, log_level=logging.WARNING)
 
         # Handles reprojection
-        pipeline.add_module(ReprojectionModule, log_level=logging.WARNING)
+        # pipeline.add_module(ReprojectionModule, log_level=logging.WARNING)
 
         # If argument is specified we start visualization
         if args.visualize:
