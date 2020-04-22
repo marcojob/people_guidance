@@ -123,14 +123,17 @@ class DriversModule(Module):
                             self.imu_first_timestamp = self.imu_timestamp
 
                         # Populate dict with data, as if it was sampled normally
-                        self.imu_data_dict = {'accel_x': out.group(2),
-                                              'accel_y': out.group(3),
-                                              'accel_z': out.group(4),
-                                              'gyro_x': out.group(5),
-                                              'gyro_y': out.group(6),
-                                              'gyro_z': out.group(7),
+                        self.imu_data_dict = {'accel_x': float(out.group(2)),
+                                              'accel_y': float(out.group(3)),
+                                              'accel_z': float(out.group(4)),
+                                              'gyro_x': float(out.group(5)),
+                                              'gyro_y': float(out.group(6)),
+                                              'gyro_z': float(out.group(7)),
                                               "timestamp": int(out.group(1))
                                               }
+
+                        # Track window for median filter
+                        self.imu_data_dict = self.track_val_median_filter(self.imu_data_dict)
 
                 # If the relative time is correct, we publish the data
 
