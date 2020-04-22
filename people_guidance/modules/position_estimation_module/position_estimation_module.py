@@ -114,11 +114,11 @@ class PositionEstimationModule(Module):
         roll_accel = atan(self.accel_z_lp / sqrt(self.accel_y_lp**2 + self.accel_x_lp**2))
 
         # Pitch, roll and yaw based on gyro
-        pitch_gyro = self.gyro_z_lp + \
+        roll_gyro = self.gyro_z_lp + \
                      self.gyro_y_lp*sin(self.pos.pitch)*tan(self.pos.roll) + \
                      self.gyro_x_lp*cos(self.pos.pitch)*tan(self.pos.roll)
 
-        roll_gyro = self.gyro_y_lp*cos(self.pos.pitch) - self.gyro_x_lp*sin(self.pos.pitch)
+        pitch_gyro = self.gyro_y_lp*cos(self.pos.pitch) - self.gyro_x_lp*sin(self.pos.pitch)
 
         yaw_gyro = self.gyro_y_lp*sin(self.pos.pitch)*1.0/cos(self.pos.roll) + self.gyro_x_lp*cos(self.pos.pitch)*1.0/cos(self.pos.roll)
 
