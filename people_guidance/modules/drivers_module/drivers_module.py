@@ -3,6 +3,7 @@ import platform
 import re
 from queue import Queue
 from time import sleep, monotonic
+from statistics import median
 from pathlib import Path
 
 from .utils import *
@@ -37,6 +38,8 @@ class DriversModule(Module):
         self.img_counter = 0
         self.RECORD_MODE = False
         self.REPLAY_MODE = False
+
+        self.data_window = {topic: list() for topic in ['accel_x', 'accel_y', 'accel_x', 'gyro_x', 'gyro_y', 'gyro_z']}
 
         # IMU INITS
         self.imu_next_sample_ms = self.get_time_ms()
@@ -85,6 +88,9 @@ class DriversModule(Module):
                                  'gyro_z': self.get_gyro_z(),
                                  "timestamp": timestamp
                                  }
+
+                    # Track window for median filter
+                    data_dict = self.track_val_median_filter(data_dict)
 
                     if self.RECORD_MODE:
                         # In record mode, we want to write data into the open file
@@ -234,6 +240,21 @@ class DriversModule(Module):
 
     def camera_stop(self):
         self.encoder.connection.disable()
+
+    def track_val_median_filter(self, data_dict):
+        for key in data_dict:
+            # If longer than median filter window size, delete
+            if len(self.data_window[key]) > LEN_MEDIAN:
+                del self.data_window[key][0]
+
+            # Append new data
+            self.data_window[key].append(data_dict[key])
+
+            # Get median value
+            data_dict[key] = median(self.data_window[key])
+
+        return data_dict
+
 
     def set_accel_range(self):
         # Get current config
