@@ -5,7 +5,7 @@ from scipy.spatial.transform import Rotation
 
 IMUFrame = collections.namedtuple("IMUFrame", ["ax", "ay", "az", "gx", "gy", "gz", "ts"])
 
-VOResult = collections.namedtuple("VOResult", ["homogs", "pairs", "ts0", "ts1"])
+VOResult = collections.namedtuple("VOResult", ["homogs", "pairs", "ts0", "ts1", "image"])
 
 
 def interpolate_frames(frame0, frame1, ts: int):

@@ -57,7 +57,8 @@ class PositionModule(Module):
     @staticmethod
     def vo_result_from_payload(payload: Dict):
         return VOResult(homogs=payload["data"]["camera_positions"], pairs=payload["data"]["point_pairs"],
-                        ts0=payload["data"]["timestamp_pair"][0], ts1=payload["data"]["timestamp_pair"][1])
+                        ts0=payload["data"]["timestamp_pair"][0], ts1=payload["data"]["timestamp_pair"][1],
+                        image=payload["data"]["image"])
 
     def prune_buffers(self):
         if len(self.vo_buffer) > 1 and len(self.imu_buffer) > 1:
@@ -103,7 +104,8 @@ class PositionModule(Module):
                 prune_idxs.append(idx)
 
                 self.publish("homography", {"homography": homog, "point_pairs": vo_result.pairs,
-                                            "timestamps": (vo_result.ts0, vo_result.ts1)}, 100)
+                                            "timestamps": (vo_result.ts0, vo_result.ts1),
+                                            "image": vo_result.image}, 100)
 
         for offset, idx in enumerate(prune_idxs):
             # we assume that the prune_idxs are sorted low to high

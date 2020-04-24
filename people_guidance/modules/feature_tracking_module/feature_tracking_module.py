@@ -68,10 +68,10 @@ class FeatureTrackingModule(Module):
                         else:
                             visualization_img = self.visualize_matches(img, keypoints, inliers, total_nr_matches)
                             visualization_img = cv2.resize(visualization_img, None, fx=0.85, fy=0.85)
-                            cv2.imshow("vis", visualization_img)
-                            cv2.waitKey(1)
+
                             self.publish("feature_point_pairs",
                                          {"camera_positions" : delta_positions,
+                                          "image": visualization_img,
                                           "point_pairs": inliers,
                                           "timestamp_pair": (self.old_timestamp, timestamp)},
                                          1000)
