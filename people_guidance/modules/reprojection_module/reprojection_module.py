@@ -40,7 +40,7 @@ class ReprojectionModule(Module):
                 point_pairs = homog_payload["data"]["point_pairs"]
                 timestamps = homog_payload["data"]["timestamps"]
                 image = homog_payload["data"]["image"]
-
+                """
                 pm1, pm2 = self.create_projection_matrices(homography)
 
                 points_homo = cv2.triangulatePoints(pm1, pm2, point_pairs[0, ...], point_pairs[1, ...])
@@ -49,7 +49,7 @@ class ReprojectionModule(Module):
                 rvec = cv2.Rodrigues(homography[:, :3])[0]
                 tvec = homography[:, 3:]
                 points2d = cv2.projectPoints(points3d, rvec, tvec, self.intrinsic_matrix, distCoeffs=None)[0]
-
+                """
                 orig_keypoints = [cv2.KeyPoint(point_pairs[0, 0, i], point_pairs[0, 1, i], 10) for i in range(point_pairs.shape[2])]
                 image = cv2.drawKeypoints(image, orig_keypoints, None, color=(0, 0, 255), flags=0)
                 """
