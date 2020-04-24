@@ -32,11 +32,13 @@ class ReprojectionModule(Module):
         self.imu_pos_buffer: List[Tuple[np.array, Tuple[float, float]]] = []
 
     def start(self):
+        criticality_smooth = 0.0
         while True:
             homog_payload = self.get("position_module:homography")
             if homog_payload:
                 homography = homog_payload["data"]["homography"]
                 point_pairs = homog_payload["data"]["point_pairs"]
+                timestamps = homog_payload["data"]["timestamps"]
 
                 pm1, pm2 = self.create_projection_matrices(homography)
 
@@ -54,10 +56,10 @@ class ReprojectionModule(Module):
                 #  how close are the points to the trajectory of the user?
                 alignment = np.dot(point_vectors, user_trajectory)
                 # weigh the distance and alignment to obtain an estimate of how likely a collision is.
-                criticality = (0.3 * distances) + (0.7 * alignment)
-
-                if (criticality > 0.99).mean() != 0:
-                    self.logger.critical("Collision Warning!")
+                criticality = 1 / distances
+                criticality_smooth = 0.85 * criticality_smooth + 0.15 * criticality.mean()
+                plt.scatter(timestamps[0], criticality_smooth)
+                plt.pause(0.001)
 
                 self.logger.info(f"Reconstructed points \n{criticality.shape}")
 
