@@ -40,8 +40,8 @@ class FeatureTrackingModule(Module):
             img_dict = self.get("drivers_module:images")
 
             if not img_dict:
-                sleep(0.1)
-                self.logger.warn("queue was empty")
+                sleep(0.001)
+
             else:
                 # extract the image data and time stamp
                 img_encoded = img_dict["data"]["data"]
@@ -68,8 +68,8 @@ class FeatureTrackingModule(Module):
                         else:
                             visualization_img = self.visualize_matches(img, keypoints, inliers, total_nr_matches)
                             visualization_img = cv2.resize(visualization_img, None, fx=0.85, fy=0.85)
-                            cv2.imshow("vis", visualization_img)
-                            cv2.waitKey(1)
+                            #cv2.imshow("vis", visualization_img)
+                            #cv2.waitKey(1)
                             self.publish("feature_point_pairs",
                                          {"camera_positions" : delta_positions,
                                           "point_pairs": inliers,

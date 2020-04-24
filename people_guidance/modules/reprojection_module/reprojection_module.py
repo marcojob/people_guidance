@@ -3,6 +3,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import cv2
+import matplotlib.pyplot as plt
 
 from ..module import Module
 
@@ -18,27 +19,33 @@ def normalize(v: np.array) -> np.array:
 class ReprojectionModule(Module):
     def __init__(self, log_dir: pathlib.Path, args=None):
         super(ReprojectionModule, self).__init__(name="reprojection_module",
-                                                 inputs=["feature_tracking_module:feature_point_pairs"],
+                                                 inputs=["position_module:homography"],
                                                  outputs=[("points3d", 10)],
                                                  log_dir=log_dir)
 
         self.intrinsic_matrix: Optional[np.array] = [[2581.33211, 0, 320], [0, 2576, 240], [0, 0, 1]]
 
         self.point_buffer: List[np.array] = []
+        self.request_counter = 0
+
+        self.vo_pos_buffer: List[Tuple[np.array, np.array, Tuple[float, float]]] = []
+        self.imu_pos_buffer: List[Tuple[np.array, Tuple[float, float]]] = []
 
     def start(self):
         while True:
-            payload = self.get("feature_tracking_module:feature_point_pairs")
-            if payload:
-                camera_positions, point_pairs = self.extract_payload(payload)
-                pm1, pm2 = self.create_projection_matrices(camera_positions)
+            homog_payload = self.get("position_module:homography")
+            if homog_payload:
+                homography = homog_payload["data"]["homography"]
+                point_pairs = homog_payload["data"]["point_pairs"]
+
+                pm1, pm2 = self.create_projection_matrices(homography)
 
                 points_homo = cv2.triangulatePoints(pm1, pm2, point_pairs[0, ...], point_pairs[1, ...])
                 points3d = cv2.convertPointsFromHomogeneous(points_homo.T)
                 self.publish("points3d", data=points3d, validity=100, timestamp=self.get_time_ms())
 
-                user_pos = camera_positions[1, ...][:, 3]
-                user_trajectory: np.array = normalize((camera_positions[1, ...] - camera_positions[0, ...])[:, 3])
+                user_pos = np.array((0, 0, 0))
+                user_trajectory: np.array = normalize(homography[:, 3])
                 point_vectors = np.subtract(points3d, user_pos)
                 point_vectors = point_vectors.reshape((point_vectors.shape[0], 3))
 
@@ -54,11 +61,7 @@ class ReprojectionModule(Module):
 
                 self.logger.info(f"Reconstructed points \n{criticality.shape}")
 
-    @staticmethod
-    def extract_payload(payload: Dict) -> Tuple[np.array, np.array]:
-        return payload["data"]["camera_positions"], payload["data"]["point_pairs"]
-
-    def create_projection_matrices(self, camera_positions: np.array) -> Tuple[np.array, np.array]:
-        pm1 = np.matmul(self.intrinsic_matrix, camera_positions[0, ...])
-        pm2 = np.matmul(self.intrinsic_matrix, camera_positions[1, ...])
+    def create_projection_matrices(self, homography) -> Tuple[np.array, np.array]:
+        pm1 = np.matmul(self.intrinsic_matrix, np.eye(3, 4))
+        pm2 = np.matmul(self.intrinsic_matrix, homography)
         return pm1, pm2
