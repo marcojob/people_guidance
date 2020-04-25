@@ -11,7 +11,7 @@ IMUFrame = collections.namedtuple("IMUFrame", ["ax", "ay", "az", "gx", "gy", "gz
 METHOD_SCIPY_ROTATION = False
 
 # Debug mode
-VISUALIZE_LOCALLY = True
+VISUALIZE_LOCALLY = False
 if VISUALIZE_LOCALLY:
     import matplotlib.pyplot as plt
 
@@ -29,7 +29,7 @@ POSITION_PUBLISH_INPUT_FREQ = 0
 TRACK_FOR_REQUEST_POSITION_NUMBER_ELT_KEEP = 200
 
 # Complementary filter parameter
-ALPHA_COMPLEMENTARY_FILTER = 1
+ALPHA_CF = 0.4
 
 # Direct double integration instead of acc -> vel -> pos
 NO_VELOCITY_ONLY_ACC_INTEGRATION = False
