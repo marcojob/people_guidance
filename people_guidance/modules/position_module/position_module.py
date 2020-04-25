@@ -1,3 +1,5 @@
+from .utils import *
+
 import pathlib
 import time
 from typing import Dict, Tuple, Optional, List, Generator
@@ -5,6 +7,7 @@ from typing import Dict, Tuple, Optional, List, Generator
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation
+from math import tan, atan2, cos, sin, pi, sqrt, atan
 
 from ..module import Module
 from .helpers import IMUFrame, VOResult, Homography, interpolate_frames
@@ -57,13 +60,14 @@ class PositionModule(Module):
 
     @staticmethod
     def imu_frame_from_payload(payload: Dict) -> IMUFrame:
+        # In Camera coordinates: X = -Z_IMU, Y = Y_IMU, Z = X_IMU (90° rotation around the Y axis)
         return IMUFrame(
-            ax=float(payload['data']['accel_x']),
+            ax=-float(payload['data']['accel_z']),
             ay=float(payload['data']['accel_y']),
-            az=float(payload['data']['accel_z']),
-            gx=float(payload['data']['gyro_x']),
+            az=float(payload['data']['accel_x']),
+            gx=-float(payload['data']['gyro_z']),
             gy=float(payload['data']['gyro_y']),
-            gz=float(payload['data']['gyro_z']),
+            gz=float(payload['data']['gyro_x']),
             ts=payload['data']['timestamp']
         )
 
@@ -117,6 +121,8 @@ class PositionModule(Module):
 
                 frames: List[IMUFrame] = self.find_integration_frames(vo_result.ts0, vo_result.ts1, i0, i1)
                 imu_homography: Homography = self.integrate(frames)
+                # self.logger.info(f"IMU : {imu_homography.roll}, {imu_homography.pitch}, {imu_homography.yaw}")
+
                 homog: np.array = self.choose_nearest_homography(vo_result, imu_homography)
                 prune_idxs.append(idx)
 
@@ -148,13 +154,19 @@ class PositionModule(Module):
             dt = (frames[i].ts - frames[i-1].ts) / 1000
             dt2 = dt * dt
 
+            # TODO: Muss Gravity rausnehmen
+            # 1. Complementary Filter to define roll, pitch, yaw at each step
+            # 2. Rotation of G in the Camera frame
+            # 3. subtraction of the rotated vector
+            # then and only then you can move to the next step: integrating
+
             pos.x += self.velocity.x * dt + 0.5 * frames[i].ax * dt2
             pos.y += self.velocity.y * dt + 0.5 * frames[i].ay * dt2
             pos.z += self.velocity.z * dt + 0.5 * frames[i].az * dt2
 
-            self.velocity.x += frames[i].ax * dt
-            self.velocity.y += frames[i].ay * dt
-            self.velocity.z += frames[i].az * dt
+            self.velocity.x = (self.velocity.x + frames[i].ax * dt) * VELOCITY_DAMPING
+            self.velocity.y = (self.velocity.y + frames[i].ay * dt) * VELOCITY_DAMPING
+            self.velocity.z = (self.velocity.z + frames[i].az * dt) * VELOCITY_DAMPING
 
             pos.roll += frames[i].gx * dt
             pos.pitch += frames[i].gy * dt
@@ -185,6 +197,7 @@ class PositionModule(Module):
             imu_t_vec = imu_homog_matrix[0:3, 3]
             vo_rot = Rotation.from_matrix(homog[0:3, 0:3])
             vo_t_vec = homog[0:3, 3]
+            # TODO: wo hast du die Formel hier unten gefunden?
             delta_rot: Rotation = imu_rot.inv() * vo_rot
             distance = delta_rot.magnitude() + k_t * np.linalg.norm(imu_t_vec - vo_t_vec)
 
@@ -196,7 +209,7 @@ class PositionModule(Module):
         imu_xyz = str(imu_homog_matrix[..., 3:]).replace("\n", "")
         vo_xyz = str(best_match[0][..., 3:]).replace("\n", "")
         self.logger.info(f"Prediction Offset:\n"
-                         f"IMU angles :{imu_angles}\nVO angles  :{vo_angles}\n"
+                         f"IMU angles (°) :{imu_angles}\nVO angles  :{vo_angles}\n"
                          f"IMU pos :{imu_xyz}\nVO pos  :{vo_xyz}")
 
         return best_match[0]

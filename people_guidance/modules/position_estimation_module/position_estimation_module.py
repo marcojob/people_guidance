@@ -140,7 +140,7 @@ class PositionEstimationModule(Module):
 
     @staticmethod
     def frame_from_input_data(input_data: Dict) -> IMUFrame:
-        # In Camera coordinates: Z = X_IMU, X = -Z_IMU, Y = Y_IMU (-90° rotation around the Y axis)
+        # In Camera coordinates: Z = X_IMU, X = -Z_IMU, Y = Y_IMU (90° rotation around the Y axis)
         return IMUFrame(
             ax=float(input_data['data']['accel_x']),
             ay=float(input_data['data']['accel_y']),
