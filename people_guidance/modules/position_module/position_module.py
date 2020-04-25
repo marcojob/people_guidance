@@ -1,4 +1,3 @@
-from .utils import *
 
 import pathlib
 import time
@@ -164,9 +163,10 @@ class PositionModule(Module):
             pos.y += self.velocity.y * dt + 0.5 * frames[i].ay * dt2
             pos.z += self.velocity.z * dt + 0.5 * frames[i].az * dt2
 
-            self.velocity.x = (self.velocity.x + frames[i].ax * dt) * VELOCITY_DAMPING
-            self.velocity.y = (self.velocity.y + frames[i].ay * dt) * VELOCITY_DAMPING
-            self.velocity.z = (self.velocity.z + frames[i].az * dt) * VELOCITY_DAMPING
+            self.velocity.x = (self.velocity.x + frames[i].ax * dt)
+            self.velocity.y = (self.velocity.y + frames[i].ay * dt)
+            self.velocity.z = (self.velocity.z + frames[i].az * dt)
+            self.velocity.dampen()
 
             pos.roll += frames[i].gx * dt
             pos.pitch += frames[i].gy * dt
