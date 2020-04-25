@@ -4,6 +4,7 @@ from typing import Dict, Tuple, Optional, List, Generator
 
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.spatial.transform import Rotation
 
 from ..module import Module
 from .helpers import IMUFrame, VOResult, Homography, interpolate_frames
@@ -124,8 +125,7 @@ class PositionModule(Module):
                 break
         return neighbors
 
-    @staticmethod
-    def integrate(frames: List[IMUFrame]) -> Homography:
+    def integrate(self, frames: List[IMUFrame]) -> Homography:
         pos = Homography()
 
         for i in range(1, len(frames)):
@@ -134,9 +134,9 @@ class PositionModule(Module):
             pos.x += 0.5 * frames[i].ax * dt2
             pos.y += 0.5 * frames[i].ay * dt2
             pos.z += 0.5 * frames[i].az * dt2
-            pos.roll += 0.5 * frames[i].gx * dt2
-            pos.pitch += 0.5 * frames[i].gy * dt2
-            pos.yaw += 0.5 * frames[i].gz * dt2
+            pos.roll += frames[i].gx * dt
+            pos.pitch += frames[i].gy * dt
+            pos.yaw += frames[i].gz * dt
             # this is just a placeholder. Here we have to do the proper fusion of gyro/acc data etc.
 
         return pos
@@ -156,12 +156,25 @@ class PositionModule(Module):
     def choose_nearest_homography(self, vo_result: VOResult, imu_homog: Homography) -> np.array:
         imu_homog_matrix = imu_homog.as_matrix()
         best_match = (None, np.inf)
+
         for homog in vo_result.homogs:
-            # self.logger.info("##################")
-            # self.logger.info(f"\nIMU \n{imu_homog_matrix} \n\nVO \n{homog}")
-            # self.logger.info("##################")
-            distance = np.linalg.norm(imu_homog_matrix - homog)
+            k_t = 1
+            imu_rot = Rotation.from_matrix(imu_homog_matrix[0:3, 0:3])
+            imu_t_vec = imu_homog_matrix[0:3, 3]
+            vo_rot = Rotation.from_matrix(homog[0:3, 0:3])
+            vo_t_vec = homog[0:3, 3]
+            delta_rot: Rotation = imu_rot.inv() * vo_rot
+            distance = delta_rot.magnitude() + k_t * np.linalg.norm(imu_t_vec - vo_t_vec)
+
             if distance < best_match[1]:
                 best_match = (homog, distance)
+
+        imu_angles = Rotation.from_matrix(imu_homog_matrix[..., :3]).as_euler('xyz', degrees=True)
+        vo_angles = Rotation.from_matrix(best_match[0][..., :3]).as_euler("xyz", degrees=True)
+        imu_xyz = str(imu_homog_matrix[..., 3:]).replace("\n", "")
+        vo_xyz = str(best_match[0][..., 3:]).replace("\n", "")
+        self.logger.info(f"Prediction Offset:\n"
+                         f"IMU angles :{imu_angles}\nVO angles  :{vo_angles}\n"
+                         f"IMU pos :{imu_xyz}\nVO pos  :{vo_xyz}")
 
         return best_match[0]
