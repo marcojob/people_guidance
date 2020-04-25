@@ -12,7 +12,7 @@ from ..module import Module
 
 HOST = "127.0.0.1"  # Host IP
 PORT = 65432  # Port
-PREVIEW_FRAMESIZE = (640, 480)
+PREVIEW_FRAMESIZE = (64, 48)
 POS_PLOT_HZ = 5
 REPOINTS_PLOT_HZ = 5
 PREVIEW_PLOT_HZ = 20

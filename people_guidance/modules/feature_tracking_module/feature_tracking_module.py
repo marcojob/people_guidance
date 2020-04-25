@@ -40,7 +40,6 @@ class FeatureTrackingModule(Module):
             img_dict = self.get("drivers_module:images")
 
             if not img_dict:
-                sleep(0.1)
                 self.logger.warn("queue was empty")
             else:
                 # extract the image data and time stamp
@@ -59,7 +58,7 @@ class FeatureTrackingModule(Module):
                 # get the new pose and compute the difference to the old one
                 position_request_response = self.await_response("position_estimation_module:position_request")
                 position_request = position_request_response["payload"]
-                self.logger.critical(position_request)
+                self.logger.critical(f"Requested position: {position_request}")
                 r = Rotation.from_euler('xyz', [position_request["roll"], position_request["pitch"], position_request["yaw"]], degrees=True)
                 t = [[position_request["x"]], [position_request["y"]], [position_request["z"]]]
                 pose = np.concatenate((r.as_matrix(), t), axis=1)
