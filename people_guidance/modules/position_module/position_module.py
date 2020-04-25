@@ -10,6 +10,20 @@ from ..module import Module
 from .helpers import IMUFrame, VOResult, Homography, interpolate_frames
 
 
+class Velocity:
+    def __init__(self, x: float = 0.0, y: float = 0.0, z: float= 0.0):
+        self.x: float = x
+        self.y: float = y
+        self.z: float = z
+
+        self.mu = 0.1
+
+    def dampen(self):
+        self.x *= (1-self.mu)
+        self.y *= (1 - self.mu)
+        self.z *= (1 - self.mu)
+
+
 class PositionModule(Module):
     def __init__(self, log_dir: pathlib.Path, args=None):
         super().__init__(name="position_module",
@@ -20,6 +34,8 @@ class PositionModule(Module):
 
         self.vo_buffer = []
         self.imu_buffer = []
+
+        self.velocity = Velocity()
 
     def start(self):
         while True:
@@ -131,9 +147,15 @@ class PositionModule(Module):
         for i in range(1, len(frames)):
             dt = (frames[i].ts - frames[i-1].ts) / 1000
             dt2 = dt * dt
-            pos.x += 0.5 * frames[i].ax * dt2
-            pos.y += 0.5 * frames[i].ay * dt2
-            pos.z += 0.5 * frames[i].az * dt2
+
+            pos.x += self.velocity.x * dt + 0.5 * frames[i].ax * dt2
+            pos.y += self.velocity.y * dt + 0.5 * frames[i].ay * dt2
+            pos.z += self.velocity.z * dt + 0.5 * frames[i].az * dt2
+
+            self.velocity.x += frames[i].ax * dt
+            self.velocity.y += frames[i].ay * dt
+            self.velocity.z += frames[i].az * dt
+
             pos.roll += frames[i].gx * dt
             pos.pitch += frames[i].gy * dt
             pos.yaw += frames[i].gz * dt
