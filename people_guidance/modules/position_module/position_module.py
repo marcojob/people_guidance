@@ -39,6 +39,8 @@ class PositionModule(Module):
 
         self.velocity = Velocity()
 
+        self.counter = 0
+
     def start(self):
         while True:
             self.get_inputs()
@@ -154,8 +156,9 @@ class PositionModule(Module):
             dt2 = dt * dt
 
             # TODO: Muss Gravity rausnehmen
+            # 0. LOW pass for acc AND rotation
             # 1. Complementary Filter to define roll, pitch, yaw at each step
-            # 2. Rotation of G in the Camera frame
+            # 2. Rotation of G into the Camera frame
             # 3. subtraction of the rotated vector
             # then and only then you can move to the next step: integrating
 
@@ -168,9 +171,16 @@ class PositionModule(Module):
             self.velocity.z = (self.velocity.z + frames[i].az * dt)
             self.velocity.dampen()
 
-            pos.roll += frames[i].gx * dt
-            pos.pitch += frames[i].gy * dt
-            pos.yaw += frames[i].gz * dt
+            roll = frames[i].gx * dt
+            pitch = frames[i].gy * dt
+            yaw = frames[i].gz * dt
+
+            new_rot = Rotation.from_euler('xyz', [roll, pitch, yaw], degrees=False).as_matrix()
+            self.logger.debug(f"multiplied \n{pos.rotation_matrix} with \n{new_rot} equals \n{np.dot(pos.rotation_matrix, new_rot)}")
+            pos.rotation_matrix = np.dot(pos.rotation_matrix, new_rot)
+            [pos.roll, pos.pitch, pos.yaw] = Rotation.from_matrix(pos.rotation_matrix).as_euler('xyz', degrees=False)
+            self.logger.debug(f"pos calculated {pos}")
+
             # this is just a placeholder. Here we have to do the proper fusion of gyro/acc data etc.
 
         return pos
@@ -200,21 +210,46 @@ class PositionModule(Module):
             # TODO: wo hast du die Formel hier unten gefunden?
             # delta_rot: Rotation = imu_rot.inv() * vo_rot
             # distance = delta_rot.magnitude() + k_t * np.linalg.norm(imu_t_vec - vo_t_vec)
+            # vect_rot = delta_rot.as_rotvec()
 
-            delta_rot = Rotation.from_matrix(imu_homog_matrix[0:3, 0:3] * np.transpose(homog[0:3, 0:3])).as_rotvec()
-            distance = np.linalg.norm(delta_rot)
+            delta_rot = Rotation.from_matrix(np.dot(imu_homog_matrix[0:3, 0:3], np.transpose(homog[0:3, 0:3])))
+            vect_rot = delta_rot.as_rotvec()
+            distance = np.linalg.norm(vect_rot)
 
             if distance < best_match[1]:
                 best_match = (homog, distance)
-                self.logger.warning(f"rot_vec {delta_rot}")
-                self.logger.warning(f"distance {distance}")
-
-        imu_angles = Rotation.from_matrix(imu_homog_matrix[..., :3]).as_euler('xyz', degrees=True)
-        vo_angles = Rotation.from_matrix(best_match[0][..., :3]).as_euler("xyz", degrees=True)
+                vect_rot_norm = np.linalg.norm(vect_rot)
+                vect_rot_direction = vect_rot / vect_rot_norm
+                self.logger.warning(f"new optimal solution: vect_rot_norm {vect_rot_norm}, vect_rot_direction "
+                                    f"{vect_rot_direction}, euler (°) {delta_rot.as_euler('xyz', degrees=True)}, distance {distance}")
+        degrees = True
+        imu_angles = Rotation.from_matrix(imu_homog_matrix[..., :3]).as_euler('xyz', degrees=degrees)
+        vo_angles = Rotation.from_matrix(best_match[0][..., :3]).as_euler("xyz", degrees=degrees)
         imu_xyz = str(imu_homog_matrix[..., 3:]).replace("\n", "")
         vo_xyz = str(best_match[0][..., 3:]).replace("\n", "")
         self.logger.info(f"Prediction Offset:\n"
-                         f"IMU angles (°) :{imu_angles}\nVO angles  :{vo_angles}\n"
+                         f"IMU angles :{imu_angles}\nVO angles :{vo_angles}, degrees? {degrees}\n"
                          f"IMU pos :{imu_xyz}\nVO pos  :{vo_xyz}")
+
+
+        plt.figure(1, figsize=(12, 15))
+        plt.tight_layout()
+
+        plt.suptitle(f"Evolution of the rotations, degrees? {degrees}", x=0.5, y=.999)
+
+        plt.subplot(2, 1, 1)
+        plt.scatter(self.counter, imu_angles[2])
+        plt.title('rot IMU')
+        plt.xlabel('')
+        plt.ylabel('')
+
+        plt.subplot(2, 1, 2)
+        plt.scatter(self.counter, vo_angles[2])
+        plt.title('rot VO')
+        plt.xlabel('')
+        plt.ylabel('')
+
+        self.counter += 1
+        plt.pause(0.001)
 
         return best_match[0]

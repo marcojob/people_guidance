@@ -22,18 +22,19 @@ def interpolate_frames(frame0, frame1, ts: int):
 
 class Homography:
     def __init__(self, x: float = 0.0, y: float = 0.0, z: float = 0.0,
-                 roll: float = 0.0, pitch: float = 0.0, yaw: float = 0.0):
+                 roll: float = 0.0, pitch: float = 0.0, yaw: float = 0.0,
+                 rotation_matrix=np.identity(3)):
         self.x: float = x
         self.y: float = y
         self.z: float = z
         self.roll: float = roll
         self.pitch: float = pitch
         self.yaw: float = yaw
+        self.rotation_matrix: np.array[float] = rotation_matrix
 
     def __str__(self):
         return f"Homography: (translation ({self.x}, {self.y}, {self.z}), angles ({self.roll}, {self.pitch}, {self.yaw}))"
 
     def as_matrix(self) -> np.array:
-        rot = Rotation.from_euler('xyz', [self.roll, self.pitch, self.yaw], degrees=False).as_matrix()
         translation = np.array((self.x, self.y, self.z))
-        return np.column_stack((rot, translation))
+        return np.column_stack((self.rotation_matrix, translation))
