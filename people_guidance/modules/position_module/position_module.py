@@ -210,6 +210,6 @@ class PositionModule(Module):
         vo_xyz = str(best_match[0][..., 3:]).replace("\n", "")
         self.logger.info(f"Prediction Offset:\n"
                          f"IMU angles (°) :{imu_angles}\nVO angles  :{vo_angles}\n"
-                         f"IMU pos :{imu_xyz}\nVO pos  :{vo_xyz}")
+                         f"IMU pos (°) :{imu_xyz}\nVO pos  :{vo_xyz}")
 
         return best_match[0]
