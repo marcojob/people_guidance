@@ -6,7 +6,7 @@ from typing import Dict, Tuple, Optional, List, Generator
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation
-from math import tan, atan2, cos, sin, pi, sqrt, atan
+from math import tan, atan2, cos, sin, pi, sqrt, atan, acos
 
 from ..module import Module
 from .helpers import IMUFrame, VOResult, Homography, interpolate_frames
@@ -198,11 +198,16 @@ class PositionModule(Module):
             vo_rot = Rotation.from_matrix(homog[0:3, 0:3])
             vo_t_vec = homog[0:3, 3]
             # TODO: wo hast du die Formel hier unten gefunden?
-            delta_rot: Rotation = imu_rot.inv() * vo_rot
-            distance = delta_rot.magnitude() + k_t * np.linalg.norm(imu_t_vec - vo_t_vec)
+            # delta_rot: Rotation = imu_rot.inv() * vo_rot
+            # distance = delta_rot.magnitude() + k_t * np.linalg.norm(imu_t_vec - vo_t_vec)
+
+            delta_rot = Rotation.from_matrix(imu_homog_matrix[0:3, 0:3] * np.transpose(homog[0:3, 0:3])).as_rotvec()
+            distance = np.linalg.norm(delta_rot)
 
             if distance < best_match[1]:
                 best_match = (homog, distance)
+                self.logger.warning(f"rot_vec {delta_rot}")
+                self.logger.warning(f"distance {distance}")
 
         imu_angles = Rotation.from_matrix(imu_homog_matrix[..., :3]).as_euler('xyz', degrees=True)
         vo_angles = Rotation.from_matrix(best_match[0][..., :3]).as_euler("xyz", degrees=True)
@@ -210,6 +215,6 @@ class PositionModule(Module):
         vo_xyz = str(best_match[0][..., 3:]).replace("\n", "")
         self.logger.info(f"Prediction Offset:\n"
                          f"IMU angles (°) :{imu_angles}\nVO angles  :{vo_angles}\n"
-                         f"IMU pos (°) :{imu_xyz}\nVO pos  :{vo_xyz}")
+                         f"IMU pos :{imu_xyz}\nVO pos  :{vo_xyz}")
 
         return best_match[0]
