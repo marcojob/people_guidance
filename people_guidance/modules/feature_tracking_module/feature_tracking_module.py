@@ -82,22 +82,26 @@ class FeatureTrackingModule(Module):
                         inliers, delta_positions, total_nr_matches = self.match_features(keypoints, descriptors)
                         error_min = 1000.0
                         best_i = 0
-                        best_scale = 0
-                        for i, pos in enumerate(delta_positions):
-                            rot = pos[0:3,0:3]
-                            trans = pos[:,3]
+                        scale_opt = 0
+                        rot_opt = None
+                        trans_opt = None
 
-                            if rot_imu_ready:
-                                #print(rot_imu - rot)
+                        if rot_imu_ready and not delta_positions.size == 0:
+                            for i, pos in enumerate(delta_positions):
+                                rot = pos[0:3,0:3]
+                                trans = pos[:,3]
+
                                 scale = trans_imu[0]*trans[0] + trans_imu[1]*trans[1] + trans_imu[2]*trans[2] / (trans[0]**2 + trans[1]**2 + trans[2]**2)
-                                #print(scale)
                                 error = (trans_imu[0] - scale*trans[0])**2 + (trans_imu[1] - scale*trans[1])**2 + (trans_imu[2] - scale*trans[2])**2
                                 if error < error_min:
                                     best_i = i
                                     error_min = error
-                                    best_scale = scale
-
-                        print(best_scale*trans)
+                                    scale_opt = scale
+                                    rot_opt = rot
+                                    trans_opt = trans * scale
+                            if rot_opt is not None:
+                                rot_opt_euler = self.rotationMatrixToEulerAngles(rot_opt)
+                                print(rot_opt_euler[2]*180.0/math.pi)
 
 
                         if total_nr_matches == 0:
@@ -116,6 +120,7 @@ class FeatureTrackingModule(Module):
                                          1000)
                             self.publish("feature_point_pairs_vis",
                                          {"point_pairs": inliers,
+                                          "img": img_encoded,
                                           "timestamp": timestamp},
                                          1000)
 
