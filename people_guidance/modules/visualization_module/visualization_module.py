@@ -168,7 +168,6 @@ class VisualizationModule(Module):
                         preview["data"]["data"], dtype=np.int8), flags=cv2.IMREAD_COLOR)
 
                     # Draw matches onto image
-                    matches = features_dict.get(preview["timestamp"], None)
                     img_dec = self.draw_matches(img_dec, matches)
 
                     ready_for_plot = False

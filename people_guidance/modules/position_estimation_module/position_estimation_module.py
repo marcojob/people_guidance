@@ -30,7 +30,6 @@ class PositionEstimationModule(Module):
         super(PositionEstimationModule, self).__init__(name="position_estimation_module",
                                                        outputs=[("position_vis", 10)],
                                                        inputs=["drivers_module:accelerations"],
-                                                       services=["position_request"],
                                                        log_dir=log_dir)
         self.args = args
 
@@ -57,7 +56,6 @@ class PositionEstimationModule(Module):
         self.gyro_y_lp = 0.0 # IMU Frame low pass filtered gyro y data
         self.gyro_z_lp = 0.0 # IMU Frame low pass filtered gyro z data
 
-        self.services["position_request"].register_handler(self.position_request)
 
         while True:
             input_data = self.get("drivers_module:accelerations")
@@ -114,11 +112,11 @@ class PositionEstimationModule(Module):
         roll_accel = atan(self.accel_z_lp / sqrt(self.accel_y_lp**2 + self.accel_x_lp**2))
 
         # Pitch, roll and yaw based on gyro
-        pitch_gyro = self.gyro_z_lp + \
+        roll_gyro = self.gyro_z_lp + \
                      self.gyro_y_lp*sin(self.pos.pitch)*tan(self.pos.roll) + \
                      self.gyro_x_lp*cos(self.pos.pitch)*tan(self.pos.roll)
 
-        roll_gyro = self.gyro_y_lp*cos(self.pos.pitch) - self.gyro_x_lp*sin(self.pos.pitch)
+        pitch_gyro = self.gyro_y_lp*cos(self.pos.pitch) - self.gyro_x_lp*sin(self.pos.pitch)
 
         yaw_gyro = self.gyro_y_lp*sin(self.pos.pitch)*1.0/cos(self.pos.roll) + self.gyro_x_lp*cos(self.pos.pitch)*1.0/cos(self.pos.roll)
 
@@ -139,48 +137,10 @@ class PositionEstimationModule(Module):
         self.pos.y += 0.5*accel_w[1] * dt * dt
         self.pos.z += 0.5*(accel_w[2] - ACCEL_G)* dt * dt
 
-    def position_request(self, request): # TODO: check timeout errors
-        requested_timestamp = request["payload"]
-        neighbors = [None, None]
-
-        self.logger.debug(f"{len(self.tracked_positions)}  - {[str(pos.ts) for pos in self.tracked_positions]}")
-
-        for idx, position in enumerate(self.tracked_positions):
-            # this assumes that our positions are sorted old to new.
-            if position.ts <= requested_timestamp:
-                neighbors[0] = (idx, position)
-            if position.ts >= requested_timestamp:
-                neighbors[1] = (idx, position)
-                break
-
-        if neighbors[0] is not None and neighbors[1] is not None:
-            self.counter_same_request = 0
-            self.logger.debug(f"Normal interpolation, asking for ts {requested_timestamp}")
-            interp_position = new_interpolated_position(requested_timestamp, neighbors[0][1], neighbors[1][1])
-            return interp_position.__dict__
-
-        elif neighbors[0] is None and neighbors[1] is not None and neighbors[1][0] < len(self.tracked_positions) - 1:
-            self.counter_same_request = 0
-            self.logger.critical("Extrapolating backwards!")
-            interp_position = new_interpolated_position(requested_timestamp, neighbors[1][1],
-                                                        self.tracked_positions[neighbors[1][0] + 1])
-            return interp_position.__dict__
-
-        else:
-            offset = self.pos.ts - requested_timestamp
-            self.logger.info(f"Could not interpolate for position with timestamp {requested_timestamp}. "
-                             f"Current offset {offset}, asked {self.counter_same_request} times")
-            if self.counter_same_request > 200: #TODO: REMOVE Quick fix
-                self.logger.warning(f"Not interpolating. Quick fix. requested {requested_timestamp}, "
-                                    f"sending {self.tracked_positions[-1]}")
-                self.counter_same_request = 0
-                return self.tracked_positions[-1]
-            self.counter_same_request += 1
-            return None
 
     @staticmethod
     def frame_from_input_data(input_data: Dict) -> IMUFrame:
-        # In Camera coordinates: Z = X_IMU, X = -Z_IMU, Y = Y_IMU (-90° rotation around the Y axis)
+        # In Camera coordinates: Z = X_IMU, X = -Z_IMU, Y = Y_IMU (90° rotation around the Y axis)
         return IMUFrame(
             ax=float(input_data['data']['accel_x']),
             ay=float(input_data['data']['accel_y']),
@@ -188,7 +148,7 @@ class PositionEstimationModule(Module):
             gx=float(input_data['data']['gyro_x']),
             gy=float(input_data['data']['gyro_y']),
             gz=float(input_data['data']['gyro_z']),
-            ts=input_data['timestamp']
+            ts=input_data['data']['timestamp']
         )
 
     def visualize_locally(self):

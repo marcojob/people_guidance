@@ -3,6 +3,7 @@ import platform
 import re
 from queue import Queue
 from time import sleep, monotonic
+from statistics import median
 from pathlib import Path
 
 from .utils import *
@@ -37,6 +38,8 @@ class DriversModule(Module):
         self.img_counter = 0
         self.RECORD_MODE = False
         self.REPLAY_MODE = False
+
+        self.data_window = {topic: list() for topic in ['accel_x', 'accel_y', 'accel_z', 'gyro_x', 'gyro_y', 'gyro_z']}
 
         # IMU INITS
         self.imu_next_sample_ms = self.get_time_ms()
@@ -86,6 +89,9 @@ class DriversModule(Module):
                                  "timestamp": timestamp
                                  }
 
+                    # Track window for median filter
+                    data_dict = self.track_val_median_filter(data_dict)
+
                     if self.RECORD_MODE:
                         # In record mode, we want to write data into the open file
                         self.imu_data.write(f"{timestamp}: " +
@@ -117,14 +123,17 @@ class DriversModule(Module):
                             self.imu_first_timestamp = self.imu_timestamp
 
                         # Populate dict with data, as if it was sampled normally
-                        self.imu_data_dict = {'accel_x': out.group(2),
-                                              'accel_y': out.group(3),
-                                              'accel_z': out.group(4),
-                                              'gyro_x': out.group(5),
-                                              'gyro_y': out.group(6),
-                                              'gyro_z': out.group(7),
+                        self.imu_data_dict = {'accel_x': float(out.group(2)),
+                                              'accel_y': float(out.group(3)),
+                                              'accel_z': float(out.group(4)),
+                                              'gyro_x': float(out.group(5)),
+                                              'gyro_y': float(out.group(6)),
+                                              'gyro_z': float(out.group(7)),
                                               "timestamp": int(out.group(1))
                                               }
+
+                        # Track window for median filter
+                        self.imu_data_dict = self.track_val_median_filter(self.imu_data_dict)
 
                 # If the relative time is correct, we publish the data
 
@@ -234,6 +243,21 @@ class DriversModule(Module):
 
     def camera_stop(self):
         self.encoder.connection.disable()
+
+    def track_val_median_filter(self, data_dict):
+        for key in self.data_window.keys():
+            # If longer than median filter window size, delete
+            if len(self.data_window[key]) > LEN_MEDIAN:
+                del self.data_window[key][0]
+
+            # Append new data
+            self.data_window[key].append(data_dict[key])
+
+            # Get median value
+            data_dict[key] = median(self.data_window[key])
+
+        return data_dict
+
 
     def set_accel_range(self):
         # Get current config
