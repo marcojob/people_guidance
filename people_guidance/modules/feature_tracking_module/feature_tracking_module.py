@@ -1,9 +1,10 @@
 import pathlib
 import cv2
 import numpy as np
+import math
 
 from time import sleep
-from scipy.spatial.transform import Rotation
+from scipy.spatial.transform import Rotation as R
 from typing import Tuple
 
 from people_guidance.modules.module import Module
@@ -19,7 +20,7 @@ class FeatureTrackingModule(Module):
 
     def __init__(self, log_dir: pathlib.Path, args=None):
         super(FeatureTrackingModule, self).__init__(name="feature_tracking_module", outputs=[("feature_point_pairs", 10), ("feature_point_pairs_vis", 10)],
-                                                    inputs=["drivers_module:images"],
+                                                    inputs=["drivers_module:images"], requests=[("position_estimation_module:position_request")],
                                                     log_dir=log_dir)
 
     def start(self):
@@ -36,6 +37,9 @@ class FeatureTrackingModule(Module):
         self.orb = cv2.ORB_create(nfeatures=self.max_num_keypoints)
         self.matcher = cv2.BFMatcher_create(cv2.NORM_HAMMING, crossCheck=True)
 
+        self.id = 0
+        self.position_request_prev = None
+        self.position_request = None
         while True:
             img_dict = self.get("drivers_module:images")
 
@@ -59,7 +63,42 @@ class FeatureTrackingModule(Module):
                     if self.old_descriptors is not None:  # skip the matching step for the first image
                         # match the feature descriptors of the old and new image
 
+                        self.id += 1
+                        self.make_request("position_estimation_module:position_request", {"id": self.id, "payload": timestamp})
+                        position_request_response = self.await_response("position_estimation_module:position_request")
+                        rot_imu_ready = False
+                        if position_request_response is not None:
+                            self.position_request_prev = self.position_request
+                            self.position_request = position_request_response.get("payload", None)
+                            if self.position_request_prev:
+                                rot_imu_ready = True
+                                rot_imu = R.from_euler('xyz', [self.position_request_prev["roll"] - self.position_request["roll"],
+                                                               self.position_request_prev["pitch"] - self.position_request["pitch"],
+                                                               self.position_request_prev["yaw"] - self.position_request["yaw"]], degrees=False).as_matrix()
+                                trans_imu = np.array([self.position_request_prev["x"] - self.position_request["x"],
+                                                      self.position_request_prev["y"] - self.position_request["y"],
+                                                      self.position_request_prev["z"] - self.position_request["z"]])
+
                         inliers, delta_positions, total_nr_matches = self.match_features(keypoints, descriptors)
+                        error_min = 1000.0
+                        best_i = 0
+                        best_scale = 0
+                        for i, pos in enumerate(delta_positions):
+                            rot = pos[0:3,0:3]
+                            trans = pos[:,3]
+
+                            if rot_imu_ready:
+                                #print(rot_imu - rot)
+                                scale = trans_imu[0]*trans[0] + trans_imu[1]*trans[1] + trans_imu[2]*trans[2] / (trans[0]**2 + trans[1]**2 + trans[2]**2)
+                                #print(scale)
+                                error = (trans_imu[0] - scale*trans[0])**2 + (trans_imu[1] - scale*trans[1])**2 + (trans_imu[2] - scale*trans[2])**2
+                                if error < error_min:
+                                    best_i = i
+                                    error_min = error
+                                    best_scale = scale
+
+                        print(best_scale*trans)
+
 
                         if total_nr_matches == 0:
                             # there were 0 inliers found, print a warning
@@ -68,8 +107,8 @@ class FeatureTrackingModule(Module):
                         else:
                             visualization_img = self.visualize_matches(img, keypoints, inliers, total_nr_matches)
                             visualization_img = cv2.resize(visualization_img, None, fx=0.85, fy=0.85)
-                            cv2.imshow("vis", visualization_img)
-                            cv2.waitKey(1)
+                            # cv2.imshow("vis", visualization_img)
+                            # cv2.waitKey(1)
                             self.publish("feature_point_pairs",
                                          {"camera_positions" : delta_positions,
                                           "point_pairs": inliers,
@@ -151,3 +190,32 @@ class FeatureTrackingModule(Module):
                    (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
 
         return visualization_img
+
+    # Checks if a matrix is a valid rotation matrix.
+    def isRotationMatrix(self,R) :
+        Rt = np.transpose(R)
+        shouldBeIdentity = np.dot(Rt, R)
+        I = np.identity(3, dtype = R.dtype)
+        n = np.linalg.norm(I - shouldBeIdentity)
+        return n < 0.01
+
+
+    # Calculates rotation matrix to euler angles
+    # The result is the same as MATLAB except the order
+    # of the euler angles ( x and z are swapped ).
+    def rotationMatrixToEulerAngles(self, R) :
+        assert(self.isRotationMatrix(R))
+        sy = math.sqrt(R[0,0] * R[0,0] +  R[1,0] * R[1,0])
+
+        singular = sy < 1e-6
+
+        if  not singular :
+            x = math.atan2(R[2,1] , R[2,2])
+            y = math.atan2(-R[2,0], sy)
+            z = math.atan2(R[1,0], R[0,0])
+        else :
+            x = math.atan2(-R[1,2], R[1,1])
+            y = math.atan2(-R[2,0], sy)
+            z = 0
+
+        return np.array([x, y, z])
