@@ -178,10 +178,10 @@ class VisualizationModule(Module):
 
             preview_p = ax_list["preview"].imshow(self.data_dict["preview"])
 
-            ax_list["preview"].figure.canvas.draw()
+            ax_list["preview"].figure.canvas.draw_idle()
         else:
             preview_p.set_data(self.data_dict["preview"])
-            ax_list["preview"].figure.canvas.draw()
+            ax_list["preview"].figure.canvas.draw_idle()
 
     def draw_matches(self, img, matches):
         RADIUS = 30
