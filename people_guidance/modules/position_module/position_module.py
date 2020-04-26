@@ -11,6 +11,7 @@ from math import tan, atan2, cos, sin, pi, sqrt, atan, acos
 from ..module import Module
 from .helpers import IMUFrame, VOResult, Homography, interpolate_frames
 
+DEGREE_TO_RAD = float(pi / 180)
 
 class Velocity:
     def __init__(self, x: float = 0.0, y: float = 0.0, z: float= 0.0):
@@ -66,9 +67,9 @@ class PositionModule(Module):
             ax=-float(payload['data']['accel_z']),
             ay=float(payload['data']['accel_y']),
             az=float(payload['data']['accel_x']),
-            gx=-float(payload['data']['gyro_z']),
-            gy=float(payload['data']['gyro_y']),
-            gz=float(payload['data']['gyro_x']),
+            gx=-float(payload['data']['gyro_z'] * DEGREE_TO_RAD),
+            gy=float(payload['data']['gyro_y'] * DEGREE_TO_RAD),
+            gz=float(payload['data']['gyro_x'] * DEGREE_TO_RAD),
             ts=payload['data']['timestamp']
         )
 
@@ -151,12 +152,39 @@ class PositionModule(Module):
     def integrate(self, frames: List[IMUFrame]) -> Homography:
         pos = Homography()
 
+        # #PLOT
+        # plt.figure(2, figsize=(10, 12))
+        # plt.tight_layout()
+        #
+        # plt.suptitle(f"Input data", x=0.5, y=.999)
+        #
+        # plt.subplot(3, 1, 1)
+        # plt.scatter([i for i in range(len(frames))], [frames[i].gx for i in range(len(frames))])
+        # plt.title('gx')
+        # plt.xlabel('')
+        # plt.ylabel('')
+        #
+        # plt.subplot(3, 1, 2)
+        # plt.scatter([i for i in range(len(frames))], [frames[i].gy for i in range(len(frames))])
+        # plt.title('gy')
+        # plt.xlabel('')
+        # plt.ylabel('')
+        #
+        # plt.subplot(3, 1, 3)
+        # plt.scatter([i for i in range(len(frames))], [frames[i].gz for i in range(len(frames))])
+        # plt.title('gz')
+        # plt.xlabel('')
+        # plt.ylabel('')
+        #
+        # self.counter += 1
+        # plt.pause(0.001)
+
         for i in range(1, len(frames)):
             dt = (frames[i].ts - frames[i-1].ts) / 1000
             dt2 = dt * dt
 
             # TODO: Muss Gravity rausnehmen
-            # 0. LOW pass for acc AND rotation
+            # 0. LOW pass for acc AND rotation (at higher lvl)
             # 1. Complementary Filter to define roll, pitch, yaw at each step
             # 2. Rotation of G into the Camera frame
             # 3. subtraction of the rotated vector
@@ -199,7 +227,8 @@ class PositionModule(Module):
 
     def choose_nearest_homography(self, vo_result: VOResult, imu_homog: Homography) -> np.array:
         imu_homog_matrix = imu_homog.as_matrix()
-        best_match = (None, np.inf)
+        best_match = (None, np.inf, None)
+        best_match2 = (None, np.inf, None)
 
         for homog in vo_result.homogs:
             k_t = 1
@@ -207,21 +236,27 @@ class PositionModule(Module):
             imu_t_vec = imu_homog_matrix[0:3, 3]
             vo_rot = Rotation.from_matrix(homog[0:3, 0:3])
             vo_t_vec = homog[0:3, 3]
-            # TODO: wo hast du die Formel hier unten gefunden?
-            # delta_rot: Rotation = imu_rot.inv() * vo_rot
-            # distance = delta_rot.magnitude() + k_t * np.linalg.norm(imu_t_vec - vo_t_vec)
-            # vect_rot = delta_rot.as_rotvec()
+            # Robot dynamic script p51
+            delta_rot2: Rotation = imu_rot.inv() * vo_rot
+            distance2 = delta_rot2.magnitude() + k_t * np.linalg.norm(imu_t_vec - vo_t_vec)
+            vect_rot2 = delta_rot2.as_rotvec()
 
             delta_rot = Rotation.from_matrix(np.dot(imu_homog_matrix[0:3, 0:3], np.transpose(homog[0:3, 0:3])))
             vect_rot = delta_rot.as_rotvec()
             distance = np.linalg.norm(vect_rot)
 
-            if distance < best_match[1]:
-                best_match = (homog, distance)
+            if distance2 < best_match[1]:
+                best_match = (homog, distance, delta_rot)
+                best_match2 = (homog, distance2, delta_rot2)
+
                 vect_rot_norm = np.linalg.norm(vect_rot)
                 vect_rot_direction = vect_rot / vect_rot_norm
-                self.logger.warning(f"new optimal solution: vect_rot_norm {vect_rot_norm}, vect_rot_direction "
+                self.logger.debug(f"new optimal solution: vect_rot_norm {vect_rot_norm}, vect_rot_direction "
                                     f"{vect_rot_direction}, euler (°) {delta_rot.as_euler('xyz', degrees=True)}, distance {distance}")
+
+        if best_match[1] > 0.5:
+            self.logger.critical(f"Distance too high, distance: {best_match[1]}, euler: {best_match[2].as_euler('xyz', degrees=True)}")
+
         degrees = True
         imu_angles = Rotation.from_matrix(imu_homog_matrix[..., :3]).as_euler('xyz', degrees=degrees)
         vo_angles = Rotation.from_matrix(best_match[0][..., :3]).as_euler("xyz", degrees=degrees)
@@ -231,25 +266,46 @@ class PositionModule(Module):
                          f"IMU angles :{imu_angles}\nVO angles :{vo_angles}, degrees? {degrees}\n"
                          f"IMU pos :{imu_xyz}\nVO pos  :{vo_xyz}")
 
+        # #PLOT
+        # plt.figure(1, figsize=(10, 12))
+        # plt.tight_layout()
+        #
+        # plt.suptitle(f"Distance evaluation method", x=0.5, y=.999)
+        #
+        # plt.subplot(2, 1, 1)
+        # plt.scatter(self.counter, best_match[1])
+        # plt.title('Distance Theo')
+        # plt.xlabel('')
+        # plt.ylabel('')
+        #
+        # plt.subplot(2, 1, 2)
+        # plt.scatter(self.counter, best_match2[1])
+        # plt.title('Distance Adrian')
+        # plt.xlabel('')
+        # plt.ylabel('')
+        #
+        # self.counter += 1
+        # plt.pause(0.001)
 
-        plt.figure(1, figsize=(12, 15))
-        plt.tight_layout()
-
-        plt.suptitle(f"Evolution of the rotations, degrees? {degrees}", x=0.5, y=.999)
-
-        plt.subplot(2, 1, 1)
-        plt.scatter(self.counter, imu_angles[2])
-        plt.title('rot IMU')
-        plt.xlabel('')
-        plt.ylabel('')
-
-        plt.subplot(2, 1, 2)
-        plt.scatter(self.counter, vo_angles[2])
-        plt.title('rot VO')
-        plt.xlabel('')
-        plt.ylabel('')
-
-        self.counter += 1
-        plt.pause(0.001)
+        # #PLOT
+        # plt.figure(1, figsize=(10, 12))
+        # plt.tight_layout()
+        #
+        # plt.suptitle(f"Evolution of the rotations, degrees? {degrees}", x=0.5, y=.999)
+        #
+        # plt.subplot(2, 1, 1)
+        # plt.scatter(self.counter, imu_angles[2])
+        # plt.title('rot IMU')
+        # plt.xlabel('')
+        # plt.ylabel('')
+        #
+        # plt.subplot(2, 1, 2)
+        # plt.scatter(self.counter, vo_angles[2])
+        # plt.title('rot VO')
+        # plt.xlabel('')
+        # plt.ylabel('')
+        #
+        # self.counter += 1
+        # plt.pause(0.001)
 
         return best_match[0]
