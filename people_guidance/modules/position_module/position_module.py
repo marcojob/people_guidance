@@ -4,14 +4,13 @@ import time
 from typing import Dict, Tuple, Optional, List, Generator
 
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation
 from math import tan, atan2, cos, sin, pi, sqrt, atan, acos
 
 from ..module import Module
-from .helpers import IMUFrame, VOResult, Homography, interpolate_frames
+from .helpers import IMUFrame, VOResult, Homography, interpolate_frames, visualize_input_data, visualize_distance_metric
+from .helpers import degree_to_rad
 
-DEGREE_TO_RAD = float(pi / 180)
 
 class Velocity:
     def __init__(self, x: float = 0.0, y: float = 0.0, z: float= 0.0):
@@ -35,12 +34,9 @@ class PositionModule(Module):
                                  "feature_tracking_module:feature_point_pairs"],
                          log_dir=log_dir)
 
-        self.vo_buffer = []
-        self.imu_buffer = []
-
+        self.vo_buffer: List[VOResult] = []
+        self.imu_buffer: List[IMUFrame] = []
         self.velocity = Velocity()
-
-        self.counter = 0
 
     def start(self):
         while True:
@@ -67,9 +63,9 @@ class PositionModule(Module):
             ax=-float(payload['data']['accel_z']),
             ay=float(payload['data']['accel_y']),
             az=float(payload['data']['accel_x']),
-            gx=-float(payload['data']['gyro_z'] * DEGREE_TO_RAD),
-            gy=float(payload['data']['gyro_y'] * DEGREE_TO_RAD),
-            gz=float(payload['data']['gyro_x'] * DEGREE_TO_RAD),
+            gx=-degree_to_rad(float(payload['data']['gyro_z'])),
+            gy=degree_to_rad(float(payload['data']['gyro_y'])),
+            gz=degree_to_rad(float(payload['data']['gyro_x'])),
             ts=payload['data']['timestamp']
         )
 
@@ -152,32 +148,7 @@ class PositionModule(Module):
     def integrate(self, frames: List[IMUFrame]) -> Homography:
         pos = Homography()
 
-        # #PLOT
-        # plt.figure(2, figsize=(10, 12))
-        # plt.tight_layout()
-        #
-        # plt.suptitle(f"Input data", x=0.5, y=.999)
-        #
-        # plt.subplot(3, 1, 1)
-        # plt.scatter([i for i in range(len(frames))], [frames[i].gx for i in range(len(frames))])
-        # plt.title('gx')
-        # plt.xlabel('')
-        # plt.ylabel('')
-        #
-        # plt.subplot(3, 1, 2)
-        # plt.scatter([i for i in range(len(frames))], [frames[i].gy for i in range(len(frames))])
-        # plt.title('gy')
-        # plt.xlabel('')
-        # plt.ylabel('')
-        #
-        # plt.subplot(3, 1, 3)
-        # plt.scatter([i for i in range(len(frames))], [frames[i].gz for i in range(len(frames))])
-        # plt.title('gz')
-        # plt.xlabel('')
-        # plt.ylabel('')
-        #
-        # self.counter += 1
-        # plt.pause(0.001)
+        # visualize_input_data(frames)
 
         for i in range(1, len(frames)):
             dt = (frames[i].ts - frames[i-1].ts) / 1000
@@ -208,8 +179,6 @@ class PositionModule(Module):
             pos.rotation_matrix = np.dot(pos.rotation_matrix, new_rot)
             [pos.roll, pos.pitch, pos.yaw] = Rotation.from_matrix(pos.rotation_matrix).as_euler('xyz', degrees=False)
             self.logger.debug(f"pos calculated {pos}")
-
-            # this is just a placeholder. Here we have to do the proper fusion of gyro/acc data etc.
 
         return pos
 
@@ -266,46 +235,7 @@ class PositionModule(Module):
                          f"IMU angles :{imu_angles}\nVO angles :{vo_angles}, degrees? {degrees}\n"
                          f"IMU pos :{imu_xyz}\nVO pos  :{vo_xyz}")
 
-        # #PLOT
-        # plt.figure(1, figsize=(10, 12))
-        # plt.tight_layout()
-        #
-        # plt.suptitle(f"Distance evaluation method", x=0.5, y=.999)
-        #
-        # plt.subplot(2, 1, 1)
-        # plt.scatter(self.counter, best_match[1])
-        # plt.title('Distance Theo')
-        # plt.xlabel('')
-        # plt.ylabel('')
-        #
-        # plt.subplot(2, 1, 2)
-        # plt.scatter(self.counter, best_match2[1])
-        # plt.title('Distance Adrian')
-        # plt.xlabel('')
-        # plt.ylabel('')
-        #
-        # self.counter += 1
-        # plt.pause(0.001)
-
-        # #PLOT
-        # plt.figure(1, figsize=(10, 12))
-        # plt.tight_layout()
-        #
-        # plt.suptitle(f"Evolution of the rotations, degrees? {degrees}", x=0.5, y=.999)
-        #
-        # plt.subplot(2, 1, 1)
-        # plt.scatter(self.counter, imu_angles[2])
-        # plt.title('rot IMU')
-        # plt.xlabel('')
-        # plt.ylabel('')
-        #
-        # plt.subplot(2, 1, 2)
-        # plt.scatter(self.counter, vo_angles[2])
-        # plt.title('rot VO')
-        # plt.xlabel('')
-        # plt.ylabel('')
-        #
-        # self.counter += 1
-        # plt.pause(0.001)
+        # self.counter = \
+        # visualize_distance_metric(best_match, best_match2, degrees, imu_angles, vo_angles, self.counter)
 
         return best_match[0]
