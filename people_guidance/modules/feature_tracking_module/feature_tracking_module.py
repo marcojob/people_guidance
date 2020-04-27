@@ -69,11 +69,11 @@ class FeatureTrackingModule(Module):
                 # only do feature matching if there were keypoints found in the new image, discard it otherwise
                 if len(keypoints) == 0:
                     self.logger.warn(f"Didn't find any features in image with timestamp {timestamp}, skipping...")
-
                     self.publish("feature_point_pairs_vis",
                                 {"img": img_encoded,
                                  "timestamp": timestamp},
                                          1000)
+                    sleep(0.05)
                 else:
                     if self.old_descriptors is not None:  # skip the matching step for the first image
                         # match the feature descriptors of the old and new image

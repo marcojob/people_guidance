@@ -126,7 +126,7 @@ class PositionEstimationModule(Module):
         if vo_delta:
             self.pos_delta = vo_delta["data"]["delta_pos"]
             self.angle_delta = vo_delta["data"]["delta_angle"]
-            self.ALPHA_VO = 0.01
+            self.ALPHA_VO = 0.0
         else:
             self.pos_delta = [0, 0, 0]
             self.angle_delta = [0, 0, 0]
