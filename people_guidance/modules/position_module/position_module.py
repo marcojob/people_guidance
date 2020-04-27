@@ -148,6 +148,7 @@ class PositionModule(Module):
     def integrate(self, frames: List[IMUFrame]) -> Homography:
         pos = Homography()
 
+        #PLOT
         # visualize_input_data(frames)
 
         for i in range(1, len(frames)):
@@ -235,7 +236,7 @@ class PositionModule(Module):
                          f"IMU angles :{imu_angles}\nVO angles :{vo_angles}, degrees? {degrees}\n"
                          f"IMU pos :{imu_xyz}\nVO pos  :{vo_xyz}")
 
-        # self.counter = \
-        # visualize_distance_metric(best_match, best_match2, degrees, imu_angles, vo_angles, self.counter)
+        #PLOT
+        visualize_distance_metric(best_match, best_match2, degrees, imu_angles, vo_angles)
 
         return best_match[0]
