@@ -110,11 +110,12 @@ class VisualizationModule(Module):
 
             features = self.get("feature_tracking_module:feature_point_pairs_vis")
             if features:
-                matches = features["data"]["point_pairs"]
-                preview = features["data"]["img"]
+                matches = features["data"].get("point_pairs", None)
+                preview = features["data"].get("img", None)
 
-                img_dec = cv2.imdecode(np.frombuffer(
-                        preview, dtype=np.int8), flags=cv2.IMREAD_COLOR)
+                if preview is not None:
+                    img_dec = cv2.imdecode(np.frombuffer(
+                            preview, dtype=np.int8), flags=cv2.IMREAD_COLOR)
 
                 # Draw matches onto image
                 self.data_dict["preview"] = self.draw_matches(img_dec, matches)

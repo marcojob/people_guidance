@@ -4,7 +4,7 @@ import numpy as np
 import math
 
 from time import sleep
-from scipy.spatial.transform import Rotation as R
+from scipy.spatial.transform import Rotation
 from typing import Tuple
 
 from people_guidance.modules.module import Module
@@ -19,7 +19,7 @@ from people_guidance.utils import project_path
 class FeatureTrackingModule(Module):
 
     def __init__(self, log_dir: pathlib.Path, args=None):
-        super(FeatureTrackingModule, self).__init__(name="feature_tracking_module", outputs=[("feature_point_pairs", 10), ("feature_point_pairs_vis", 10)],
+        super(FeatureTrackingModule, self).__init__(name="feature_tracking_module", outputs=[("feature_point_pairs", 10), ("feature_point_pairs_vis", 10), ("visual_odometry_deltas", 10)],
                                                     inputs=["drivers_module:images"], requests=[("position_estimation_module:position_request")],
                                                     log_dir=log_dir)
 
@@ -40,6 +40,16 @@ class FeatureTrackingModule(Module):
         self.id = 0
         self.position_request_prev = None
         self.position_request = None
+
+        self.roll_delta = 0.0
+        self.pitch_delta = 0.0
+        self.yaw_delta = 0.0
+
+        self.x_delta = 0.0
+        self.y_delta = 0.0
+        self.z_delta = 0.0
+        RAD_TO_DEG = 180.0/math.pi
+
         while True:
             img_dict = self.get("drivers_module:images")
 
@@ -59,6 +69,11 @@ class FeatureTrackingModule(Module):
                 # only do feature matching if there were keypoints found in the new image, discard it otherwise
                 if len(keypoints) == 0:
                     self.logger.warn(f"Didn't find any features in image with timestamp {timestamp}, skipping...")
+
+                    self.publish("feature_point_pairs_vis",
+                                {"img": img_encoded,
+                                 "timestamp": timestamp},
+                                         1000)
                 else:
                     if self.old_descriptors is not None:  # skip the matching step for the first image
                         # match the feature descriptors of the old and new image
@@ -72,36 +87,52 @@ class FeatureTrackingModule(Module):
                             self.position_request = position_request_response.get("payload", None)
                             if self.position_request_prev:
                                 rot_imu_ready = True
-                                rot_imu = R.from_euler('xyz', [self.position_request_prev["roll"] - self.position_request["roll"],
-                                                               self.position_request_prev["pitch"] - self.position_request["pitch"],
-                                                               self.position_request_prev["yaw"] - self.position_request["yaw"]], degrees=False).as_matrix()
-                                trans_imu = np.array([self.position_request_prev["x"] - self.position_request["x"],
-                                                      self.position_request_prev["y"] - self.position_request["y"],
-                                                      self.position_request_prev["z"] - self.position_request["z"]])
+                                rot_imu = Rotation.from_euler('xyz', [self.position_request["roll"] - self.position_request_prev["roll"],
+                                                               self.position_request["pitch"] - self.position_request_prev["pitch"],
+                                                               self.position_request["yaw"] - self.position_request_prev["yaw"]], degrees=False)
+                                trans_imu = np.array([self.position_request["x"] - self.position_request_prev["x"],
+                                                      self.position_request["y"] - self.position_request_prev["y"],
+                                                      self.position_request["z"] - self.position_request_prev["z"]])
 
                         inliers, delta_positions, total_nr_matches = self.match_features(keypoints, descriptors)
-                        error_min = 1000.0
-                        best_i = 0
-                        scale_opt = 0
-                        rot_opt = None
-                        trans_opt = None
 
+                        best_rot_vo = None
+                        best_trans_vo = None
+                        best_distance = np.inf
                         if rot_imu_ready and not delta_positions.size == 0:
-                            for i, pos in enumerate(delta_positions):
-                                rot = pos[0:3,0:3]
-                                trans = pos[:,3]
+                            for delta in delta_positions:
+                                k_t = 1
+                                R = delta[:,:3]
+                                R_euler = self.rotationMatrixToEulerAngles(R)
 
-                                scale = trans_imu[0]*trans[0] + trans_imu[1]*trans[1] + trans_imu[2]*trans[2] / (trans[0]**2 + trans[1]**2 + trans[2]**2)
-                                error = (trans_imu[0] - scale*trans[0])**2 + (trans_imu[1] - scale*trans[1])**2 + (trans_imu[2] - scale*trans[2])**2
-                                if error < error_min:
-                                    best_i = i
-                                    error_min = error
-                                    scale_opt = scale
-                                    rot_opt = rot
-                                    trans_opt = trans * scale
-                            if rot_opt is not None:
-                                rot_opt_euler = self.rotationMatrixToEulerAngles(rot_opt)
-                                print(rot_opt_euler[2]*180.0/math.pi)
+                                t = delta[:, 3]
+
+                                rot_vo = Rotation.from_euler('xyz', [R_euler[2], R_euler[0], R_euler[1]])
+                                trans_vo = np.array([t[2], t[0], t[1]])
+
+                                delta_rot = rot_imu.inv() * rot_vo
+                                distance = delta_rot.magnitude() + k_t * np.linalg.norm(trans_imu - trans_vo)
+
+                                if distance < best_distance:
+                                    best_distance = distance
+                                    best_rot_vo = rot_vo
+                                    best_trans_vo = trans_vo
+
+                            rot_euler = self.rotationMatrixToEulerAngles(best_rot_vo.as_matrix())
+
+                            self.roll_delta = rot_euler[0]
+                            self.pitch_delta = rot_euler[1]
+                            self.yaw_delta = rot_euler[2]
+
+                            self.x_delta = trans_vo[0]
+                            self.y_delta = trans_vo[1]
+                            self.z_delta = trans_vo[2]
+
+                            self.publish("visual_odometry_deltas",
+                                        {"delta_pos": np.array([self.x_delta, self.y_delta, self.z_delta]),
+                                         "delta_angle": np.array([self.roll_delta, self.pitch_delta, self.yaw_delta]),
+                                         "timestamp": timestamp},
+                                         1000)
 
 
                         if total_nr_matches == 0:
@@ -114,7 +145,7 @@ class FeatureTrackingModule(Module):
                             # cv2.imshow("vis", visualization_img)
                             # cv2.waitKey(1)
                             self.publish("feature_point_pairs",
-                                         {"camera_positions" : delta_positions,
+                                         {"camera_positions" : np.array([]),
                                           "point_pairs": inliers,
                                           "timestamp_pair": (self.old_timestamp, timestamp)},
                                          1000)
@@ -122,7 +153,7 @@ class FeatureTrackingModule(Module):
                                          {"point_pairs": inliers,
                                           "img": img_encoded,
                                           "timestamp": timestamp},
-                                         1000)
+                                         100)
 
                     # store the date of the new image as old_img... for the next iteration
                     # If there are no features found in the new image this step is skipped

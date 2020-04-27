@@ -29,7 +29,7 @@ class PositionEstimationModule(Module):
     def __init__(self, log_dir: Path, args=None):
         super(PositionEstimationModule, self).__init__(name="position_estimation_module",
                                                        outputs=[("position_vis", 10)],
-                                                       inputs=["drivers_module:accelerations"],
+                                                       inputs=["drivers_module:accelerations", "feature_tracking_module:visual_odometry_deltas"],
                                                        services=["position_request"],
                                                        log_dir=log_dir)
         self.args = args
@@ -122,10 +122,22 @@ class PositionEstimationModule(Module):
 
         yaw_gyro = self.gyro_y_lp*sin(self.pos.pitch)*1.0/cos(self.pos.roll) + self.gyro_x_lp*cos(self.pos.pitch)*1.0/cos(self.pos.roll)
 
+        vo_delta = self.get("feature_tracking_module:visual_odometry_deltas")
+        if vo_delta:
+            self.pos_delta = vo_delta["data"]["delta_pos"]
+            self.angle_delta = vo_delta["data"]["delta_angle"]
+            self.ALPHA_VO = 0.01
+        else:
+            self.pos_delta = [0, 0, 0]
+            self.angle_delta = [0, 0, 0]
+            self.ALPHA_VO = 0.0
+
         # Apply complementary filter
-        self.pos.pitch = (1.0 - ALPHA_CF)*(self.pos.pitch + pitch_gyro*dt) + ALPHA_CF * pitch_accel
-        self.pos.roll = (1.0 - ALPHA_CF)*(self.pos.roll + roll_gyro*dt) + ALPHA_CF * roll_accel
-        self.pos.yaw += yaw_gyro*dt
+        self.pos.roll = (1.0 - self.ALPHA_VO)*((1.0 - ALPHA_CF)*(self.pos.roll + roll_gyro*dt) + ALPHA_CF * roll_accel) + self.ALPHA_VO*(self.angle_delta[0])
+        self.pos.pitch = (1.0 - self.ALPHA_VO)*((1.0 - ALPHA_CF)*(self.pos.pitch + pitch_gyro*dt) + ALPHA_CF * pitch_accel) + self.ALPHA_VO*(self.angle_delta[1])
+        self.pos.yaw += (1.0 - self.ALPHA_VO)*yaw_gyro*dt + self.ALPHA_VO*self.angle_delta[2]
+
+
 
     def position_estimation_simple(self, frame, dt: float):
         # Obtain rotation matrix
@@ -133,11 +145,12 @@ class PositionEstimationModule(Module):
 
         # Rotate accelerations to world coordinate system
         accel_w = r.apply([frame.az, frame.ay, frame.ax])
+        self.pos_delta = r.apply([self.pos_delta[0], self.pos_delta[1], self.pos_delta[2]])
 
         # Integrate to get the position
-        self.pos.x += 0.5*accel_w[0] * dt * dt
-        self.pos.y += 0.5*accel_w[1] * dt * dt
-        self.pos.z += 0.5*(accel_w[2] - ACCEL_G)* dt * dt
+        self.pos.x += (1.0 - self.ALPHA_VO)*0.5*accel_w[0] * dt * dt + self.ALPHA_VO*self.pos_delta[0]
+        self.pos.y += (1.0 - self.ALPHA_VO)*0.5*accel_w[1] * dt * dt + self.ALPHA_VO*self.pos_delta[1]
+        self.pos.z += (1.0 - self.ALPHA_VO)*0.5*(accel_w[2] - ACCEL_G)* dt * dt + self.ALPHA_VO*self.pos_delta[2]
 
     def position_request(self, request): # TODO: check timeout errors
         requested_timestamp = request["payload"]
