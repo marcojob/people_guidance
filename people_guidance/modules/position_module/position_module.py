@@ -69,10 +69,6 @@ class PositionModule(Module):
             ts=payload['data']['timestamp']
         )
 
-    # imu 10, 11, 12, 13 ,14
-
-    # vo 13, 14, 15
-
     @staticmethod
     def vo_result_from_payload(payload: Dict):
         return VOResult(homogs=payload["data"]["camera_positions"], pairs=payload["data"]["point_pairs"],
@@ -133,7 +129,7 @@ class PositionModule(Module):
             self.vo_buffer.pop(idx - offset)
 
     def find_imu_integration_interval(self, ts0, ts1) -> List[Optional[int]]:
-        # returns indices from self.imu_buffer, which form the interval over which we want to integrate
+        # returns indices from self.imu_buffer, which forms the interval over which we want to integrate
         neighbors = [None, None]
 
         for idx, frame in enumerate(self.imu_buffer):
