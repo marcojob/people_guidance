@@ -36,8 +36,7 @@ preview_p = None
 class VisualizationModule(Module):
     def __init__(self, log_dir: pathlib.Path, args=None):
         super(VisualizationModule, self).__init__(name="visualization_module", outputs=[],
-                                                  inputs=["position_estimation_module:position_vis",
-                                                          "feature_tracking_module:feature_point_pairs_vis",
+                                                  inputs=["feature_tracking_module:feature_point_pairs_vis",
                                                           "reprojection_module:points3d"],
                                                   log_dir=log_dir)
         self.args = args
