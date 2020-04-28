@@ -1,6 +1,6 @@
 import collections
 from math import pi
-from typing import List
+from typing import List, Dict, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -26,6 +26,22 @@ def interpolate_frames(frame0, frame1, ts: int):
         value = getattr(frame0, key) + ((getattr(frame1, key) - getattr(frame0, key)) * lever)
         properties[key] = value
     return IMUFrame(**properties)
+
+
+class MovingAverageFilter:
+    def __init__(self):
+        self.keys: Dict[str, List] = {}
+
+    def __call__(self, key: str, value: Union[int, float], window_size: int = 5):
+        if key not in self.keys:
+            self.keys[key] = [value]
+        else:
+            if len(self.keys[key]) > window_size:
+                self.keys[key].pop(0)
+
+            self.keys[key].append(value)
+
+        return float(sum(self.keys[key]) / len(self.keys[key]))
 
 
 class Homography:

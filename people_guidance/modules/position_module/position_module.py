@@ -1,7 +1,7 @@
 
 import pathlib
 import time
-from typing import Dict, Tuple, Optional, List, Generator
+from typing import Dict, Tuple, Optional, List, Generator, Union
 
 import numpy as np
 from scipy.spatial.transform import Rotation
@@ -9,7 +9,7 @@ from math import tan, atan2, cos, sin, pi, sqrt, atan, acos
 
 from ..module import Module
 from .helpers import IMUFrame, VOResult, Homography, interpolate_frames, visualize_input_data, visualize_distance_metric
-from .helpers import degree_to_rad
+from .helpers import degree_to_rad, MovingAverageFilter
 
 
 class Velocity:
@@ -38,6 +38,8 @@ class PositionModule(Module):
         self.imu_buffer: List[IMUFrame] = []
         self.velocity = Velocity()
 
+        self.avg_filter = MovingAverageFilter()
+
     def start(self):
         while True:
             self.get_inputs()
@@ -56,16 +58,15 @@ class PositionModule(Module):
             else:
                 time.sleep(0.001)
 
-    @staticmethod
-    def imu_frame_from_payload(payload: Dict) -> IMUFrame:
+    def imu_frame_from_payload(self, payload: Dict) -> IMUFrame:
         # In Camera coordinates: X = -Z_IMU, Y = Y_IMU, Z = X_IMU (90° rotation around the Y axis)
         return IMUFrame(
-            ax=-float(payload['data']['accel_z']),
-            ay=float(payload['data']['accel_y']),
-            az=float(payload['data']['accel_x']),
-            gx=-degree_to_rad(float(payload['data']['gyro_z'])),
-            gy=degree_to_rad(float(payload['data']['gyro_y'])),
-            gz=degree_to_rad(float(payload['data']['gyro_x'])),
+            ax=self.avg_filter("ax", -float(payload['data']['accel_z']), 10),
+            ay=self.avg_filter("ay", float(payload['data']['accel_y'])),
+            az=self.avg_filter("az", float(payload['data']['accel_x'])),
+            gx=self.avg_filter("gx", -degree_to_rad(float(payload['data']['gyro_z']))),
+            gy=self.avg_filter("gy", degree_to_rad(float(payload['data']['gyro_y']))),
+            gz=self.avg_filter("gz", degree_to_rad(float(payload['data']['gyro_x']))),
             ts=payload['data']['timestamp']
         )
 
