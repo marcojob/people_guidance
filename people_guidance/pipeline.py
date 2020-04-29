@@ -40,9 +40,9 @@ class Pipeline:
                 try:
                     for module in self.modules.values():
                         for input_name, input_queue in module.inputs.items():
-                            logging.debug(f"{module.name} input {input_name} queue size {input_queue.qsize()}")
+                            self.logger.debug(f"{module.name} input {input_name} queue size {input_queue.qsize()}")
                         for output_name, output_queue in module.outputs.items():
-                            logging.debug(f"{module.name} output {output_name} queue size {output_queue.qsize()}")
+                            self.logger.debug(f"{module.name} output {output_name} queue size {output_queue.qsize()}")
                 except NotImplementedError:
                     self.logger.debug("Could not load queue size because the platform does not support it.")
 

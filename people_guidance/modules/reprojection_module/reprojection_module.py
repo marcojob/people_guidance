@@ -57,8 +57,8 @@ class ReprojectionModule(Module):
                 for i in range(point_pairs.shape[0]):
                     image = cv2.line(image, tuple(point_pairs[1, :, i]), tuple(points2d[i, 0, :]), orange, 5)
 
-                cv2.imshow("vis", image)
-                cv2.waitKey(1)
+                # cv2.imshow("vis", image)
+                # cv2.waitKey(1)
                 """
                 c = cv2.waitKey(0)
                 if 'q' == chr(c & 255):
