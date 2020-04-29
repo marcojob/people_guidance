@@ -66,7 +66,7 @@ class Homography:
 
 def visualize_input_data(frames: List[IMUFrame]) -> None:
     #PLOT
-    plt.figure(2, figsize=(10, 12))
+    plt.figure(3, figsize=(10, 12))
     plt.tight_layout()
 
     plt.suptitle(f"Input data", x=0.5, y=.999)
@@ -121,22 +121,22 @@ def visualize_distance_metric(best_match, best_match2, degrees, imu_angles, vo_a
     visualize_distance_metric.counter += 1
     plt.pause(0.001)
 
-    #PLOT
-    plt.figure(1, figsize=(10, 12))
-    plt.tight_layout()
-
-    plt.suptitle(f"Evolution of the rotations, degrees? {degrees}", x=0.5, y=.999)
-
-    plt.subplot(2, 1, 1)
-    plt.scatter(visualize_distance_metric.counter, imu_angles[2])
-    plt.title('rot IMU')
-    plt.xlabel('')
-    plt.ylabel('')
-
-    plt.subplot(2, 1, 2)
-    plt.scatter(visualize_distance_metric.counter, vo_angles[2])
-    plt.title('rot VO')
-    plt.xlabel('')
-    plt.ylabel('')
+    # #PLOT
+    # plt.figure(2, figsize=(10, 12))
+    # plt.tight_layout()
+    #
+    # plt.suptitle(f"Evolution of the rotations, degrees? {degrees}", x=0.5, y=.999)
+    #
+    # plt.subplot(2, 1, 1)
+    # plt.scatter(visualize_distance_metric.counter, imu_angles[2])
+    # plt.title('rot IMU')
+    # plt.xlabel('')
+    # plt.ylabel('')
+    #
+    # plt.subplot(2, 1, 2)
+    # plt.scatter(visualize_distance_metric.counter, vo_angles[2])
+    # plt.title('rot VO')
+    # plt.xlabel('')
+    # plt.ylabel('')
 
     plt.pause(0.001)

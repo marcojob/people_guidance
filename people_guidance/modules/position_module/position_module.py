@@ -61,9 +61,9 @@ class PositionModule(Module):
     def imu_frame_from_payload(self, payload: Dict) -> IMUFrame:
         # In Camera coordinates: X = -Z_IMU, Y = Y_IMU, Z = X_IMU (90° rotation around the Y axis)
         return IMUFrame(
-            ax=self.avg_filter("ax", -float(payload['data']['accel_z']), 10),
+            ax=self.avg_filter("ax", -float(payload['data']['accel_z'])),
             ay=self.avg_filter("ay", float(payload['data']['accel_y'])),
-            az=self.avg_filter("az", float(payload['data']['accel_x'])),
+            az=self.avg_filter("az", float(payload['data']['accel_x'])) + 9.8,
             gx=self.avg_filter("gx", -degree_to_rad(float(payload['data']['gyro_z']))),
             gy=self.avg_filter("gy", degree_to_rad(float(payload['data']['gyro_y']))),
             gz=self.avg_filter("gz", degree_to_rad(float(payload['data']['gyro_x']))),
@@ -197,12 +197,17 @@ class PositionModule(Module):
         best_match = (None, np.inf, None)
         best_match2 = (None, np.inf, None)
 
+        #THEO
         for homog in vo_result.homogs:
             k_t = 1
             imu_rot = Rotation.from_matrix(imu_homog_matrix[0:3, 0:3])
             imu_t_vec = imu_homog_matrix[0:3, 3]
-            vo_rot = Rotation.from_matrix(homog[0:3, 0:3])
-            vo_t_vec = homog[0:3, 3]
+
+            # Correction: Homography gives a result rotated from our camera coordinate frame
+            vo_to_camera = np.array([[0, 0, -1], [1, 0, 0], [0, 1, 0]])
+
+            vo_rot = Rotation.from_euler('xyz', np.dot(vo_to_camera, Rotation.from_matrix(homog[0:3, 0:3]).as_euler('xyz')))
+            vo_t_vec = np.dot(vo_to_camera, homog[0:3, 3])
             # Robot dynamic script p51
             delta_rot2: Rotation = imu_rot.inv() * vo_rot
             distance2 = delta_rot2.magnitude() + k_t * np.linalg.norm(imu_t_vec - vo_t_vec)
@@ -212,7 +217,37 @@ class PositionModule(Module):
             vect_rot = delta_rot.as_rotvec()
             distance = np.linalg.norm(vect_rot)
 
-            if distance2 < best_match[1]:
+        #MARCO
+        # # Rotate the VO coordinate system (https://docs.opencv.org/2.4/modules/calib3d/doc/camera_calibration_and_3d_reconstruction.html)
+        # vo_rot_coord = Rotation.from_matrix([[0, 0, 1], [-1, 0, 0], [0, -1, 0]])
+        # vo_to_camera = vo_rot_coord.as_matrix()
+        #
+        # for homog in vo_result.homogs:
+        #     k_t = 1
+        #     imu_rot = Rotation.from_matrix(imu_homog_matrix[0:3, 0:3])
+        #     imu_t_vec = imu_homog_matrix[0:3, 3]
+        #     vo_rot = Rotation.from_matrix(homog[0:3, 0:3])
+        #     vo_t_vec = homog[0:3, 3]
+        #     vo_rot = Rotation.from_matrix(homog[0:3, 0:3]) * vo_rot_coord
+        #     vo_t_vec = vo_rot_coord.apply(homog[0:3, 3])
+        #     # Robot dynamic script p51
+        #     delta_rot2: Rotation = imu_rot.inv() * vo_rot
+        #     distance2 = delta_rot2.magnitude() + k_t * np.linalg.norm(imu_t_vec - vo_t_vec)
+        #     vect_rot2 = delta_rot2.as_rotvec()
+        #     delta_rot = Rotation.from_matrix(np.dot(imu_homog_matrix[0:3, 0:3], np.transpose(homog[0:3, 0:3])))
+        #     delta_rot = Rotation.from_matrix(np.dot(vo_rot_coord.apply(imu_homog_matrix[0:3, 0:3]),
+        #                                             np.transpose(vo_rot_coord.apply(homog[0:3, 0:3]))))
+        #     vect_rot = delta_rot.as_rotvec()
+        #     distance = np.linalg.norm(vect_rot)
+
+        #END MARCO THEO
+            
+            self.logger.debug(f"VO as euler \n{Rotation.from_matrix(homog[0:3, 0:3]).as_euler('xyz', degrees=True)}")
+            self.logger.debug(f"rotate VO frame by \n{vo_to_camera}")
+            self.logger.debug(f"VO rotated \n{vo_rot.as_euler('xyz', degrees=True)}")
+            self.logger.warning(f"Data from VO: angles: {vo_rot.as_euler('xyz', degrees=True)}, displacement: {vo_t_vec}")
+
+            if distance < best_match[1]:
                 best_match = (homog, distance, delta_rot)
                 best_match2 = (homog, distance2, delta_rot2)
 
