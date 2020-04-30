@@ -9,7 +9,7 @@ from math import tan, atan2, cos, sin, pi, sqrt, atan, acos
 
 from ..module import Module
 from .helpers import IMUFrame, VOResult, Homography, interpolate_frames, visualize_input_data, visualize_distance_metric
-from .helpers import degree_to_rad, MovingAverageFilter
+from .helpers import degree_to_rad, MovingAverageFilter, ComplementaryFilter
 
 
 class Velocity:
@@ -39,6 +39,7 @@ class PositionModule(Module):
         self.velocity = Velocity()
 
         self.avg_filter = MovingAverageFilter()
+        self.complementary_filter = ComplementaryFilter()
 
     def start(self):
         while True:
@@ -60,7 +61,8 @@ class PositionModule(Module):
 
     def imu_frame_from_payload(self, payload: Dict) -> IMUFrame:
         # In Camera coordinates: X = -Z_IMU, Y = Y_IMU, Z = X_IMU (90° rotation around the Y axis)
-        return IMUFrame(
+
+        frame = IMUFrame(
             ax=self.avg_filter("ax", -float(payload['data']['accel_z']), 10),
             ay=self.avg_filter("ay", float(payload['data']['accel_y'])),
             az=self.avg_filter("az", float(payload['data']['accel_x'])),
@@ -69,6 +71,8 @@ class PositionModule(Module):
             gz=self.avg_filter("gz", degree_to_rad(float(payload['data']['gyro_x']))),
             ts=payload['data']['timestamp']
         )
+
+        return self.complementary_filter(frame)
 
     # imu 10, 11, 12, 13 ,14
 
@@ -171,30 +175,7 @@ class PositionModule(Module):
             self.velocity.z = (self.velocity.z + frames[i].az * dt)
             self.velocity.dampen()
 
-            pos = self.complementary_filter(pos, frames[i], dt)
             self.logger.debug(f"pos calculated {pos}")
-
-        return pos
-
-    def complementary_filter(self, pos: Homography, frame: IMUFrame, dt: float):  # TODO: check formulas
-        # Pitch and roll based on accel
-
-        alpha = 0.2
-
-        pitch_accel = atan(frame.ay / sqrt(frame.az**2 + frame.ax**2))
-        roll_accel = atan(frame.az / sqrt(frame.ay**2 + frame.ax**2))
-
-        # Pitch, roll and yaw based on gyro
-        roll_gyro = frame.gz + frame.gy*sin(pos.pitch)*tan(pos.roll) + frame.gx*cos(pos.pitch)*tan(pos.roll)
-
-        pitch_gyro = frame.gy*cos(pos.pitch) - frame.gx*sin(pos.pitch)
-
-        yaw_gyro = frame.gy*sin(pos.pitch)*1.0/cos(pos.roll) + frame.gx*cos(pos.pitch)*1.0/cos(pos.roll)
-
-        # Apply complementary filter
-        pos.pitch = (1.0 - alpha)*(pos.pitch + pitch_gyro*dt) + alpha * pitch_accel
-        pos.roll = (1.0 - alpha)*(pos.roll + roll_gyro*dt) + alpha * roll_accel
-        pos.yaw += yaw_gyro*dt
 
         return pos
 

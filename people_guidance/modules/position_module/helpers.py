@@ -1,5 +1,5 @@
 import collections
-from math import pi
+from math import pi, atan, sqrt, sin, cos, tan
 from typing import List, Dict, Union
 
 import matplotlib.pyplot as plt
@@ -62,6 +62,48 @@ class Homography:
     def as_matrix(self) -> np.array:
         translation = np.array((self.x, self.y, self.z))
         return np.column_stack((self.rotation_matrix, translation))
+
+
+class Pose:
+    def __init__(self, roll: float = 0.0, pitch: float = 0.0, yaw: float = 0.0):
+        self.roll = roll
+        self.pitch = pitch
+        self.yaw = yaw
+
+
+class ComplementaryFilter:
+    def __init__(self, alpha: float = 0.2):
+        self.last_frame = None
+        self.pose = Pose()
+        self.alpha = alpha
+
+    def __call__(self, frame: IMUFrame) -> IMUFrame:
+        if self.last_frame is None:
+            self.last_frame = frame
+        else:
+            dt = self.last_frame.ts - frame.ts
+            # complemetary filtering
+
+            pitch_accel = atan(frame.ay / sqrt(frame.az ** 2 + frame.ax ** 2))
+            roll_accel = atan(frame.az / sqrt(frame.ay ** 2 + frame.ax ** 2))
+
+            # Pitch, roll and yaw based on gyro
+            roll_gyro = frame.gz + \
+                        frame.gy * sin(self.pose.pitch) * tan(self.pose.roll) + \
+                        frame.gx * cos(self.pose.pitch) * tan(self.pose.roll)
+
+            pitch_gyro = frame.gy * cos(self.pose.pitch) - frame.gx * sin(self.pose.pitch)
+
+            yaw_gyro = frame.gy * sin(self.pose.pitch) * 1.0 / cos(self.pose.roll) + frame.gx * cos(
+                self.pose.pitch) * 1.0 / cos(self.pose.roll)
+
+            # Apply complementary filter
+            self.pose.pitch = (1.0 - self.alpha) * (self.pose.pitch + pitch_gyro * dt) + self.alpha * pitch_accel
+            self.pose.roll = (1.0 - self.alpha) * (self.pose.roll + roll_gyro * dt) + self.alpha * roll_accel
+            self.pose.yaw += yaw_gyro * dt
+
+        # TODO: Use this new pose estimate to remove gravity acc from frame, return the frame.
+        return IMUFrame()
 
 
 def visualize_input_data(frames: List[IMUFrame]) -> None:
