@@ -76,6 +76,7 @@ class FeatureTrackingModule(Module):
                                          1000)
                             self.publish("feature_point_pairs_vis",
                                          {"point_pairs": inliers,
+                                          "img": img_encoded,
                                           "timestamp": timestamp},
                                          1000)
 
