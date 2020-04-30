@@ -25,7 +25,7 @@ DPI = 100
 MAX_DATA_LEN = 100
 
 KEYS = ["preview", "pos"]
-POS_KEYS = ["pos_x", "pos_y", "pos_z", "angle_x", "angle_y", "angle_z"]
+POS_KEYS = ["pos_x", "pos_y", "pos_z", "angle_x", "angle_y", "angle_z", "3d_pos_x", "3d_pos_y", "3d_pos_z"]
 
 ax_list = dict()
 scatter_p = None
@@ -36,8 +36,7 @@ preview_p = None
 class VisualizationModule(Module):
     def __init__(self, log_dir: pathlib.Path, args=None):
         super(VisualizationModule, self).__init__(name="visualization_module", outputs=[],
-                                                  inputs=["position_estimation_module:position_vis",
-                                                          "feature_tracking_module:feature_point_pairs_vis",
+                                                  inputs=["feature_tracking_module:feature_point_pairs_vis",
                                                           "reprojection_module:points3d"],
                                                   log_dir=log_dir)
         self.args = args
@@ -82,7 +81,7 @@ class VisualizationModule(Module):
             sleep(1.0/PREVIEW_PLOT_HZ)
             # POS DATA HANDLING
             if pos_last_ms is None:
-                pos_vis = self.get("position_estimation_module:position_vis")
+                pos_vis = dict() # self.get("position_estimation_module:position_vis")
 
                 pos_last_ms = pos_vis.get("timestamp", None)
                 vis_pos_last_ms = self.get_time_ms()
@@ -123,7 +122,26 @@ class VisualizationModule(Module):
                 try:
                     self.animate_preview()
                 except Exception as e:
-                    self.logger.debug(f"{e}")
+                    self.logger.warning(f"{e}")
+
+
+            points_3d = self.get("reprojection_module:points3d")
+            rot_coord = R.from_matrix([[0, 0, 1], [-1, 0, 0], [0, -1, 0]])
+            if points_3d:
+                self.data_dict["3d_pos_x"] = list()
+                self.data_dict["3d_pos_y"] = list()
+                self.data_dict["3d_pos_z"] = list()
+                for point in points_3d["data"]:
+                    point_r = rot_coord.apply(point[0])
+                    self.data_dict["3d_pos_x"].append(point_r[0])
+                    self.data_dict["3d_pos_y"].append(point_r[1])
+                    self.data_dict["3d_pos_z"].append(point_r[2])
+
+                try:
+                    self.animate_3d_points()
+                except Exception as e:
+                    self.logger.warning(f"{e}")
+
 
     def animate_pos(self):
         global scatter_p
@@ -183,8 +201,25 @@ class VisualizationModule(Module):
             preview_p.set_data(self.data_dict["preview"])
             ax_list["preview"].figure.canvas.draw_idle()
 
+
+    def animate_3d_points(self):
+        global scatter_r
+        if scatter_r == None:
+            ax_list["pos"].set_title("pos")
+            ax_list["pos"].set_xlim((-2, 2))
+            ax_list["pos"].set_ylim((-2, 2))
+            ax_list["pos"].set_zlim((-0, 2))
+
+            scatter_r = ax_list["pos"].scatter(
+                self.data_dict["3d_pos_x"], self.data_dict["3d_pos_y"], self.data_dict["3d_pos_z"])
+
+            ax_list["pos"].figure.canvas.draw_idle()
+        else:
+            scatter_r._offsets3d = (self.data_dict["3d_pos_x"], self.data_dict["3d_pos_y"], self.data_dict["3d_pos_z"])
+            ax_list["pos"].figure.canvas.draw_idle()
+
     def draw_matches(self, img, matches):
-        RADIUS = 30
+        RADIUS = 15
         THICKNESS = 3
         if matches is not None:
             shape = matches.shape

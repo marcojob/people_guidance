@@ -9,6 +9,8 @@ from people_guidance.modules.feature_tracking_module import FeatureTrackingModul
 from people_guidance.modules.position_estimation_module import PositionEstimationModule
 from people_guidance.modules.visualization_module import VisualizationModule
 from people_guidance.modules.reprojection_module import ReprojectionModule
+from people_guidance.modules.position_module import PositionModule
+
 
 
 if __name__ == '__main__':
@@ -39,14 +41,14 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    pipeline = Pipeline(args)
+    pipeline = Pipeline(args, log_level=logging.WARNING)
 
     # Handles hardware drivers and interfaces
     pipeline.add_module(DriversModule, log_level=logging.WARNING)
 
     if not args.record:
         # Handles IMU data to compute a position estimation
-        pipeline.add_module(PositionEstimationModule, log_level=logging.WARNING)
+        pipeline.add_module(PositionModule, log_level=logging.WARNING)
 
         # Handles feature tracking
         pipeline.add_module(FeatureTrackingModule, log_level=logging.WARNING)

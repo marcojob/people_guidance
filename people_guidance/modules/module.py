@@ -145,7 +145,7 @@ class Module:
     @staticmethod
     def get_time_ms():
         # https://www.python.org/dev/peps/pep-0418/#time-monotonic
-        return int(round(time.monotonic() * 1000))
+        return float(round(time.monotonic() * 1000, 3))
 
     def __enter__(self):
         self.logger: logging.Logger = get_logger(f"module_{self.name}", self.log_dir, level=self.log_level)
