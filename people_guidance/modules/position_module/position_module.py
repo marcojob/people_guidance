@@ -171,15 +171,30 @@ class PositionModule(Module):
             self.velocity.z = (self.velocity.z + frames[i].az * dt)
             self.velocity.dampen()
 
-            roll = frames[i].gx * dt
-            pitch = frames[i].gy * dt
-            yaw = frames[i].gz * dt
-
-            new_rot = Rotation.from_euler('xyz', [roll, pitch, yaw], degrees=False).as_matrix()
-            self.logger.debug(f"multiplied \n{pos.rotation_matrix} with \n{new_rot} equals \n{np.dot(pos.rotation_matrix, new_rot)}")
-            pos.rotation_matrix = np.dot(pos.rotation_matrix, new_rot)
-            [pos.roll, pos.pitch, pos.yaw] = Rotation.from_matrix(pos.rotation_matrix).as_euler('xyz', degrees=False)
+            pos = self.complementary_filter(pos, frames[i], dt)
             self.logger.debug(f"pos calculated {pos}")
+
+        return pos
+
+    def complementary_filter(self, pos: Homography, frame: IMUFrame, dt: float):  # TODO: check formulas
+        # Pitch and roll based on accel
+
+        alpha = 0.2
+
+        pitch_accel = atan(frame.ay / sqrt(frame.az**2 + frame.ax**2))
+        roll_accel = atan(frame.az / sqrt(frame.ay**2 + frame.ax**2))
+
+        # Pitch, roll and yaw based on gyro
+        roll_gyro = frame.gz + frame.gy*sin(pos.pitch)*tan(pos.roll) + frame.gx*cos(pos.pitch)*tan(pos.roll)
+
+        pitch_gyro = frame.gy*cos(pos.pitch) - frame.gx*sin(pos.pitch)
+
+        yaw_gyro = frame.gy*sin(pos.pitch)*1.0/cos(pos.roll) + frame.gx*cos(pos.pitch)*1.0/cos(pos.roll)
+
+        # Apply complementary filter
+        pos.pitch = (1.0 - alpha)*(pos.pitch + pitch_gyro*dt) + alpha * pitch_accel
+        pos.roll = (1.0 - alpha)*(pos.roll + roll_gyro*dt) + alpha * roll_accel
+        pos.yaw += yaw_gyro*dt
 
         return pos
 
@@ -201,7 +216,7 @@ class PositionModule(Module):
         best_match2 = (None, np.inf, None)
 
         for homog in vo_result.homogs:
-            k_t = 1
+            k_t = 0.0
             imu_rot = Rotation.from_matrix(imu_homog_matrix[0:3, 0:3])
             imu_t_vec = imu_homog_matrix[0:3, 3]
             vo_rot = Rotation.from_matrix(homog[0:3, 0:3])
