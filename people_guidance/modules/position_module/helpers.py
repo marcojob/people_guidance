@@ -45,37 +45,6 @@ class MovingAverageFilter:
 
         return float(sum(self.keys[key]) / len(self.keys[key]))
 
-class ComplementaryFilter:
-    # input frame and dt
-    # save r p y
-    # return asked (r p y)
-    def __init__(self):
-        self.keys: Dict[str, List] = {}
-        for key in ["ax", "ay", "az", "roll", "pitch", "yaw"]:
-            if key not in self.keys:
-                self.keys[key] = [0]
-
-    def __call__(self, key: str):
-        if key not in self.keys:
-            return None
-
-        return self.keys[key]
-
-    def update(self, acc, gyro, ts):
-        if "ts" not in self.keys:
-            self.keys["ts"] = [ts]
-
-        # http://www.starlino.com/imu_guide.html
-        # TODO
-
-        # Save update
-        self.keys["ax"] = acc[0]
-        self.keys["ay"] = acc[1]
-        self.keys["az"] = acc[2]
-        self.keys["roll"] = 0
-        self.keys["pitch"] = 0
-        self.keys["yaw"] = 0
-
 class Homography:
     def __init__(self, x: float = 0.0, y: float = 0.0, z: float = 0.0,
                  roll: float = 0.0, pitch: float = 0.0, yaw: float = 0.0,
