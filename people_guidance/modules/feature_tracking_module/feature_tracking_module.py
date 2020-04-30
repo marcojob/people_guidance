@@ -1,20 +1,20 @@
 import pathlib
+import cv2
+import numpy as np
 
 from time import sleep
+from scipy.spatial.transform import Rotation
+from typing import Tuple
 
 from people_guidance.modules.module import Module
 from people_guidance.utils import project_path
-
-import cv2
-import numpy as np
-import matplotlib.pyplot as plt
 
 
 class FeatureTrackingModule(Module):
 
     def __init__(self, log_dir: pathlib.Path, args=None):
-        super(FeatureTrackingModule, self).__init__(name="feature_tracking_module", outputs=[("feature_point_pairs_orb", 10), ("feature_point_pairs_surf", 10)],
-                                                    inputs=["drivers_module:images"], #requests=[("position_estimation_module:pose")]
+        super(FeatureTrackingModule, self).__init__(name="feature_tracking_module", outputs=[("feature_point_pairs", 10), ("feature_point_pairs_vis", 10)],
+                                                    inputs=["drivers_module:images"],
                                                     log_dir=log_dir)
 
     def cleanup(self):
@@ -22,158 +22,139 @@ class FeatureTrackingModule(Module):
 
     def start(self):
         self.old_timestamp = None
-        self.old_keypoints = [None, None]
-        self.old_descriptors = [None, None]
-        self.old_pose = None
-
-        self.inliers = [None, None]
-        self.visualization = [None, None]
-
-        self.request_counter = 0
+        self.old_keypoints = None
+        self.old_descriptors = None
+        self.intrinsic_matrix: Optional[np.array] = np.array([[2581.33211, 0, 320], [0, 2576, 240], [0, 0, 1]])
 
         # maximum numbers of keypoints to keep and calculate descriptors of,
         # reducing this number can improve computation time:
         self.max_num_keypoints = 1000
 
         # create each an ORB and a SURF feature descriptor and brute force matcher object
-        self.ORB = 0
-        self.SURF = 1
-        self.orb = cv2.ORB_create(nfeatures=self.max_num_keypoints)
-        self.orb_matcher = cv2.BFMatcher_create(cv2.NORM_HAMMING, crossCheck=True)
-        self.surf = cv2.xfeatures2d.SURF_create()
-        self.surf_matcher = cv2.BFMatcher_create(cv2.NORM_L2, crossCheck=True)
+        self.use_SURF = 1
 
-        plt.ion()
-        figure, (orb_plot, surf_plot) = plt.subplots(1,2)
-        orb_plot.set_title("ORB")
-        surf_plot.set_title("SURF")
+        self.detector_object = None
+        self.matcher_object = None
+        if(self.use_SURF):
+            self.detector_object = cv2.xfeatures2d.SURF_create(hessianThreshold=2000)
+            self.matcher_object = cv2.BFMatcher_create(cv2.NORM_L2, crossCheck=True)
+        else: # use ORB
+            self.detector_object = cv2.ORB_create(nfeatures=self.max_num_keypoints)
+            self.matcher_object = cv2.BFMatcher_create(cv2.NORM_HAMMING, crossCheck=True)
 
         while True:
             img_dict = self.get("drivers_module:images")
 
             if not img_dict:
-                sleep(0.1)
                 self.logger.warn("queue was empty")
             else:
                 # extract the image data and time stamp
-                img_encoded = img_dict["data"]
-                timestamp = img_dict["timestamp"]
-                """
-                # request the pose of the camera at this time stamp from the position_estimation_module
-                self.make_request("position_estimation_module:pose", {"id" : self.request_counter, "payload": timestamp})
-                self.request_counter += 1
-                """
-                # self.logger.debug(f"Processing image with timestamp {timestamp} ...")
+                img_encoded = img_dict["data"]["data"]
+                timestamp = img_dict["data"]["timestamp"]
+
+                self.logger.debug(f"Processing image with timestamp {timestamp} ...")
 
                 img = cv2.imdecode(np.frombuffer(img_encoded, dtype=np.int8), flags=cv2.IMREAD_GRAYSCALE)
 
                 for i in range(2):
                     keypoints, descriptors = self.extract_feature_descriptors(img, i)
 
-                    """
-                    # get the new pose and compute the difference to the old one
-                    pose_response = self.await_response("position_estimation_module:pose")
-                    pose = pose_response["payload"]
-                    """
-                    pose = np.zeros((3,4))
-                    
                     # only do feature matching if there were keypoints found in the new image, discard it otherwise
                     if len(keypoints) == 0:
-                        pass
-                        # self.logger.warn(f"Didn't find any features in image with timestamp {timestamp}, skipping...")
+                        self.logger.warn(f"Didn't find any features in image with timestamp {timestamp}, skipping...")
                     else:
                         if self.old_descriptors is not None:  # skip the matching step for the first image
                             # match the feature descriptors of the old and new image
 
-                            self.inliers[i], total_nr_matches = self.match_features(keypoints, descriptors, i)
+                            inliers, delta_positions, total_nr_matches = self.match_features(keypoints, descriptors)
 
-                            if  self.inliers[i].shape[2] == 0:
-                                self.visualization[i] = img
-                                pass
+                            if total_nr_matches == 0:
                                 # there were 0 inliers found, print a warning
-                                # self.logger.warn("Couldn't find any matching features in the images with timestamps: " +
-                                #                 f"{old_timestamp} and {timestamp}")
+                                self.logger.warn("Couldn't find enough matching features in the images with timestamps: " +
+                                                f"{self.old_timestamp} and {timestamp}")
                             else:
-                                pose_pair = np.concatenate((self.old_pose[np.newaxis, :, :], pose[np.newaxis, :, :]), axis=0)
-                                self.visualization[i] = self.visualize_matches(img, keypoints, self.inliers[i], total_nr_matches)
+                                visualization_img = self.visualize_matches(img, keypoints, inliers, total_nr_matches)
+                                cv2.imshow("vis", visualization_img)
+                                cv2.waitKey(1)
+                                #visualization_img = cv2.resize(visualization_img, None, fx=0.85, fy=0.85)
+
+                                self.publish("feature_point_pairs",
+                                                {"camera_positions" : delta_positions,
+                                                "image": visualization_img,
+                                                "point_pairs": inliers,
+                                                "timestamp_pair": (self.old_timestamp, timestamp)},
+                                                1000)
+                                self.publish("feature_point_pairs_vis",
+                                                {"point_pairs": inliers,
+                                                "img": img_encoded,
+                                                "timestamp": timestamp},
+                                                1000)
 
                         # store the date of the new image as old_img... for the next iteration
                         # If there are no features found in the new image this step is skipped
                         # This means that the next image will be compared witht he same old image again
                         self.old_timestamp = timestamp
-                        self.old_keypoints[i] = keypoints
-                        self.old_descriptors[i] = descriptors
-                        self.old_pose = pose
-
-                self.publish("feature_point_pairs_orb",
-                            {"camera_positions" : (pose, pose),
-                                "point_pairs": self.inliers[i]},
-                                1000, timestamp)
-                self.publish("feature_point_pairs_surf",
-                            {"camera_positions" : (pose, pose),
-                                "point_pairs": self.inliers[i]},
-                                1000, timestamp)
-
-                orb_plot.imshow(self.visualization[0])
-                surf_plot.imshow(self.visualization[1])
-                figure.show()
-                plt.waitforbuttonpress(0.001)
+                        self.old_keypoints = keypoints
+                        self.old_descriptors = descriptors
 
     def extract_feature_descriptors(self, img: np.ndarray, method: int) -> (list, np.ndarray):
-        if method == 0:
-            # first detect the ORB keypoints and then compute the feature descriptors of those points
-            keypoints = self.orb.detect(img, None)
-            keypoints, descriptors = self.orb.compute(img, keypoints)
-        elif method == 1:
+        keypoints = None
+        descriptors = None
+
+        if self.use_SURF:
             # surf detects and describes the feature in one function
-            keypoints, descriptors = self.surf.detectAndCompute(img, None)
+            keypoints, descriptors = self.detector_object.detectAndCompute(img, None)
         else:
-            self.logger.warn("Unknown feature extraction method, defaulting to orbs...")
-            keypoints = self.orb.detect(img, None)
-            keypoints, descriptors = self.orb.compute(img, keypoints)
+            # first detect the ORB keypoints and then compute the feature descriptors of those points
+            keypoints = self.detector_object.detect(img, None)
+            keypoints, descriptors = self.detector_object.compute(img, keypoints)
         
         self.logger.debug(f"Found {len(keypoints)} feautures")
 
         return (keypoints, descriptors)
-    
-    def match_features(self, keypoints: list, descriptors: np.ndarray, method: int) -> np.ndarray:
-        if method == self.ORB:
-            matches = self.orb_matcher.match(self.old_descriptors[method], descriptors)
-        elif method == self.SURF:
-            matches = self.surf_matcher.match(self.old_descriptors[method], descriptors)
-        else:
-            self.logger.warn("Unknown matching method, defaulting to orbs...")
-            matches = self.orb_matcher.match(self.old_descriptors[method], descriptors)
-        # sort the matches by shortest distance first
-        # matches_sorted = sorted(matches, key=lambda x: x.distance)
 
-        # assemble the coordinates of the matched features into a numpy matrix for each image
-        old_match_points = np.float32([self.old_keypoints[method][match.queryIdx].pt for match in matches])
-        match_points = np.float32([keypoints[match.trainIdx].pt for match in matches])
+    def match_features(self, keypoints: list, descriptors: np.ndarray) -> Tuple[np.ndarray, np.ndarray, int]:
+        matches = self.matcher_object.match(self.old_descriptors, descriptors)
 
         if len(matches) > 10:
+            # assemble the coordinates of the matched features into a numpy matrix for each image
+            old_match_points = np.float32([self.old_keypoints[match.queryIdx].pt for match in matches])
+            match_points = np.float32([keypoints[match.trainIdx].pt for match in matches])
+
             # if we found enough matches do a RANSAC search to find inliers corresponding to one homography
             # TODO: add camera pose info to improve matching
-            _, mask = cv2.findHomography(old_match_points, match_points, cv2.RANSAC, 1.0)
-            old_match_points = old_match_points[mask.ravel().astype(bool)]
-            match_points = match_points[mask.ravel().astype(bool)]
+            H, mask = cv2.findHomography(old_match_points, match_points, cv2.RANSAC, 1.0)
+
+            nb_solutions, H_rots, H_trans, H_norms = cv2.decomposeHomographyMat(H, self.intrinsic_matrix)
+
+            if nb_solutions > 0:
+                delta_positions = np.zeros((nb_solutions, 3, 4))
+
+                for i in range(nb_solutions):
+                    delta_positions[i, :, 0:3] = H_rots[i]
+                    delta_positions[i, :, 3] = H_trans[i].ravel()
+
+                old_match_points = old_match_points[mask.ravel().astype(bool)]
+                match_points = match_points[mask.ravel().astype(bool)]
+                # add the two matrixes together, first dimension are all the matches,
+                # second dimension is image 1 and 2, thrid dimension is x and y
+                # e.g. 4th match, 1st image, y-coordinate: matches_paired[3][0][1]
+                #      8th match, 2nd image, x-coordinate: matches_paired[7][1][0]
+                matches_paired = np.concatenate(
+                (old_match_points.transpose().reshape(1, 2, -1),
+                match_points.transpose().reshape(1, 2, -1)),
+                axis=0)
+
+                return (matches_paired, delta_positions, len(mask))
+            else:
+                self.logger.warn("Couldn't decompose homography")
         else:
-            mask = list()
+            self.logger.warn(f"Only {len(matches)} matches found, not enough to calculate a homography")
 
-        # add the two matrixes together, first dimension are all the matches,
-        # second dimension is image 1 and 2, thrid dimension is x and y
-        # e.g. 4th match, 1st image, y-coordinate: matches_paired[3][0][1]
-        #      8th match, 2nd image, x-coordinate: matches_paired[7][1][0]
-        matches_paired = np.concatenate(
-            (old_match_points.transpose().reshape(1, 2, -1),
-             match_points.transpose().reshape(1, 2, -1)),
-             axis=0)
+        return (np.array([]), np.array([]), 0)
 
-        total_nr_matches = len(matches) if len(matches) <= 10 else len(mask)
 
-        return (matches_paired, total_nr_matches)
-
-    def visualize_matches(self, img, keypoints, inliers, nb_matches):
+    def visualize_matches(self, img: np.ndarray, keypoints: list, inliers: np.ndarray, nb_matches: int) -> np.ndarray:
         visualization_img = cv2.drawKeypoints(img, keypoints, None, color=(0,255,0), flags=0)
         for i in range(inliers.shape[2]):
             visualization_img = cv2.line(visualization_img,

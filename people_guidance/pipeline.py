@@ -12,9 +12,10 @@ from .modules import Module
 
 class Pipeline:
 
-    def __init__(self, args=None):
+    def __init__(self, args=None, log_level=logging.DEBUG):
         self.log_dir: pathlib.Path = self.create_log_dir()
         self.logger: logging.Logger = get_logger("pipeline", self.log_dir)
+        self.logger.setLevel(log_level)
         self.modules: Dict[Module] = {}
         self.processes: List[mp.Process] = []
         self.args = args
@@ -29,12 +30,21 @@ class Pipeline:
                 p.start()
 
             while True:
-                time.sleep(3)
+                time.sleep(2)
                 if not all([proc.is_alive() for proc in self.processes]):
                     self.logger.exception("Found dead child process. Pipeline will terminate all children and exit.")
                     exit()
                 else:
                     self.logger.info(f"Pipeline alive: CPU: {cpu_percent()}, Memory: {virtual_memory()._asdict()['percent']}")
+
+                try:
+                    for module in self.modules.values():
+                        for input_name, input_queue in module.inputs.items():
+                            self.logger.debug(f"{module.name} input {input_name} queue size {input_queue.qsize()}")
+                        for output_name, output_queue in module.outputs.items():
+                            self.logger.debug(f"{module.name} output {output_name} queue size {output_queue.qsize()}")
+                except NotImplementedError:
+                    self.logger.debug("Could not load queue size because the platform does not support it.")
 
     @staticmethod
     def start_module(module: Module):
@@ -42,8 +52,9 @@ class Pipeline:
         with module:
             module.start()
 
-    def add_module(self, constructor: Callable):
+    def add_module(self, constructor: Callable, log_level=logging.DEBUG):
         module = constructor(log_dir=self.log_dir, args=self.args)
+        module.log_level = log_level
         if module.name in self.modules:
             raise RuntimeError(f"Could not create a module with name {module.name} "
                                "because another module had the same name. Module names must be unique!")

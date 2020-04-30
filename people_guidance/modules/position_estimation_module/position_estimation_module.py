@@ -1,203 +1,189 @@
 import io
 import platform
 import re
+from math import tan, atan2, cos, sin, pi, sqrt, atan
+import logging
+from time import sleep, monotonic
+from scipy.spatial.transform import Rotation as R
+import numpy as np
+from typing import List, Optional, Dict
 from queue import Queue
-from time import sleep, monotonic, perf_counter
 from pathlib import Path
+import copy
+import collections
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
 from .utils import *
+from ..drivers_module import ACCEL_G
 from ..module import Module
 from ...utils import DEFAULT_DATASET
+from .position import Position, new_empty_position, new_interpolated_position
 
-# Read data IMU
-# Compute Position and save to array
-# Answer to position requests (interpolating)
+RAD_TO_DEG = 180.0/pi
+DEG_TO_RAD = pi/180.0
+LP_LEN = 100
+ACCEL_G = -9.80600
 
 class PositionEstimationModule(Module):
     def __init__(self, log_dir: Path, args=None):
-        super(PositionEstimationModule, self).__init__(name="position_estimation_module", outputs=[("position_vis", 1000)],
-                                            inputs=["drivers_module:accelerations"], log_dir=log_dir)
+        super(PositionEstimationModule, self).__init__(name="position_estimation_module",
+                                                       outputs=[("position_vis", 10)],
+                                                       inputs=["drivers_module:accelerations"],
+                                                       log_dir=log_dir)
         self.args = args
 
+        self.pos: Position = new_empty_position()
+        self.tracked_positions: List[Position] = []
+        self.prev_imu_frame: Optional[IMUFrame] = None
+        self.last_visualized_pos: Optional[Position] = None
+
+        self.event_timestamps: Dict[str, float] = {}  # keep track of when events (classified by name) happened last
+        self.speed: Dict[str, float] = {"x": 0.0, "y": 0.0, "z": 0.0}
+        self.acceleration: Dict[str, float] = {"x": 0.0, "y": 0.0, "z": 0.0, "x_last": 0.0, "y_last": 0.0, "z_last": 0.0}
+
+        self.counter_same_request = 0
+
     def start(self):
-        if DEBUG_POSITION == 1:
-            #INFO : 4 ms to receive, 3 ms to send, 9 microS if nothing executed
-            self.logger.info("Starting position_estimation_module...")
+        # Contains window of raw accel data
+        self.data_raw = {var: list() for var in ["accel_x", "accel_y", "accel_z", "gyro_x", "gyro_y", "gyro_z"]}
 
-        # General inits
-        self.count_valid_input = 0  # Number of inputs processed
-        self.countall = 0           # Number of loops since start
-        self.count_outputs = 0      # Number of elements published
-        # Timestamps
-        self.timestamp_last_input = 0                       # time last input received
-        self.timestamp_last_output = self.get_time_ns()     # time last output published
-        self.loop_time = self.get_time_ns()                 # time start of loop
+        # Low pass filtered sensor values
+        self.accel_x_lp = 0.0 # IMU Frame low pass filtered accel x data
+        self.accel_y_lp = 0.0 # IMU Frame low pass filtered accel y data
+        self.accel_z_lp = 0.0 # IMU Frame low pass filtered accel z data
+        self.gyro_x_lp = 0.0 # IMU Frame low pass filtered gyro x data
+        self.gyro_y_lp = 0.0 # IMU Frame low pass filtered gyro y data
+        self.gyro_z_lp = 0.0 # IMU Frame low pass filtered gyro z data
 
-        # Output
-        self.pos_x = 0.
-        self.pos_y = 0.
-        self.pos_z = 0.
-        self.gyro_x = 0.
-        self.gyro_y = 0.
-        self.gyro_z = 0.
-        # Output_speed
-        self.speed_x = 0.
-        self.speed_y = 0.
-        self.speed_z = 0.
-        # Timestamp element
-        self.timestamp:int = 0
 
-        while(True):
-            # Retrieve data
+        while True:
             input_data = self.get("drivers_module:accelerations")
-            self.loop_time = self.get_time_ns()
+            if not input_data:
+                sleep(0.0001)
+            else:
+                frame = self.frame_from_input_data(input_data)  # m/s^2 // °/s to rad/s
 
-            self.countall += 1
+                if self.prev_imu_frame is None:
+                    # if the frame we just received is the first one we have received.
+                    self.prev_imu_frame = frame  # TODO: check where used. should use rotated elements instead?
+                else:
+                    # Calculate dt
+                    dt = (frame.ts - self.prev_imu_frame.ts) / 1000.0
+                    self.pos.ts = frame.ts
 
-            if input_data: # m/s^2 // radians
-                accel_x = float(input_data['data']['accel_x'])
-                accel_y = float(input_data['data']['accel_y'])
-                accel_z = float(input_data['data']['accel_z'])
-                gyro_x = float(input_data['data']['gyro_x'])
-                gyro_y = float(input_data['data']['gyro_y'])
-                gyro_z = float(input_data['data']['gyro_z'])
-                timestamp = input_data['timestamp']
-                validity = input_data['validity']
+                    # Low pass filter input data
+                    self.apply_low_pass_filters(frame)
 
-                if DEBUG_POSITION > 1:
-                    #Counter of valid values
-                    self.count_valid_input += 1
+                    # Apply complementary filter
+                    self.complementary_filter(frame, dt)
 
-                    #Difference in time from the timestamp of the data
-                    if self.timestamp_last_input == 0:
-                        timeDelta = 0
-                    else:
-                        timeDelta = timestamp - self.timestamp_last_input
+                    # Estimate position
+                    self.position_estimation_simple(frame, dt)
 
-                    #Log output for each element received
-                    self.logger.info("Received Acceleration element N° {} from {}, time between samples : {}. "
-                                     .format(self.count_valid_input, self.countall, timeDelta))
-                    self.timestamp_last_input = timestamp
+                    # Publish to visualizer
+                    self.publish("position_vis", self.pos.__dict__, POS_VALIDITY_MS)
 
-                    if DEBUG_POSITION == 3:
-                        self.logger.info("Data :  {}".format(input_data))
+                    # Save last frame
+                    self.prev_imu_frame = frame
 
-                # TODO: compute position
-                self.position_estimation_simple(accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z, timestamp)
+                    # Keep track of computed positions
+                    self.track_positions()
+
+                    # Display in a scatter plot (debug)
+                    self.visualize_locally()
+
+            self.handle_requests()
+
+    def apply_low_pass_filters(self, frame):
+        # Low pass filter accel data
+        self.accel_x_lp = self.low_pass(frame.ax, self.data_raw["accel_x"])
+        self.accel_y_lp = self.low_pass(frame.ay, self.data_raw["accel_y"])
+        self.accel_z_lp = self.low_pass(frame.az, self.data_raw["accel_z"])
+
+        # Low pass filter gyro data
+        self.gyro_x_lp = self.low_pass(frame.gx, self.data_raw["gyro_x"], is_degrees=True)
+        self.gyro_y_lp = self.low_pass(frame.gy, self.data_raw["gyro_y"], is_degrees=True)
+        self.gyro_z_lp = self.low_pass(frame.gz, self.data_raw["gyro_z"], is_degrees=True)
+
+    def complementary_filter(self, frame: IMUFrame, dt: float):  # TODO: check formulas
+        # Pitch and roll based on accel
+        pitch_accel = atan(self.accel_y_lp / sqrt(self.accel_z_lp**2 + self.accel_x_lp**2))
+        roll_accel = atan(self.accel_z_lp / sqrt(self.accel_y_lp**2 + self.accel_x_lp**2))
+
+        # Pitch, roll and yaw based on gyro
+        roll_gyro = self.gyro_z_lp + \
+                     self.gyro_y_lp*sin(self.pos.pitch)*tan(self.pos.roll) + \
+                     self.gyro_x_lp*cos(self.pos.pitch)*tan(self.pos.roll)
+
+        pitch_gyro = self.gyro_y_lp*cos(self.pos.pitch) - self.gyro_x_lp*sin(self.pos.pitch)
+
+        yaw_gyro = self.gyro_y_lp*sin(self.pos.pitch)*1.0/cos(self.pos.roll) + self.gyro_x_lp*cos(self.pos.pitch)*1.0/cos(self.pos.roll)
+
+        # Apply complementary filter
+        self.pos.pitch = (1.0 - ALPHA_CF)*(self.pos.pitch + pitch_gyro*dt) + ALPHA_CF * pitch_accel
+        self.pos.roll = (1.0 - ALPHA_CF)*(self.pos.roll + roll_gyro*dt) + ALPHA_CF * roll_accel
+        self.pos.yaw += yaw_gyro*dt
+
+    def position_estimation_simple(self, frame, dt: float):
+        # Obtain rotation matrix
+        r = R.from_euler('xyz', [-self.pos.roll, -self.pos.pitch, -self.pos.yaw], degrees=False)
+
+        # Rotate accelerations to world coordinate system
+        accel_w = r.apply([frame.az, frame.ay, frame.ax])
+
+        # Integrate to get the position
+        self.pos.x += 0.5*accel_w[0] * dt * dt
+        self.pos.y += 0.5*accel_w[1] * dt * dt
+        self.pos.z += 0.5*(accel_w[2] - ACCEL_G)* dt * dt
 
 
-            # TODO: evaluate position quality
+    @staticmethod
+    def frame_from_input_data(input_data: Dict) -> IMUFrame:
+        # In Camera coordinates: Z = X_IMU, X = -Z_IMU, Y = Y_IMU (90° rotation around the Y axis)
+        return IMUFrame(
+            ax=float(input_data['data']['accel_x']),
+            ay=float(input_data['data']['accel_y']),
+            az=float(input_data['data']['accel_z']),
+            gx=float(input_data['data']['gyro_x']),
+            gy=float(input_data['data']['gyro_y']),
+            gz=float(input_data['data']['gyro_z']),
+            ts=input_data['data']['timestamp']
+        )
 
-            # TODO: save last few estimations
+    def visualize_locally(self):
+        curr_time = monotonic()
+        msg_name = "last_visualization"
+        if not MEASURE_SUMMED_ERROR_ACC_AUTO or (self.drift_tracking["auto_state"] and MEASURE_SUMMED_ERROR_ACC_AUTO):
+            if VISUALIZE_LOCALLY and (msg_name not in self.event_timestamps or \
+                    (curr_time - self.event_timestamps[msg_name]) * VISUALIZE_LOCALLY_FREQ > 1 or \
+                    VISUALIZE_LOCALLY_FREQ > 99):
+                self.logger.info(f"Visualization at current time {curr_time} for frame {frame}")
+                self.event_timestamps[msg_name] = curr_time
+                visualize_locally(self.pos, frame, self.drift_tracking, self.acceleration, plot_pos=True,
+                                    plot_angles=True, plot_acc_input=True, plot_acc_transformed=True)
 
-            # TODO: answer to position requests
+    def track_positions(self):
+        self.tracked_positions.append(copy.deepcopy(self.pos))
+        if len(self.tracked_positions) > 300:
+            self.tracked_positions.pop(0)
 
-            # TODO: Downsample to POSITION_PUBLISH_FREQ (Hz) and publish
-            if (self.loop_time - self.timestamp_last_output) * POSITION_PUBLISH_FREQ > 1000000000:
-                data_dict = {'pos_x': self.get_pos_x(),
-                             'pos_y': self.get_pos_y(),
-                             'pos_z': self.get_pos_z(),
-                             'angle_x': self.get_angle_x(),
-                             'angle_y': self.get_angle_y(),
-                             'angle_z': self.get_angle_z()
-                             }
-                timestamp = self.get_timestamp()
+    def low_pass(self, val, data_raw, max_len=LP_LEN, is_degrees=False):
+        val = float(val)
 
-                # DEBUG
-                if DEBUG_POSITION > 1:
-                    # Counter of valid values
-                    self.count_outputs += 1
+        # If it is in degrees, convert to radians
+        if is_degrees:
+            val = val*DEG_TO_RAD
 
-                    # Log output for each element sent
-                    self.logger.info("Sent data N° {}, time between samples : {}. "
-                                     .format(self.count_outputs, self.loop_time - self.timestamp_last_output))
+        # Only keep LP_LEN data points
+        if len(data_raw) > max_len:
+            del data_raw[0]
+        data_raw.append(val)
 
-                    if DEBUG_POSITION == 3:
-                        self.logger.info("Data :  {}".format(data_dict))
+        # Calculate mean of current window
+        val_lp = 0.0
+        for v in data_raw:
+            val_lp += v
+        val_lp /= len(data_raw)
 
-                # Publish and update timestamp
-                self.publish("position_vis", data_dict, POS_VALIDITY_MS, timestamp)
-                self.timestamp_last_output = self.loop_time
-
-            # Time for processing
-            if DEBUG_POSITION > 2:  # Full debug
-                self.logger.info("Time needed for the loop : {}. "
-                                 .format(self.get_time_ns() - self.loop_time))
-
-    # def myfunction(self):
-    #     self.logger.warning("AX: {}, AY: {}, AZ: {}, GX: {}, GY: {}, GZ: {}".format(
-    #         ACCEL_CALIB_X, ACCEL_CALIB_Y, ACCEL_CALIB_Z, GYRO_CALIB_X, GYRO_CALIB_Y, GYRO_CALIB_Z))
-
-    # def ComplementaryFilter(short accData[3], short gyrData[3], float * pitch, float * roll):
-    #     float pitchAcc, rollAcc;
-    #
-    #     # Integrate the gyroscope data -> int(angularSpeed) = angle
-    #     * pitch += ((float)gyrData[0] / GYROSCOPE_SENSITIVITY) * dt; # Angle around the X - axis
-    #     * roll -= ((float)gyrData[1] / GYROSCOPE_SENSITIVITY) * dt; # Angle around the Y - axis
-    #
-    #     # Compensate for drift with accelerometer data if !bullshit
-    #     # Sensitivity = -2 to 2 G at 16Bit -> 2G = 32768 & & 0.5G = 8192
-    #     int forceMagnitudeApprox = abs(accData[0]) + abs(accData[1]) + abs(accData[2]);
-    #     if (forceMagnitudeApprox > 8192 & & forceMagnitudeApprox < 32768):
-    #         # Turning around the X axis results in a vector on the Y-axis
-    #         pitchAcc = atan2f((float)accData[1], (float)accData[2]) * 180 / M_PI;
-    #         * pitch = * pitch * 0.98 + pitchAcc * 0.02;
-    #
-    #         # Turning around the Y axis results in a vector on the X-axis
-    #         rollAcc = atan2f((float)accData[0], (float)accData[2]) * 180 / M_PI;
-    #         * roll = * roll * 0.98 + rollAcc * 0.02;
-
-    # TODO: function implementation
-    def position_estimation_simple(self, accel_x:float, accel_y:float, accel_z:float,
-                                   gyro_x:float, gyro_y:float, gyro_z:float,
-                                   timestamp):
-        if self.timestamp != 0:
-            # Time between samples
-            dt:float = (timestamp - self.timestamp)/1000 # seconds
-            if dt > 0:
-                # Integrate the acceleration
-                self.speed_x += accel_x * dt
-                self.speed_y += accel_y * dt
-                self.speed_z += accel_z * dt
-                # Integrate to get the position
-                # TODO: review: does the angle affect the calculations?
-                self.pos_x += self.speed_x * dt
-                self.pos_y += self.speed_y * dt
-                self.pos_z += self.speed_z * dt
-                #keep the last data as valid to publish
-                self.gyro_x = gyro_x
-                self.gyro_y = gyro_y
-                self.gyro_z = gyro_z
-            elif DEBUG_POSITION > 1:
-                    self.logger.warning("dt error: dt = {}. ".format(dt))
-        # Update
-        self.timestamp = timestamp
-
-    def get_pos_x(self):
-        return self.pos_x
-
-    def get_pos_y(self):
-        return self.pos_y
-
-    def get_pos_z(self):
-        return self.pos_z
-
-    def get_angle_x(self):
-        return self.gyro_x
-
-    def get_angle_y(self):
-        return self.gyro_y
-
-    def get_angle_z(self):
-        return self.gyro_z
-
-    def get_timestamp(self):
-        return self.timestamp
-
-    def get_time_ms(self):
-        # https://www.python.org/dev/peps/pep-0418/#time-monotonic
-        return int(round(monotonic() * 1000))
-
-    def get_time_ns(self):
-        return int(round(perf_counter() * 1000000000)) # nanoseconds
-        
+        return val_lp

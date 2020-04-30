@@ -17,6 +17,7 @@ class ModuleService:
         self.responses = mp.Queue(maxsize=1)
         self.handler = self.default_handler
         self.logger = None
+        self.active_request = None
 
     def register_handler(self, handler: Callable):
         self.handler = handler
@@ -25,6 +26,12 @@ class ModuleService:
         self.logger.warning("Request made to service {self.name} which has no handler. Returning an arbitrary response.")
         return {"id": request["id"], "payload": None}
 
+    def add_active_request(self, request: Dict):
+        self.active_request = request
+
+    def reset_active_request(self):
+        self.active_request = None
+
 
 class Module:
     def __init__(self, name: str, log_dir: pathlib.Path, outputs: List[Tuple[str, int]] = None,
@@ -32,6 +39,7 @@ class Module:
 
         self.name: str = name
         self.log_dir: pathlib.Path = log_dir
+        self.log_level = logging.DEBUG
 
         self.inputs: Dict[str, Optional[mp.Queue]] = {} if inputs is None else {channel: None for channel in inputs}
         self.outputs: Dict[str, mp.Queue] = {} if outputs is None else \
@@ -42,7 +50,7 @@ class Module:
         self.services: Dict[str, ModuleService] = {} if services is None \
             else {name: ModuleService(name) for name in services}
 
-        self.request_timeout = 5  # seconds
+        self.request_timeout = 1  # seconds
 
     def subscribe(self, channel: str, queue_obj: mp.Queue):
         return self.inputs.update({channel: queue_obj})
@@ -68,17 +76,18 @@ class Module:
     def get(self, channel: str) -> Dict:
         # If the queue is empty we return an empty dict, error handling should be done after
 
-        def is_valid(payload_obj: Dict):
-            return payload is not None and payload_obj['timestamp'] + payload_obj['validity'] < self.get_time_ms()
+        def is_valid(msg_body_item: Dict):
+            return msg_body_item is not None and msg_body_item['timestamp'] + \
+                   msg_body_item['validity'] > self.get_time_ms()
 
         try:
-            payload = None
+            msg_body = None
             while True:
-                # get objects from the queue until it is either empty or a valid payload is found.
+                # get objects from the queue until it is either empty or a valid msg_body is found.
                 # if the queue is empty queue.Empty will be raised.
-                payload = self.inputs[channel].get_nowait()
-                if is_valid(payload):
-                    return payload
+                msg_body = self.inputs[channel].get_nowait()
+                if is_valid(msg_body):
+                    return msg_body
         except queue.Empty:
             return dict()
 
@@ -95,26 +104,36 @@ class Module:
 
     def await_response(self, target_name) -> Any:
         # this call blocks until a response is received.
-        return self.requests[target_name]["responses"].get(timeout=self.request_timeout)
+        try:
+            response = self.requests[target_name]["responses"].get(timeout=self.request_timeout)
+        except:
+            response = None
+        return response
 
     def handle_requests(self):
         for service_name in self.services:
             service = self.services[service_name]
-            if not service.requests.empty():
-                try:
-                    request: Dict = service.requests.get_nowait()
-                    self.respond(service_name, request)
-                except queue.Empty:
-                    pass
+            if service.active_request is None:
+                if not service.requests.empty():
+                    try:
+                        request: Dict = service.requests.get_nowait()
+                        service.add_active_request(request)
+                    except queue.Empty:
+                        pass
+            else:
+                self.respond(service_name, service.active_request)
 
     def respond(self, service_name: str, request: Dict):
         full_exc = queue.Full("Response was not read by requesting process. You must read the response in the "
                               "requesting process before making another request.")
         service = self.services[service_name]
-        if not service.responses.full():
+        if not service.responses.full() or service.active_request is not None:
             try:
-                response = {"id": request["id"], "payload": service.handler(request)}
-                service.responses.put_nowait(response)
+                handler_response = service.handler(request)
+                if not handler_response is None:
+                    response = {"id": request["id"], "payload": handler_response}
+                    service.responses.put_nowait(response)
+                service.reset_active_request()
             except queue.Full:
                 raise full_exc
         else:
@@ -126,10 +145,10 @@ class Module:
     @staticmethod
     def get_time_ms():
         # https://www.python.org/dev/peps/pep-0418/#time-monotonic
-        return int(round(time.monotonic() * 1000))
+        return float(round(time.monotonic() * 1000, 3))
 
     def __enter__(self):
-        self.logger: logging.Logger = get_logger(f"module_{self.name}", self.log_dir)
+        self.logger: logging.Logger = get_logger(f"module_{self.name}", self.log_dir, level=self.log_level)
         for service in self.services.values():
             service.logger = self.logger.getChild(f"service_{service.name}")
         self.logger.info(f"Module {self.name} started.")

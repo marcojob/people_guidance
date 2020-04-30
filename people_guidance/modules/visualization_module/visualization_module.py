@@ -1,8 +1,8 @@
 import pathlib
+import threading
 import cv2
 import ctypes
 import numpy as np
-import socket
 import io
 
 from time import sleep
@@ -10,51 +10,78 @@ from pathlib import Path
 
 from ..module import Module
 
-HOST = "127.0.0.1"  # Host IP
-PORT = 65432  # Port
-PREVIEW_FRAMESIZE = (640, 480)
-POS_PLOT_HZ = 2  # Discard before plotting
-PREVIEW_PLOT_HZ = 20  # Discard before plotting
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+
+from scipy.spatial.transform import Rotation as R
+
+POS_PLOT_HZ = 5
+REPOINTS_PLOT_HZ = 5
+PREVIEW_PLOT_HZ = 20
+
+FIGSIZE = (14,9)
+DPI = 100
+
+MAX_DATA_LEN = 100
+
+KEYS = ["preview", "pos"]
+POS_KEYS = ["pos_x", "pos_y", "pos_z", "angle_x", "angle_y", "angle_z", "3d_pos_x", "3d_pos_y", "3d_pos_z"]
+
+ax_list = dict()
+scatter_p = None
+scatter_r = None
+preview_p = None
 
 
 class VisualizationModule(Module):
     def __init__(self, log_dir: pathlib.Path, args=None):
         super(VisualizationModule, self).__init__(name="visualization_module", outputs=[],
-                                                  inputs=["drivers_module:preview",
-                                                          "position_estimation_module:position_vis",
-                                                          "feature_tracking_module:feature_point_pairs_vis"],
+                                                  inputs=["feature_tracking_module:feature_point_pairs_vis",
+                                                          "reprojection_module:points3d"],
                                                   log_dir=log_dir)
         self.args = args
 
     def start(self):
         self.logger.info("Starting visualization module...")
 
-        if not self.args.save_visualization:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.connect((HOST, PORT))
+        data_thread = threading.Thread(target=self.data_main)
+        data_thread.start()
 
-        else:
-            self.files_dir = Path(self.args.save_visualization)
-            (self.files_dir / 'vis').mkdir(parents=True, exist_ok=True)
-            self.preview_counter = 0
+        self.plot_main()
 
-            self.preview_data = (
-                self.files_dir / 'vis_data.txt').open(mode='w')
-            self.pos_data = (self.files_dir / 'pos_data.txt').open(mode='w')
+    def plot_main(self):
+        try:
+            fig = plt.figure(figsize=FIGSIZE, dpi=DPI)
+            ax_list["preview"] = fig.add_subplot(1, 2, 1)
+            ax_list["preview"].set_title("preview")
+            ax_list["preview"].set_axis_off()
+
+            ax_list["pos"] = fig.add_subplot(1, 2, 2, projection='3d')
+            ax_list["pos"].set_title("pos")
+            plt.show()
+        except Exception as e:
+            print(e)
+
+    def data_main(self):
+        self.data_dict = {key: list() for key in POS_KEYS}
 
         pos_last_ms = None
         vis_pos_last_ms = self.get_time_ms()
+
+        repoints_last_ms = None
+        vis_repoints_last_ms = self.get_time_ms()
+
         preview_last_ms = None
         vis_preview_last_ms = self.get_time_ms()
 
         features_dict = dict()
+        ready_for_plot = True
 
         while True:
-            #sleep(1.0/PREVIEW_PLOT_HZ)
-            sleep(0.1)
+            sleep(1.0/PREVIEW_PLOT_HZ)
             # POS DATA HANDLING
             if pos_last_ms is None:
-                pos_vis = self.get("position_estimation_module:position_vis")
+                pos_vis = dict() # self.get("position_estimation_module:position_vis")
 
                 pos_last_ms = pos_vis.get("timestamp", None)
                 vis_pos_last_ms = self.get_time_ms()
@@ -64,112 +91,141 @@ class VisualizationModule(Module):
                     pos_last_ms = pos_vis["timestamp"]
                     vis_pos_last_ms = self.get_time_ms()
 
-                    # Encode position data
-                    pos_buf = np.array([pos_vis["data"]["pos_x"],
-                                        pos_vis["data"]["pos_y"],
-                                        pos_vis["data"]["pos_z"],
-                                        pos_vis["data"]["angle_x"],
-                                        pos_vis["data"]["angle_y"],
-                                        pos_vis["data"]["angle_z"]], dtype='float32').tobytes()
-                    # Len of pos_data
-                    buf_len = np.array([len(pos_buf)], dtype='uint32')
+                    for key in POS_KEYS:
+                        if len(self.data_dict[key]) > MAX_DATA_LEN:
+                            del self.data_dict[key][0]
 
-                    # Encode id to uint8
-                    buf_id = np.array([1], dtype='uint8')
+                    self.data_dict["pos_x"].append(pos_vis["data"]["x"])
+                    self.data_dict["pos_y"].append(pos_vis["data"]["y"])
+                    self.data_dict["pos_z"].append(pos_vis["data"]["z"])
+                    self.data_dict["angle_x"].append(pos_vis["data"]["roll"])
+                    self.data_dict["angle_y"].append(pos_vis["data"]["pitch"])
+                    self.data_dict["angle_z"].append(pos_vis["data"]["yaw"])
 
-                    if not self.args.save_visualization:
-                        # Send ID first
-                        s.sendall(buf_id)
-                        # Send the image length beforehand
-                        s.sendall(buf_len)
-                        # Send data
-                        s.sendall(pos_buf)
-                    else:
-                        self.pos_data.write(f"{pos_vis['timestamp']}: " +
-                                            f"pos_x: {pos_vis['data']['pos_x']}, " +
-                                            f"pos_y: {pos_vis['data']['pos_y']}, " +
-                                            f"pos_z: {pos_vis['data']['pos_z']}, " +
-                                            f"angle_x: {pos_vis['data']['angle_x']}, " +
-                                            f"angle_y: {pos_vis['data']['angle_y']}, " +
-                                            f"angle_z: {pos_vis['data']['angle_z']}\n")
-                        self.pos_data.flush()
+                    try:
+                        self.animate_pos()
+                    except Exception as e:
+                        self.logger.debug(f"{e}")
 
-            # PREVIEW IMAGE HANDLING
-            if preview_last_ms is None:
-                preview = self.get("drivers_module:preview")
 
-                preview_last_ms = preview.get("timestamp", None)
-                vis_preview_last_ms = self.get_time_ms()
-            else:
-                preview = self.get("drivers_module:preview")
-                if preview and self.get_time_ms() - vis_preview_last_ms > 1000/PREVIEW_PLOT_HZ \
-                        and preview["timestamp"] - preview_last_ms > 1000/PREVIEW_PLOT_HZ:
-                    preview_last_ms = preview["timestamp"]
-                    vis_preview_last_ms = self.get_time_ms()
+            features = self.get("feature_tracking_module:feature_point_pairs_vis")
+            if features:
+                matches = features["data"]["point_pairs"]
+                preview = features["data"]["img"]
 
-                    # Decode img to bytes
-                    img_dec = cv2.imdecode(np.frombuffer(
-                        preview["data"], dtype=np.int8), flags=cv2.IMREAD_COLOR)
+                img_dec = cv2.imdecode(np.frombuffer(
+                        preview, dtype=np.int8), flags=cv2.IMREAD_COLOR)
 
-                    # Draw matches onto image
-                    matches = features_dict.get(preview["timestamp"], None)
-                    img_dec = self.draw_matches(img_dec, matches)
+                # Draw matches onto image
+                self.data_dict["preview"] = self.draw_matches(img_dec, matches)
 
-                    # Resize image
-                    img_rs = self.resize_image(img_dec)
-                    # Encode len in uint32
-                    buf_len = np.array([len(img_rs)], dtype='uint32')
-                    buf_len_b = buf_len.tobytes()
-                    # Encode id to uint8
-                    buf_id = np.array([0], dtype='uint8')
-                    buf_id_b = buf_id.tobytes()
+                try:
+                    self.animate_preview()
+                except Exception as e:
+                    self.logger.warning(f"{e}")
 
-                    if not self.args.save_visualization:
-                        # Send ID first
-                        s.sendall(buf_id_b)
-                        # Send the image length beforehand
-                        s.sendall(buf_len_b)
-                        # Send data
-                        s.sendall(img_rs)
-                    else:
-                        self.preview_counter += 1
-                        # Write image
-                        img_name = self.files_dir / 'vis' / f"img_{self.preview_counter:04d}.jpg"
-                        img_f = io.open(img_name, 'wb')
-                        img_f.write(img_rs)
-                        img_f.close()
 
-                        timestamp = preview["timestamp"]
-                        self.preview_data.write(f"{self.preview_counter}: {timestamp}\n")
-                        self.preview_data.flush()
+            points_3d = self.get("reprojection_module:points3d")
+            rot_coord = R.from_matrix([[0, 0, 1], [-1, 0, 0], [0, -1, 0]])
+            if points_3d:
+                self.data_dict["3d_pos_x"] = list()
+                self.data_dict["3d_pos_y"] = list()
+                self.data_dict["3d_pos_z"] = list()
+                for point in points_3d["data"]:
+                    point_r = rot_coord.apply(point[0])
+                    self.data_dict["3d_pos_x"].append(point_r[0])
+                    self.data_dict["3d_pos_y"].append(point_r[1])
+                    self.data_dict["3d_pos_z"].append(point_r[2])
 
-                features = self.get("feature_tracking_module:feature_point_pairs_vis")
-                if features:
-                    features_dict[features["timestamp"]
-                                ] = features["data"]["point_pairs"]
+                try:
+                    self.animate_3d_points()
+                except Exception as e:
+                    self.logger.warning(f"{e}")
 
-        # Send EOF to detect end of file
-        s.shutdown(socket.SHUT_WR)
-        s.close()
 
-    def resize_image(self, img):
-        # Resize img
-        rs = cv2.resize(img, PREVIEW_FRAMESIZE,
-                        interpolation=cv2.INTER_LINEAR)
+    def animate_pos(self):
+        global scatter_p
+        global line_x, line_y, line_z
 
-        # Encode img to jpeg
-        img_enc = cv2.imencode('.jpeg', rs)[1].tobytes()
+        # Current position and angles
+        pos_x = self.data_dict["pos_x"][-1]
+        pos_y = self.data_dict["pos_y"][-1]
+        pos_z = self.data_dict["pos_z"][-1]
+        angle_x = self.data_dict["angle_x"][-1]
+        angle_y = self.data_dict["angle_y"][-1]
+        angle_z = self.data_dict["angle_z"][-1]
 
-        return img_enc
+        r = R.from_rotvec(np.array([0, 0, angle_z])).as_matrix()
+        sc_xy = 1
+        sc_z = 0.5
+
+        if scatter_p == None:
+            ax_list["pos"].set_title("pos")
+            ax_list["pos"].set_xlim((-2, 2))
+            ax_list["pos"].set_ylim((-2, 2))
+            ax_list["pos"].set_zlim((-0, 2))
+
+            scatter_p = ax_list["pos"].scatter(
+                self.data_dict["pos_x"], self.data_dict["pos_y"], self.data_dict["pos_z"], alpha=0.01)
+
+            line_x = ax_list["pos"].plot([pos_x, pos_x + sc_xy*r[0][0]], [pos_y, pos_y + sc_xy*r[0][1]], [pos_z, pos_z + sc_z*r[0][2]])
+            line_y = ax_list["pos"].plot([pos_x, pos_x + sc_xy*r[1][0]], [pos_y, pos_y + sc_xy*r[1][1]], [pos_z, pos_z + sc_z*r[1][2]])
+            line_z = ax_list["pos"].plot([pos_x, pos_x + sc_xy*r[2][0]], [pos_y, pos_y + sc_xy*r[2][1]], [pos_z, pos_z + sc_z*r[2][2]])
+
+            ax_list["pos"].figure.canvas.draw_idle()
+        else:
+            scatter_p._offsets3d = (self.data_dict["pos_x"], self.data_dict["pos_y"], self.data_dict["pos_z"])
+
+            line_x[0].set_xdata([pos_x, pos_x + sc_xy*r[0][0]])
+            line_x[0].set_ydata([pos_y, pos_y + sc_xy*r[0][1]])
+            line_x[0].set_3d_properties([pos_z, pos_z + sc_z*r[0][2]])
+
+            line_y[0].set_xdata([pos_x, pos_x + sc_xy*r[1][0]])
+            line_y[0].set_ydata([pos_y, pos_y + sc_xy*r[1][1]])
+            line_y[0].set_3d_properties([pos_z, pos_z + sc_z*r[1][2]])
+
+            line_z[0].set_xdata([pos_x, pos_x + sc_xy*r[2][0]])
+            line_z[0].set_ydata([pos_y, pos_y + sc_xy*r[2][1]])
+            line_z[0].set_3d_properties([pos_z, pos_z + sc_z*r[2][2]])
+
+    def animate_preview(self):
+        global preview_p
+        if preview_p == None:
+            ax_list["preview"].set_title("preview")
+            ax_list["preview"].set_axis_off()
+
+            preview_p = ax_list["preview"].imshow(self.data_dict["preview"])
+
+            ax_list["preview"].figure.canvas.draw_idle()
+        else:
+            preview_p.set_data(self.data_dict["preview"])
+            ax_list["preview"].figure.canvas.draw_idle()
+
+
+    def animate_3d_points(self):
+        global scatter_r
+        if scatter_r == None:
+            ax_list["pos"].set_title("pos")
+            ax_list["pos"].set_xlim((-2, 2))
+            ax_list["pos"].set_ylim((-2, 2))
+            ax_list["pos"].set_zlim((-0, 2))
+
+            scatter_r = ax_list["pos"].scatter(
+                self.data_dict["3d_pos_x"], self.data_dict["3d_pos_y"], self.data_dict["3d_pos_z"])
+
+            ax_list["pos"].figure.canvas.draw_idle()
+        else:
+            scatter_r._offsets3d = (self.data_dict["3d_pos_x"], self.data_dict["3d_pos_y"], self.data_dict["3d_pos_z"])
+            ax_list["pos"].figure.canvas.draw_idle()
 
     def draw_matches(self, img, matches):
-        RADIUS = 30
+        RADIUS = 15
         THICKNESS = 3
         if matches is not None:
             shape = matches.shape
             for m in range(shape[2]):
-                start_point = (matches[0][0][m], matches[0][1][m])
-                end_point = (matches[1][0][m], matches[1][1][m])
+                end_point = (matches[0][0][m], matches[0][1][m])
+                start_point = (matches[1][0][m], matches[1][1][m])
                 img = cv2.circle(img, start_point, RADIUS,
                                  (255, 0, 0), THICKNESS)
                 img = cv2.circle(img, end_point, RADIUS,
