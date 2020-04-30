@@ -9,7 +9,7 @@ from math import tan, atan2, cos, sin, pi, sqrt, atan, acos
 
 from ..module import Module
 from .helpers import IMUFrame, VOResult, Homography, interpolate_frames, visualize_input_data, visualize_distance_metric
-from .helpers import degree_to_rad, MovingAverageFilter
+from .helpers import degree_to_rad, MovingAverageFilter, ComplementaryFilter
 
 
 class Velocity:
@@ -39,6 +39,7 @@ class PositionModule(Module):
         self.velocity = Velocity()
 
         self.avg_filter = MovingAverageFilter()
+        self.complementary_filter = ComplementaryFilter()
 
     def start(self):
         while True:
@@ -60,15 +61,18 @@ class PositionModule(Module):
 
     def imu_frame_from_payload(self, payload: Dict) -> IMUFrame:
         # In Camera coordinates: X = -Z_IMU, Y = Y_IMU, Z = X_IMU (90° rotation around the Y axis)
-        return IMUFrame(
-            ax=self.avg_filter("ax", -float(payload['data']['accel_z'])),
+        frame = IMUFrame(
+            ax=self.avg_filter("ax", -float(payload['data']['accel_z']), 10),
             ay=self.avg_filter("ay", float(payload['data']['accel_y'])),
-            az=self.avg_filter("az", float(payload['data']['accel_x'])) + 9.8,
+            az=self.avg_filter("az", float(payload['data']['accel_x'])),
             gx=self.avg_filter("gx", -degree_to_rad(float(payload['data']['gyro_z']))),
             gy=self.avg_filter("gy", degree_to_rad(float(payload['data']['gyro_y']))),
             gz=self.avg_filter("gz", degree_to_rad(float(payload['data']['gyro_x']))),
             ts=payload['data']['timestamp']
         )
+
+        return self.complementary_filter(frame)
+
 
     @staticmethod
     def vo_result_from_payload(payload: Dict):
@@ -168,14 +172,6 @@ class PositionModule(Module):
             self.velocity.z = (self.velocity.z + frames[i].az * dt)
             self.velocity.dampen()
 
-            roll = frames[i].gx * dt
-            pitch = frames[i].gy * dt
-            yaw = frames[i].gz * dt
-
-            new_rot = Rotation.from_euler('xyz', [roll, pitch, yaw], degrees=False).as_matrix()
-            self.logger.debug(f"multiplied \n{pos.rotation_matrix} with \n{new_rot} equals \n{np.dot(pos.rotation_matrix, new_rot)}")
-            pos.rotation_matrix = np.dot(pos.rotation_matrix, new_rot)
-            [pos.roll, pos.pitch, pos.yaw] = Rotation.from_matrix(pos.rotation_matrix).as_euler('xyz', degrees=False)
             self.logger.debug(f"pos calculated {pos}")
 
         return pos
@@ -199,7 +195,7 @@ class PositionModule(Module):
 
         #THEO
         for homog in vo_result.homogs:
-            k_t = 1
+            k_t = 0.0
             imu_rot = Rotation.from_matrix(imu_homog_matrix[0:3, 0:3])
             imu_t_vec = imu_homog_matrix[0:3, 3]
 
