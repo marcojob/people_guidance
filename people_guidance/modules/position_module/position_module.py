@@ -5,11 +5,10 @@ from typing import Dict, Tuple, Optional, List, Generator, Union
 
 import numpy as np
 from scipy.spatial.transform import Rotation
-from math import tan, atan2, cos, sin, pi, sqrt, atan, acos
 
 from ..module import Module
 from .helpers import IMUFrame, VOResult, Homography, interpolate_frames, visualize_input_data, visualize_distance_metric
-from .helpers import degree_to_rad, MovingAverageFilter
+from .helpers import degree_to_rad, MovingAverageFilter, ComplementaryFilter
 
 
 class Velocity:
@@ -39,6 +38,7 @@ class PositionModule(Module):
         self.velocity = Velocity()
 
         self.avg_filter = MovingAverageFilter()
+        self.complementary_filter = ComplementaryFilter()
 
     def start(self):
         while True:
@@ -60,13 +60,24 @@ class PositionModule(Module):
 
     def imu_frame_from_payload(self, payload: Dict) -> IMUFrame:
         # In Camera coordinates: X = -Z_IMU, Y = Y_IMU, Z = X_IMU (90° rotation around the Y axis)
+        ax_in = self.avg_filter("ax", -float(payload['data']['accel_z'])),
+        ay_in = self.avg_filter("ay", float(payload['data']['accel_y'])),
+        az_in = self.avg_filter("az", float(payload['data']['accel_x'])), # +9.8
+        gx_in = self.avg_filter("gx", -degree_to_rad(float(payload['data']['gyro_z']))),
+        gy_in = self.avg_filter("gy", degree_to_rad(float(payload['data']['gyro_y']))),
+        gz_in = self.avg_filter("gz", degree_to_rad(float(payload['data']['gyro_x']))),
+        ts_in = payload['data']['timestamp']
+
+        # use complementary filter to remove the gravity component
+        self.complementary_filter.update(acc=[ax_in, ay_in, az_in], gyro=[gx_in, gy_in, gz_in], ts=ts_in)
+
         return IMUFrame(
-            ax=self.avg_filter("ax", -float(payload['data']['accel_z'])),
-            ay=self.avg_filter("ay", float(payload['data']['accel_y'])),
-            az=self.avg_filter("az", float(payload['data']['accel_x'])) + 9.8,
-            gx=self.avg_filter("gx", -degree_to_rad(float(payload['data']['gyro_z']))),
-            gy=self.avg_filter("gy", degree_to_rad(float(payload['data']['gyro_y']))),
-            gz=self.avg_filter("gz", degree_to_rad(float(payload['data']['gyro_x']))),
+            ax=self.complementary_filter('ax'),
+            ay=self.complementary_filter('ay'),
+            az=self.complementary_filter('az'),
+            gx=gx_in,
+            gy=gy_in,
+            gz=gz_in,
             ts=payload['data']['timestamp']
         )
 
@@ -241,7 +252,7 @@ class PositionModule(Module):
         #     distance = np.linalg.norm(vect_rot)
 
         #END MARCO THEO
-            
+
             self.logger.debug(f"VO as euler \n{Rotation.from_matrix(homog[0:3, 0:3]).as_euler('xyz', degrees=True)}")
             self.logger.debug(f"rotate VO frame by \n{vo_to_camera}")
             self.logger.debug(f"VO rotated \n{vo_rot.as_euler('xyz', degrees=True)}")
