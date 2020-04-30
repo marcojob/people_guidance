@@ -56,24 +56,24 @@ class ReprojectionModule(Module):
                 image = cv2.drawKeypoints(image, keypoints, None, color=pink, flags=0)
                 for i in range(point_pairs.shape[0]):
                     image = cv2.line(image, tuple(point_pairs[1, :, i]), tuple(points2d[i, 0, :]), orange, 5)
+
                 """
                 fig = plt.gcf()
                 fig.clear()
                 plt.scatter(points3d[..., 1], points3d[..., 0])
                 plt.pause(0.001)
-                """
+
                 cv2.imshow("visu", image)
                 cv2.waitKey(1)
 
-                """
                 if cv2.waitKey(0) == ord('a'):
                     pass
                 c = cv2.waitKey(0)
                 if 'q' == chr(c & 255):
                     pass
-                """
+                
 
-                """
+
                 fig = plt.gcf()
                 fig.clear()
                 plt.scatter(points3d[..., 0], points3d[..., 1])
