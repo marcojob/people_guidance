@@ -4,6 +4,10 @@ from typing import List, Dict, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.spatial.transform import Rotation
+from scipy.linalg import norm
+
+from .cam import cam
 
 from math import atan2, sqrt, cos, sin
 
@@ -38,10 +42,9 @@ class MovingAverageFilter:
         if key not in self.keys:
             self.keys[key] = [value]
         else:
-            if len(self.keys[key]) > window_size:
-                self.keys[key].pop(0)
-
             self.keys[key].append(value)
+            while len(self.keys[key]) > window_size:
+                self.keys[key].pop(0)
 
         return float(sum(self.keys[key]) / len(self.keys[key]))
 
@@ -86,9 +89,64 @@ class ComplementaryFilter:
             dt = self.last_frame.ts - frame.ts
             # complementary filter
 
-            # pitch_accel = atan(frame.ay / sqrt(frame.az ** 2 + frame.ax ** 2))
-            # roll_accel = atan(frame.az / sqrt(frame.ay ** 2 + frame.ax ** 2))
+            # 1. Acceleration component, in RADIAN, cannot work because of the singularity issue
+            # roll_accel = atan2(-frame.ay, sqrt(frame.ax ** 2 + frame.az ** 2))
+            # pitch_accel = atan2(frame.ax, sqrt(frame.ay ** 2 + frame.az ** 2))
+
+            # 1. Using quaternion to represent the rotation from the -x Axis to the 'gravity' vector
+            v1 = np.array([0, 0, -1]) # negative z axis corresponds to the gravity vector when in the initial state
+            v2_not_normalised = np.array([frame.ax, frame.ay, frame.az]) # gravity vector
+            v2_norm = norm(v2_not_normalised)
+            v2 = v2_not_normalised / v2_norm # will very unlikely be a division by 0
+            q = np.concatenate((np.cross(v1, v2), np.array([sqrt((norm(v1) ** 2) * (norm(v2) ** 2)) + np.dot(v1, v2)])))
+            # Rotation from -Z axis to gravity vector
+            r_to_acc_vector = Rotation.from_quat(q)
+
+            q_second = self.q_from_acc(frame.ax, frame.ay, frame.az)
+            r_to_acc_vector2 = Rotation.from_quat(q_second)
+
+            cam(q)
+            print(f"Acceleration: {[frame.ax, frame.ay, frame.az]}"
+                  f"first q: \n{q}, second: \n{q_second}, difference of rot: \n"
+                  f"first : \n{r_to_acc_vector.as_matrix()}, first inv \n{r_to_acc_vector.inv().as_matrix()}, "
+                  f"mult \n{np.dot(r_to_acc_vector.as_matrix(), r_to_acc_vector.inv().as_matrix())}"
+                  f"second : \n{r_to_acc_vector2.as_matrix()}")
+
+            # 2. Integrate the
+
+            # https: // github.com / jrowberg / i2cdevlib / blob / master / Arduino / MPU6050 / MPU6050_6Axis_MotionApps20.h
+            # uint8_t
+            # MPU6050::dmpGetYawPitchRoll(float * data, Quaternion * q, VectorFloat * gravity)
+            # {
+            # // yaw: (about Z axis)
+            # data[0] = atan2(2 * q -> x * q -> y - 2 * q -> w * q -> z, 2 * q -> w * q -> w + 2 * q -> x * q -> x - 1);
+            # // pitch: (nose up / down, about Y axis)
+            # data[1] = atan2(gravity -> x, sqrt(gravity -> y * gravity -> y + gravity -> z * gravity -> z));
+            # // roll: (tilt left / right, about X axis)
+            # data[2] = atan2(gravity -> y, gravity -> z);
+            # if (gravity -> z < 0) {
+            # if (data[1] > 0) {
+            # data[1] = PI - data[1];
+            # } else {
+            # data[1] = -PI - data[1];
+            # }
+            # }
+            # return 0;
+            # }
             #
+            # # Gravity vector [vx, vy, vz] from quaternion q [qw, qx, qy, qz]
+            # vx = 2 * (qx * qz - qw * qy)
+            # vy = 2 * (qw * qx + qy * qz)
+            # vz = qw * qw - qx * qx - qy * qy + qz * qz
+            #
+            # # Euler (data) from quaternion q
+            # data[0] = atan2(
+            #     2 * q -> x * q -> y - 2 * q -> w * q -> z, 2 * q -> w * q -> w + 2 * q -> x * q -> x - 1) # psi
+            # data[1] = -asin(2 * q -> x * q -> z + 2 * q -> w * q -> y) # theta
+            # data[2] = atan2(
+            #     2 * q -> y * q -> z - 2 * q -> w * q -> x, 2 * q -> w * q -> w + 2 * q -> z * q -> z - 1) # phi
+
+
             # # Pitch, roll and yaw based on gyro
             # roll_gyro = frame.gz + \
             #             frame.gy * sin(self.pose.pitch) * tan(self.pose.roll) + \
@@ -100,9 +158,9 @@ class ComplementaryFilter:
             #     self.pose.pitch) * 1.0 / cos(self.pose.roll)
             #
             # # Apply complementary filter
-            # self.pose.pitch = (1.0 - self.alpha) * (self.pose.pitch + pitch_gyro * dt) + self.alpha * pitch_accel
             # self.pose.roll = (1.0 - self.alpha) * (self.pose.roll + roll_gyro * dt) + self.alpha * roll_accel
-            # self.pose.yaw += yaw_gyro * dt
+            # self.pose.pitch = (1.0 - self.alpha) * (self.pose.pitch + pitch_gyro * dt) + self.alpha * pitch_accel
+            # self.pose.yaw += yaw_gyro * dt #* 0.9
 
         # TODO: Use this new pose estimate to remove gravity acc from frame, return the frame.
         return IMUFrame( # Need to compute that
@@ -114,6 +172,30 @@ class ComplementaryFilter:
             gz=frame.gz,
             ts=frame.ts
         )
+
+    #https://github.com/ccny-ros-pkg/imu_tools/blob/indigo/imu_complementary_filter/src/complementary_filter.cpp
+    def q_from_acc(self, ax : float, ay: float, az: float):
+        # input: acceleration vector
+        # output: q0_meas, q1_meas, q2_meas, q3_meas
+        # q_acc is the quaternion obtained from the acceleration vector representing the orientation of the Global frame
+            # wrt the Local frame with arbitrary yaw (intermediary frame).q3_acc is defined as 0.
+
+        # Normalize acceleration vector
+        [ax, ay, az] = np.array([ax, ay, az]) / norm([ax, ay, az])
+
+        if (az >= 0):
+            q0_meas = sqrt((az + 1) * 0.5)
+            q1_meas = -ay / (2.0 * q0_meas)
+            q2_meas = ax / (2.0 * q0_meas)
+            q3_meas = 0
+        else:
+            x = sqrt((1 - az) * 0.5)
+            q0_meas = -ay / (2.0 * x)
+            q1_meas = x
+            q2_meas = 0
+            q3_meas = ax / (2.0 * x)
+
+        return [q0_meas, q1_meas, q2_meas, q3_meas]
 
 
 def visualize_input_data(frames: List[IMUFrame]) -> None:

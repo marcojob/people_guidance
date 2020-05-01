@@ -61,15 +61,17 @@ class PositionModule(Module):
 
     def imu_frame_from_payload(self, payload: Dict) -> IMUFrame:
         # In Camera coordinates: X = -Z_IMU, Y = Y_IMU, Z = X_IMU (90° rotation around the Y axis)
+
         frame = IMUFrame(
-            ax=self.avg_filter("ax", -float(payload['data']['accel_z']), 10),
-            ay=self.avg_filter("ay", float(payload['data']['accel_y'])),
-            az=self.avg_filter("az", float(payload['data']['accel_x'])),
-            gx=self.avg_filter("gx", -degree_to_rad(float(payload['data']['gyro_z']))),
-            gy=self.avg_filter("gy", degree_to_rad(float(payload['data']['gyro_y']))),
-            gz=self.avg_filter("gz", degree_to_rad(float(payload['data']['gyro_x']))),
+            ax=self.avg_filter("ax", -float(payload['data']['accel_z']), 1),
+            ay=self.avg_filter("ay", float(payload['data']['accel_y']), 1),
+            az=self.avg_filter("az", float(payload['data']['accel_x']), 1),
+            gx=self.avg_filter("gx", -degree_to_rad(float(payload['data']['gyro_z'])), 1),
+            gy=self.avg_filter("gy", degree_to_rad(float(payload['data']['gyro_y'])), 1),
+            gz=self.avg_filter("gz", degree_to_rad(float(payload['data']['gyro_x'])), 1),
             ts=payload['data']['timestamp']
         )
+        self.logger.info(f"Input frame from driver : \n{frame}")
 
         return self.complementary_filter(frame)
 
@@ -265,6 +267,6 @@ class PositionModule(Module):
                          f"IMU pos :{imu_xyz}\nVO pos  :{vo_xyz}")
 
         #PLOT
-        visualize_distance_metric(best_match, best_match2, degrees, imu_angles, vo_angles)
+        # visualize_distance_metric(best_match, best_match2, degrees, imu_angles, vo_angles)
 
         return best_match[0]
