@@ -23,8 +23,6 @@ class ReprojectionModule(Module):
                                                  outputs=[("points3d", 10)],
                                                  log_dir=log_dir)
 
-        self.intrinsic_matrix: np.array = np.array([[2581.33211, 0, 320], [0, 2576, 240], [0, 0, 1]])
-
         self.point_buffer: List[np.array] = []
         self.request_counter = 0
 
