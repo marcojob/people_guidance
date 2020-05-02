@@ -7,7 +7,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 from scipy.linalg import norm
 
-from .cam import cam
+from .cam import CameraPygame
 
 from math import atan2, sqrt, cos, sin
 
@@ -76,10 +76,12 @@ class Pose:
 
 
 class ComplementaryFilter:
+    # https://www.mdpi.com/1424-8220/15/8/19302/htm
     def __init__(self, alpha: float = 0.2):
         self.last_frame = None
         self.pose = Pose()
         self.alpha = alpha
+        self.camComplementary = CameraPygame()
 
     def __call__(self, frame: IMUFrame) -> IMUFrame:
         if self.last_frame is None:
@@ -94,6 +96,7 @@ class ComplementaryFilter:
             # pitch_accel = atan2(frame.ax, sqrt(frame.ay ** 2 + frame.az ** 2))
 
             # 1. Using quaternion to represent the rotation from the -x Axis to the 'gravity' vector
+            # two constraints, 3 DOF
             v1 = np.array([0, 0, -1]) # negative z axis corresponds to the gravity vector when in the initial state
             v2_not_normalised = np.array([frame.ax, frame.ay, frame.az]) # gravity vector
             v2_norm = norm(v2_not_normalised)
@@ -102,15 +105,16 @@ class ComplementaryFilter:
             # Rotation from -Z axis to gravity vector
             r_to_acc_vector = Rotation.from_quat(q)
 
-            q_second = self.q_from_acc(frame.ax, frame.ay, frame.az)
+            # roll seems shifted by 180°
+            q_second = self.q_from_acc2(frame.ax, frame.ay, frame.az)
             r_to_acc_vector2 = Rotation.from_quat(q_second)
 
-            cam(q)
-            print(f"Acceleration: {[frame.ax, frame.ay, frame.az]}"
-                  f"first q: \n{q}, second: \n{q_second}, difference of rot: \n"
-                  f"first : \n{r_to_acc_vector.as_matrix()}, first inv \n{r_to_acc_vector.inv().as_matrix()}, "
-                  f"mult \n{np.dot(r_to_acc_vector.as_matrix(), r_to_acc_vector.inv().as_matrix())}"
-                  f"second : \n{r_to_acc_vector2.as_matrix()}")
+            self.camComplementary(q_second, name="q")
+            # print(f"Acceleration: {[frame.ax, frame.ay, frame.az]}"
+            #       f"first q: \n{q}, second: \n{q_second}, difference of rot: \n"
+            #       f"first : \n{r_to_acc_vector.as_matrix()}, first inv \n{r_to_acc_vector.inv().as_matrix()}, "
+            #       f"mult \n{np.dot(r_to_acc_vector.as_matrix(), r_to_acc_vector.inv().as_matrix())}"
+            #       f"second : \n{r_to_acc_vector2.as_matrix()}")
 
             # 2. Integrate the
 
@@ -174,7 +178,7 @@ class ComplementaryFilter:
         )
 
     #https://github.com/ccny-ros-pkg/imu_tools/blob/indigo/imu_complementary_filter/src/complementary_filter.cpp
-    def q_from_acc(self, ax : float, ay: float, az: float):
+    def q_from_acc(self, ax : float, ay: float, az: float) -> List:
         # input: acceleration vector
         # output: q0_meas, q1_meas, q2_meas, q3_meas
         # q_acc is the quaternion obtained from the acceleration vector representing the orientation of the Global frame
@@ -182,21 +186,61 @@ class ComplementaryFilter:
 
         # Normalize acceleration vector
         [ax, ay, az] = np.array([ax, ay, az]) / norm([ax, ay, az])
+        q_vector = [0, 0, 0, 0]
 
         if (az >= 0):
-            q0_meas = sqrt((az + 1) * 0.5)
-            q1_meas = -ay / (2.0 * q0_meas)
-            q2_meas = ax / (2.0 * q0_meas)
-            q3_meas = 0
+            q_vector[0] = sqrt((az + 1) * 0.5)
+            q_vector[1] = -ay / (2.0 * q0_meas)
+            q_vector[2] = ax / (2.0 * q0_meas)
+            q_vector[3] = 0
         else:
             x = sqrt((1 - az) * 0.5)
-            q0_meas = -ay / (2.0 * x)
-            q1_meas = x
-            q2_meas = 0
-            q3_meas = ax / (2.0 * x)
+            q_vector[0] = -ay / (2.0 * x)
+            q_vector[1] = x
+            q_vector[2] = 0
+            q_vector[3] = ax / (2.0 * x)
 
-        return [q0_meas, q1_meas, q2_meas, q3_meas]
+        return q_vector
 
+
+    def q_from_acc2(self, ax : float, ay: float, az: float) -> List:
+        '''
+        https://www.mdpi.com/1424-8220/15/8/19302/htm
+        set one element of the quaternion to 0 to et a fully defined system of equations
+        not continuous at the az=0 point. Should use a magnetometer to refine the solution
+
+        The calculation occurs as if the x coordinate system was showing towards the earth. This is not the case and
+        a correction needs to be implemented.
+        Compensate by setting the acceleration vector to its opposite (*-1)
+
+        :param ax: acceleration x
+        :param ay: acceleration y
+        :param az: acceleration z
+        :return: list forming the quaternion
+        '''
+        # input: acceleration vector
+        # output: q0_meas, q1_meas, q2_meas, q3_meas
+        # q_acc is the quaternion obtained from the acceleration vector representing the orientation of the Global frame
+            # wrt the Local frame with arbitrary yaw (intermediary frame).q3_acc is defined as 0.
+
+        # Normalize acceleration vector
+        [ax, ay, az] = - np.array([ax, ay, az]) / norm([ax, ay, az]) # Minus due to inverted gravity direction
+        q_vector = [0, 0, 0, 0]
+
+        if (az >= 0):
+            x = sqrt(2*(az + 1))
+            q_vector[0] = x / 2
+            q_vector[1] = -ay / x
+            q_vector[2] = ax / x
+            q_vector[3] = 0
+        else: #singularity when approaching az = -1
+            x = sqrt(2 * (1 - az))
+            q_vector[0] = -ay / x
+            q_vector[1] = x / 2
+            q_vector[2] = 0
+            q_vector[3] = ax / x
+
+        return q_vector
 
 def visualize_input_data(frames: List[IMUFrame]) -> None:
     #PLOT
