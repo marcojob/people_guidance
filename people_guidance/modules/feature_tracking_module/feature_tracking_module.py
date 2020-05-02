@@ -9,6 +9,9 @@ from typing import Tuple
 from people_guidance.modules.module import Module
 from people_guidance.utils import project_path
 
+import gi
+gi.require_version('Gtk', '2.0')
+
 
 class FeatureTrackingModule(Module):
 
@@ -24,18 +27,21 @@ class FeatureTrackingModule(Module):
         self.old_timestamp = None
         self.old_keypoints = None
         self.old_descriptors = None
-        self.intrinsic_matrix: Optional[np.array] = np.array([[2581.33211, 0, 320], [0, 2576, 240], [0, 0, 1]])
 
         # maximum numbers of keypoints to keep and calculate descriptors of,
         # reducing this number can improve computation time:
         self.max_num_keypoints = 1000
 
         # create each an ORB and a SURF feature descriptor and brute force matcher object
-        self.use_SURF = 1
+        self.use_SURF = 0
+
+        # use essential matrix estimation
+        self.use_essential_matrix = 0
 
         self.detector_object = None
         self.matcher_object = None
-        if(self.use_SURF):
+
+        if self.use_SURF:
             self.detector_object = cv2.xfeatures2d.SURF_create(hessianThreshold=2000)
             self.matcher_object = cv2.BFMatcher_create(cv2.NORM_L2, crossCheck=True)
         else: # use ORB
@@ -119,11 +125,18 @@ class FeatureTrackingModule(Module):
             old_match_points = np.float32([self.old_keypoints[match.queryIdx].pt for match in matches])
             match_points = np.float32([keypoints[match.trainIdx].pt for match in matches])
 
-            # if we found enough matches do a RANSAC search to find inliers corresponding to one homography
-            # TODO: add camera pose info to improve matching
-            H, mask = cv2.findHomography(old_match_points, match_points, cv2.RANSAC, 1.0)
+            if not self.use_essential_matrix:
+                # if we found enough matches do a RANSAC search to find inliers corresponding to one homography
+                H, mask = cv2.findHomography(old_match_points, match_points, cv2.RANSAC, 1.0)
+                nb_solutions, H_rots, H_trans, H_norms = cv2.decomposeHomographyMat(H, self.intrinsic_matrix)
+            else:
+                E, mask = cv2.findEssentialMat(old_match_points, match_points, self.intrinsic_matrix, cv2.RANSAC, 0.999, 1.0, None)
+                ret, R, t, _ = cv2.recoverPose(E, old_match_points, match_points, self.intrinsic_matrix, mask)
 
-            nb_solutions, H_rots, H_trans, H_norms = cv2.decomposeHomographyMat(H, self.intrinsic_matrix)
+                # Essential matrix return only one solution
+                nb_solutions = 1
+                H_rots = np.array(R)
+                H_trans = np.array(t)
 
             if nb_solutions > 0:
                 delta_positions = np.zeros((nb_solutions, 3, 4))

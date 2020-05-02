@@ -100,7 +100,7 @@ class ReprojectionModule(Module):
                 plt.scatter(timestamps[0], criticality_smooth, c="r")
                 plt.scatter(timestamps[0], uncertainty, c="g")
                 plt.pause(0.001)
-                
+
                 self.logger.info(f"Reconstructed points \n{criticality.shape}")
 
 
