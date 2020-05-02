@@ -9,6 +9,7 @@ from typing import Tuple
 from people_guidance.modules.module import Module
 from people_guidance.utils import project_path
 
+# Need this to get cv imshow working on Ubuntu 20.04
 import gi
 gi.require_version('Gtk', '2.0')
 
