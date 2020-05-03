@@ -14,7 +14,6 @@ from math import atan2, sqrt, cos, sin
 IMUFrame = collections.namedtuple("IMUFrame", ["ax", "ay", "az", "gx", "gy", "gz", "ts"])
 VOResult = collections.namedtuple("VOResult", ["homogs", "pairs", "ts0", "ts1", "image"])
 
-
 DEGREE_TO_RAD = float(pi / 180)
 
 
@@ -47,6 +46,7 @@ class MovingAverageFilter:
                 self.keys[key].pop(0)
 
         return float(sum(self.keys[key]) / len(self.keys[key]))
+
 
 class Homography:
     def __init__(self, x: float = 0.0, y: float = 0.0, z: float = 0.0,
@@ -81,12 +81,21 @@ class ComplementaryFilter:
         self.last_frame = None
         self.pose = Pose()
         self.alpha = alpha
-        self.camComplementary = CameraPygame()
+        self.cam = CameraPygame()
+        self.q_state = [1, 0, 0, 0]  # Local camera frame in inertial frame init
 
     def __call__(self, frame: IMUFrame) -> IMUFrame:
         if self.last_frame is None:
             self.last_frame = frame
-            # return directly with simple gravity subtraction
+            return IMUFrame(
+                ax=frame.ax,
+                ay=frame.ay,
+                az=frame.az + 9.8,
+                gx=frame.gx,
+                gy=frame.gy,
+                gz=frame.gz,
+                ts=frame.ts
+            )
         else:
             dt = self.last_frame.ts - frame.ts
             # complementary filter
@@ -95,94 +104,123 @@ class ComplementaryFilter:
             # roll_accel = atan2(-frame.ay, sqrt(frame.ax ** 2 + frame.az ** 2))
             # pitch_accel = atan2(frame.ax, sqrt(frame.ay ** 2 + frame.az ** 2))
 
-            # 1. Using quaternion to represent the rotation from the -x Axis to the 'gravity' vector
-            # two constraints, 3 DOF
-            v1 = np.array([0, 0, -1]) # negative z axis corresponds to the gravity vector when in the initial state
-            v2_not_normalised = np.array([frame.ax, frame.ay, frame.az]) # gravity vector
-            v2_norm = norm(v2_not_normalised)
-            v2 = v2_not_normalised / v2_norm # will very unlikely be a division by 0
-            q = np.concatenate((np.cross(v1, v2), np.array([sqrt((norm(v1) ** 2) * (norm(v2) ** 2)) + np.dot(v1, v2)])))
-            # Rotation from -Z axis to gravity vector
-            r_to_acc_vector = Rotation.from_quat(q)
+            # 1. Using quaternion to represent the rotation to the gravity vector
+            # A. from the -Z Axis to the 'gravity' vector
+            # # two constraints, 3 DOF
+            # q_old = self.q_from_acc0(frame.ax, frame.ay, frame.az)
+            # r_to_acc_vector = Rotation.from_quat(q_old)
 
-            # roll seems shifted by 180°
-            q_second = self.q_from_acc2(frame.ax, frame.ay, frame.az)
-            r_to_acc_vector2 = Rotation.from_quat(q_second)
+            # B. Quaternion estimation using paper from 2015
+            q_acc = self.q_from_acc2(frame.ax, frame.ay, frame.az) # Rotation q_AI : inertial frame represented in IMU frame
+            r_to_acc_vector2 = Rotation.from_quat(q_acc)
+            # To recreate [0, 0, -g], apply this formula:
+            # quaternion_apply(quaternion_conjugate(q_acc), [frame.ax, frame.ay, frame.az])[1:]
 
-            self.camComplementary(q_second, name="q")
+            # # 2. Gyroscope angular speed to quaternion state update
+            # # A. Source: Quaternion kinematics for the error-state Kalman Filter, Joan Sola, November 8, 2017. ~p.49
+            gyro = np.array([frame.gx, frame.gy, frame.gz]) * DEGREE_TO_RAD
+            gyro_norm = norm(gyro)
+            # gyro /= gyro_norm
+            q_gyro = np.array([1, 0, 0, 0])
+            if gyro_norm > 0.0000001:
+                q_gyro = np.concatenate((np.array([cos(gyro_norm * dt * 0.5)]),
+                                         gyro * sin(gyro_norm * dt * 0.5)))
+            # # q_gyro = np.concatenate((np.array([cos(gyro_norm * dt * 0.5)]),
+            # #                                 gyro / gyro_norm * sin(gyro_norm * dt * 0.5)))  # (214)
+            # q_gyro = np.concatenate((np.array([0]),
+            #                                 gyro))  # (214)
+            q_gyro /= norm(q_gyro)
+
+            self.q_state = quaternion_multiply(self.q_state, q_gyro)  # (211)
+
+            # # B. Source: Keeping a Good Attitude: A Quaternion-Based Orientation Filter for IMUs and MARGs
+            # # Roberto G. Valenti et al ~p15
+            # gyro = np.array([frame.gx, frame.gy, frame.gz]) * DEGREE_TO_RAD
+            # gyro_norm = norm(gyro)
+            # q_gyro = np.array([1, 0, 0, 0])
+            # if gyro_norm > 0.0000001:
+            #     q_gyro = np.concatenate((np.array([cos(gyro_norm * dt * 0.5)]),
+            #                                     gyro * sin(gyro_norm * dt * 0.5)))
+            #
+            # # # q_gyro = np.concatenate((np.array([0]), gyro))  # (37)
+            # q_dot = 0.5 * quaternion_multiply(self.q_state, q_gyro) # (37)
+            # self.q_state += q_dot * dt # (42)
+            # self.q_state /= norm(self.q_state)
+            # # Correction step
+            # alpha_lerp = 0.999 # gain that characterizes the cut-off frequency of the filter [35]
+            # delta_q_acc_bar = (1-alpha_lerp) * np.array([1, 0, 0, 0]) + alpha_lerp * q_acc # LERP (50)
+            # delta_q_acc_hat = delta_q_acc_bar / norm(delta_q_acc_bar) # LERP (51)
+            # self.q_state = quaternion_multiply(self.q_state, delta_q_acc_hat) # (43)
+
+            # # C. Source: https://www.thepoorengineer.com/en/quaternion/
+            # gyro = np.array([frame.gx, frame.gy, frame.gz]) * DEGREE_TO_RAD
+            # q = self.q_state
+            # Sq = np.array([[-q[1], -q[2], -q[3]],
+            #                [q[0], -q[3], q[2]],
+            #                [q[3], q[0], -q[1]],
+            #                [-q[2], q[1], q[0]]])
+            # q_update = dt / 2 * np.matmul(Sq, np.array(gyro).transpose())
+            # self.q_state += q_update
+            # self.q_state /= norm(self.q_state)
+
+            # # D.
+            # # https://stackoverflow.com/questions/12053895/converting-angular-velocity-to-quaternion-in-opencv
+            # gyro = np.array([frame.gx, frame.gy, frame.gz]) * DEGREE_TO_RAD
+            # gyro_norm = norm(gyro)
+            # # gyro /= gyro_norm
+            # q_gyro_update = np.array([1, 0, 0, 0])
+            # if gyro_norm > 0.0000001:
+            #     q_gyro_update = np.concatenate((np.array([cos(gyro_norm * dt * 0.5)]),
+            #                                     gyro * sin(gyro_norm * dt * 0.5)))
+            #
+            # self.q_state = quaternion_multiply(self.q_state, q_gyro_update)  # (211)
+
+            # 3. Linear interpolation
+            # TODO: for yaw, only consider data from gyro
+            # equal to the first argument for t_=0, to the second for t_=1
+            self.q_state = self.slerp(self.q_state, q_acc, t_=0.6)
+
+            # print(f"current gyro data : {gyro}")
+            # print(f"current q_state_gyro : {self.q_state}")
+            # print(f"q_update: {q_gyro}")
+
+            # Pygames visualization
+            self.cam(q_acc, name="q_update")
             # print(f"Acceleration: {[frame.ax, frame.ay, frame.az]}"
             #       f"first q: \n{q}, second: \n{q_second}, difference of rot: \n"
             #       f"first : \n{r_to_acc_vector.as_matrix()}, first inv \n{r_to_acc_vector.inv().as_matrix()}, "
             #       f"mult \n{np.dot(r_to_acc_vector.as_matrix(), r_to_acc_vector.inv().as_matrix())}"
             #       f"second : \n{r_to_acc_vector2.as_matrix()}")
 
-            # 2. Integrate the
+            # 4. Express the gravity vector in the local frame
+            # To recreate [0, 0, -g], apply this formula:
+            local_gravity = quaternion_apply(self.q_state, [0, 0, -1])[1:] * 9.81
+            # print(f"gravity compensation: {np.array([frame.ax, frame.ay, frame.az]) - local_gravity}")
 
-            # https: // github.com / jrowberg / i2cdevlib / blob / master / Arduino / MPU6050 / MPU6050_6Axis_MotionApps20.h
-            # uint8_t
-            # MPU6050::dmpGetYawPitchRoll(float * data, Quaternion * q, VectorFloat * gravity)
-            # {
-            # // yaw: (about Z axis)
-            # data[0] = atan2(2 * q -> x * q -> y - 2 * q -> w * q -> z, 2 * q -> w * q -> w + 2 * q -> x * q -> x - 1);
-            # // pitch: (nose up / down, about Y axis)
-            # data[1] = atan2(gravity -> x, sqrt(gravity -> y * gravity -> y + gravity -> z * gravity -> z));
-            # // roll: (tilt left / right, about X axis)
-            # data[2] = atan2(gravity -> y, gravity -> z);
-            # if (gravity -> z < 0) {
-            # if (data[1] > 0) {
-            # data[1] = PI - data[1];
-            # } else {
-            # data[1] = -PI - data[1];
-            # }
-            # }
-            # return 0;
-            # }
-            #
-            # # Gravity vector [vx, vy, vz] from quaternion q [qw, qx, qy, qz]
-            # vx = 2 * (qx * qz - qw * qy)
-            # vy = 2 * (qw * qx + qy * qz)
-            # vz = qw * qw - qx * qx - qy * qy + qz * qz
-            #
-            # # Euler (data) from quaternion q
-            # data[0] = atan2(
-            #     2 * q -> x * q -> y - 2 * q -> w * q -> z, 2 * q -> w * q -> w + 2 * q -> x * q -> x - 1) # psi
-            # data[1] = -asin(2 * q -> x * q -> z + 2 * q -> w * q -> y) # theta
-            # data[2] = atan2(
-            #     2 * q -> y * q -> z - 2 * q -> w * q -> x, 2 * q -> w * q -> w + 2 * q -> z * q -> z - 1) # phi
+            # TODO: Use this new pose estimate to remove gravity acc from frame, return the frame.
+            return IMUFrame(  # Need to compute that
+                ax=frame.ax - local_gravity[0],
+                ay=frame.ay - local_gravity[1],
+                az=frame.az - local_gravity[2],
+                gx=frame.gx,
+                gy=frame.gy,
+                gz=frame.gz,
+                ts=frame.ts
+            )
 
+    def q_from_acc0(self, ax, ay, az):
+        v1 = np.array([0, 0, -1])  # negative z axis corresponds to the gravity vector when in the initial state
+        v2_not_normalised = np.array([ax, ay, az])  # gravity vector
+        v2_norm = norm(v2_not_normalised)
+        v2 = v2_not_normalised / v2_norm  # will very unlikely be a division by 0
+        return np.concatenate((np.cross(v1, v2), np.array([sqrt((norm(v1) ** 2) * (norm(v2) ** 2)) + np.dot(v1, v2)])))
 
-            # # Pitch, roll and yaw based on gyro
-            # roll_gyro = frame.gz + \
-            #             frame.gy * sin(self.pose.pitch) * tan(self.pose.roll) + \
-            #             frame.gx * cos(self.pose.pitch) * tan(self.pose.roll)
-            #
-            # pitch_gyro = frame.gy * cos(self.pose.pitch) - frame.gx * sin(self.pose.pitch)
-            #
-            # yaw_gyro = frame.gy * sin(self.pose.pitch) * 1.0 / cos(self.pose.roll) + frame.gx * cos(
-            #     self.pose.pitch) * 1.0 / cos(self.pose.roll)
-            #
-            # # Apply complementary filter
-            # self.pose.roll = (1.0 - self.alpha) * (self.pose.roll + roll_gyro * dt) + self.alpha * roll_accel
-            # self.pose.pitch = (1.0 - self.alpha) * (self.pose.pitch + pitch_gyro * dt) + self.alpha * pitch_accel
-            # self.pose.yaw += yaw_gyro * dt #* 0.9
-
-        # TODO: Use this new pose estimate to remove gravity acc from frame, return the frame.
-        return IMUFrame( # Need to compute that
-            ax=frame.ax,
-            ay=frame.ay,
-            az=frame.az + 9.8,
-            gx=frame.gx,
-            gy=frame.gy,
-            gz=frame.gz,
-            ts=frame.ts
-        )
-
-    #https://github.com/ccny-ros-pkg/imu_tools/blob/indigo/imu_complementary_filter/src/complementary_filter.cpp
-    def q_from_acc(self, ax : float, ay: float, az: float) -> List:
+    # https://github.com/ccny-ros-pkg/imu_tools/blob/indigo/imu_complementary_filter/src/complementary_filter.cpp
+    def q_from_acc(self, ax: float, ay: float, az: float) -> List:
         # input: acceleration vector
         # output: q0_meas, q1_meas, q2_meas, q3_meas
         # q_acc is the quaternion obtained from the acceleration vector representing the orientation of the Global frame
-            # wrt the Local frame with arbitrary yaw (intermediary frame).q3_acc is defined as 0.
+        # wrt the Local frame with arbitrary yaw (intermediary frame).q3_acc is defined as 0.
 
         # Normalize acceleration vector
         [ax, ay, az] = np.array([ax, ay, az]) / norm([ax, ay, az])
@@ -190,8 +228,8 @@ class ComplementaryFilter:
 
         if (az >= 0):
             q_vector[0] = sqrt((az + 1) * 0.5)
-            q_vector[1] = -ay / (2.0 * q0_meas)
-            q_vector[2] = ax / (2.0 * q0_meas)
+            q_vector[1] = -ay / (2.0 * q_vector[0])
+            q_vector[2] = ax / (2.0 * q_vector[0])
             q_vector[3] = 0
         else:
             x = sqrt((1 - az) * 0.5)
@@ -200,10 +238,9 @@ class ComplementaryFilter:
             q_vector[2] = 0
             q_vector[3] = ax / (2.0 * x)
 
-        return q_vector
+        return np.array(q_vector)
 
-
-    def q_from_acc2(self, ax : float, ay: float, az: float) -> List:
+    def q_from_acc2(self, ax: float, ay: float, az: float) -> List:
         '''
         https://www.mdpi.com/1424-8220/15/8/19302/htm
         set one element of the quaternion to 0 to et a fully defined system of equations
@@ -221,29 +258,80 @@ class ComplementaryFilter:
         # input: acceleration vector
         # output: q0_meas, q1_meas, q2_meas, q3_meas
         # q_acc is the quaternion obtained from the acceleration vector representing the orientation of the Global frame
-            # wrt the Local frame with arbitrary yaw (intermediary frame).q3_acc is defined as 0.
+        # wrt the Local frame with arbitrary yaw (intermediary frame).q3_acc is defined as 0.
 
         # Normalize acceleration vector
-        [ax, ay, az] = - np.array([ax, ay, az]) / norm([ax, ay, az]) # Minus due to inverted gravity direction
+        [ax, ay, az] = - np.array([ax, ay, az]) / norm([ax, ay, az])  # Minus due to inverted gravity direction
         q_vector = [0, 0, 0, 0]
 
         if (az >= 0):
-            x = sqrt(2*(az + 1))
+            x = sqrt(2 * (az + 1))
             q_vector[0] = x / 2
             q_vector[1] = -ay / x
             q_vector[2] = ax / x
             q_vector[3] = 0
-        else: #singularity when approaching az = -1
+        else:  # singularity when approaching az = -1
             x = sqrt(2 * (1 - az))
             q_vector[0] = -ay / x
             q_vector[1] = x / 2
             q_vector[2] = 0
             q_vector[3] = ax / x
 
-        return q_vector
+        return np.array(q_vector)
+
+    def slerp(self, v0, v1, t_=0):
+        """Spherical linear interpolation.
+        https://en.wikipedia.org/wiki/Slerp
+        """
+        # >>> slerp([1,0,0,0], [0,0,0,1], np.arange(0, 1, 0.001))
+        v0 = np.array(v0)
+        v0 /= norm(v0)
+        v1 = np.array(v1)
+        v1 /= norm(v1)
+        dot = np.sum(v0 * v1)
+
+        if dot < 0.0:
+            v1 = -v1
+            dot = -dot
+
+        DOT_THRESHOLD = 0.9995
+        if dot > DOT_THRESHOLD:
+            result = v0 + t_ * (v1 - v0)
+            return result / norm(result)
+
+        theta_0 = np.arccos(dot)
+        sin_theta_0 = np.sin(theta_0)
+
+        theta = theta_0 * t_
+        sin_theta = np.sin(theta)
+
+        s0 = np.cos(theta) - dot * sin_theta / sin_theta_0
+        s1 = sin_theta / sin_theta_0
+        return (s0 * v0) + (s1 * v1)
+
+
+# Quaternion kinematics for the error-state Kalman Filter, Joan Sola, November 8, 2017
+def quaternion_multiply(quaternion1, quaternion2):
+    w0, x0, y0, z0 = quaternion2 / norm(quaternion2)
+    w1, x1, y1, z1 = quaternion1 / norm(quaternion1)
+    output = np.array([-x1 * x0 - y1 * y0 - z1 * z0 + w1 * w0,
+                     x1 * w0 + y1 * z0 - z1 * y0 + w1 * x0,
+                     -x1 * z0 + y1 * w0 + z1 * x0 + w1 * y0,
+                     x1 * y0 - y1 * x0 + z1 * w0 + w1 * z0], dtype=np.float64)
+    return output / norm(output)
+
+def quaternion_apply(quaternion : List, vector : List):
+    q2 = np.concatenate((np.array([0.0]), np.array(vector)))
+    return quaternion_multiply(quaternion_multiply(quaternion, q2),
+                               quaternion_conjugate(quaternion))
+
+def quaternion_conjugate(quaternion):
+    w, x, y, z = quaternion
+    return np.array([w, -x, -y, -z])
+
 
 def visualize_input_data(frames: List[IMUFrame]) -> None:
-    #PLOT
+    # PLOT
     plt.figure(3, figsize=(10, 12))
     plt.tight_layout()
 
@@ -269,12 +357,15 @@ def visualize_input_data(frames: List[IMUFrame]) -> None:
 
     plt.pause(0.001)
 
+
 def static_vars(**kwargs):
     def decorate(func):
         for k in kwargs:
             setattr(func, k, kwargs[k])
         return func
+
     return decorate
+
 
 @static_vars(counter=0)
 def visualize_distance_metric(best_match, best_match2, degrees, imu_angles, vo_angles) -> None:

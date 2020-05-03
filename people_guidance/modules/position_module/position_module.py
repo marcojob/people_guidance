@@ -63,10 +63,10 @@ class PositionModule(Module):
         # In Camera coordinates: X = -Z_IMU, Y = Y_IMU, Z = X_IMU (90° rotation around the Y axis)
 
         frame = IMUFrame(
-            ax=self.avg_filter("ax", -float(payload['data']['accel_z']), 1),
+            ax=self.avg_filter("ax", -float(payload['data']['accel_z']), 1), # m/s ** 2
             ay=self.avg_filter("ay", float(payload['data']['accel_y']), 1),
             az=self.avg_filter("az", float(payload['data']['accel_x']), 1),
-            gx=self.avg_filter("gx", -degree_to_rad(float(payload['data']['gyro_z'])), 1),
+            gx=self.avg_filter("gx", -degree_to_rad(float(payload['data']['gyro_z'])), 1), # °/s
             gy=self.avg_filter("gy", degree_to_rad(float(payload['data']['gyro_y'])), 1),
             gz=self.avg_filter("gz", degree_to_rad(float(payload['data']['gyro_x'])), 1),
             ts=payload['data']['timestamp']
@@ -157,13 +157,6 @@ class PositionModule(Module):
         for i in range(1, len(frames)):
             dt = (frames[i].ts - frames[i-1].ts) / 1000
             dt2 = dt * dt
-
-            # TODO: Muss Gravity rausnehmen
-            # 0. LOW pass for acc AND rotation (at higher lvl)
-            # 1. Complementary Filter to define roll, pitch, yaw at each step
-            # 2. Rotation of G into the Camera frame
-            # 3. subtraction of the rotated vector
-            # then and only then you can move to the next step: integrating
 
             pos.x += self.velocity.x * dt + 0.5 * frames[i].ax * dt2
             pos.y += self.velocity.y * dt + 0.5 * frames[i].ay * dt2
