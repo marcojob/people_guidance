@@ -96,9 +96,9 @@ class ReprojectionModule(Module):
                 criticality = (1 / distances) #* abs(alignment)
                 criticality_smooth = 0.8 * criticality_smooth + 0.2 * criticality.mean()
 
-                plt.scatter(timestamps[0], criticality_smooth, c="r")
-                plt.scatter(timestamps[0], uncertainty, c="g")
-                plt.pause(0.001)
+                # plt.scatter(timestamps[0], criticality_smooth, c="r")
+                # plt.scatter(timestamps[0], uncertainty, c="g")
+                # plt.pause(0.001)
 
                 self.logger.info(f"Reconstructed points \n{criticality.shape}")
 

@@ -6,7 +6,6 @@ from people_guidance.utils import init_logging
 
 from people_guidance.modules.drivers_module import DriversModule
 from people_guidance.modules.feature_tracking_module import FeatureTrackingModule
-from people_guidance.modules.position_estimation_module import PositionEstimationModule
 from people_guidance.modules.visualization_module import VisualizationModule
 from people_guidance.modules.reprojection_module import ReprojectionModule
 from people_guidance.modules.position_module import PositionModule

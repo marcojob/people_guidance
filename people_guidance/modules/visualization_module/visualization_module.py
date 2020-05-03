@@ -37,7 +37,8 @@ class VisualizationModule(Module):
     def __init__(self, log_dir: pathlib.Path, args=None):
         super(VisualizationModule, self).__init__(name="visualization_module", outputs=[],
                                                   inputs=["feature_tracking_module:feature_point_pairs_vis",
-                                                          "reprojection_module:points3d"],
+                                                          "reprojection_module:points3d",
+                                                          "position_module:position_vis"],
                                                   log_dir=log_dir)
         self.args = args
 
@@ -81,12 +82,12 @@ class VisualizationModule(Module):
             sleep(1.0/PREVIEW_PLOT_HZ)
             # POS DATA HANDLING
             if pos_last_ms is None:
-                pos_vis = dict() # self.get("position_estimation_module:position_vis")
+                pos_vis = self.get("position_module:position_vis")
 
                 pos_last_ms = pos_vis.get("timestamp", None)
                 vis_pos_last_ms = self.get_time_ms()
             else:
-                pos_vis = self.get("position_estimation_module:position_vis")
+                pos_vis = self.get("position_module:position_vis")
                 if pos_vis and self.get_time_ms() - vis_pos_last_ms > 1000/POS_PLOT_HZ and pos_vis["timestamp"] - pos_last_ms > 1000/POS_PLOT_HZ:
                     pos_last_ms = pos_vis["timestamp"]
                     vis_pos_last_ms = self.get_time_ms()

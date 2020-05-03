@@ -8,7 +8,7 @@ from scipy.spatial.transform import Rotation
 from math import tan, atan2, cos, sin, pi, sqrt, atan, acos
 
 from ..module import Module
-from .helpers import IMUFrame, VOResult, Homography, interpolate_frames, visualize_input_data, visualize_distance_metric
+from .helpers import IMUFrame, VOResult, Homography, interpolate_frames
 from .helpers import degree_to_rad, MovingAverageFilter, ComplementaryFilter
 
 
@@ -29,7 +29,7 @@ class Velocity:
 class PositionModule(Module):
     def __init__(self, log_dir: pathlib.Path, args=None):
         super().__init__(name="position_module",
-                         outputs=[("homography", 10)],
+                         outputs=[("homography", 10), ("position_vis", 10)],
                          inputs=["drivers_module:accelerations",
                                  "feature_tracking_module:feature_point_pairs"],
                          log_dir=log_dir)
@@ -48,7 +48,6 @@ class PositionModule(Module):
             self.predict_relative_pose()
 
     def get_inputs(self):
-
         vo_payload: Dict = self.get("feature_tracking_module:feature_point_pairs")
         if vo_payload:
             self.vo_buffer.append(self.vo_result_from_payload(vo_payload))
@@ -56,6 +55,15 @@ class PositionModule(Module):
             imu_payload: Dict = self.get("drivers_module:accelerations")
             if imu_payload:
                 self.imu_buffer.append(self.imu_frame_from_payload(imu_payload))
+
+                # publish to vis
+                self.publish("position_vis", {"x": 0.0,
+                                              "y": 0.0,
+                                              "z": 0.0,
+                                              "roll": self.complementary_filter.roll,
+                                              "pitch": self.complementary_filter.pitch,
+                                              "yaw": self.complementary_filter.yaw,
+                                              "timestamp": self.complementary_filter.current_frame.ts}, 1000)
             else:
                 time.sleep(0.001)
 
@@ -96,7 +104,6 @@ class PositionModule(Module):
                 self.vo_buffer.pop(0)
 
     def prune_imu_buffer(self):
-
         i = 0
         # find the index i of the element that has a larger timestamp than the oldest vo_result still in the buffer.
         while i < len(self.imu_buffer) and self.imu_buffer[i].ts < self.vo_buffer[0].ts0:
@@ -151,9 +158,6 @@ class PositionModule(Module):
     def integrate(self, frames: List[IMUFrame]) -> Homography:
         pos = Homography()
 
-        #PLOT
-        # visualize_input_data(frames)
-
         for i in range(1, len(frames)):
             dt = (frames[i].ts - frames[i-1].ts) / 1000
             dt2 = dt * dt
@@ -188,7 +192,6 @@ class PositionModule(Module):
         best_match = (None, np.inf, None)
         best_match2 = (None, np.inf, None)
 
-        #THEO
         for homog in vo_result.homogs:
             k_t = 0.0
             imu_rot = Rotation.from_matrix(imu_homog_matrix[0:3, 0:3])
@@ -207,31 +210,6 @@ class PositionModule(Module):
             delta_rot = Rotation.from_matrix(np.dot(imu_homog_matrix[0:3, 0:3], np.transpose(homog[0:3, 0:3])))
             vect_rot = delta_rot.as_rotvec()
             distance = np.linalg.norm(vect_rot)
-
-        #MARCO
-        # # Rotate the VO coordinate system (https://docs.opencv.org/2.4/modules/calib3d/doc/camera_calibration_and_3d_reconstruction.html)
-        # vo_rot_coord = Rotation.from_matrix([[0, 0, 1], [-1, 0, 0], [0, -1, 0]])
-        # vo_to_camera = vo_rot_coord.as_matrix()
-        #
-        # for homog in vo_result.homogs:
-        #     k_t = 1
-        #     imu_rot = Rotation.from_matrix(imu_homog_matrix[0:3, 0:3])
-        #     imu_t_vec = imu_homog_matrix[0:3, 3]
-        #     vo_rot = Rotation.from_matrix(homog[0:3, 0:3])
-        #     vo_t_vec = homog[0:3, 3]
-        #     vo_rot = Rotation.from_matrix(homog[0:3, 0:3]) * vo_rot_coord
-        #     vo_t_vec = vo_rot_coord.apply(homog[0:3, 3])
-        #     # Robot dynamic script p51
-        #     delta_rot2: Rotation = imu_rot.inv() * vo_rot
-        #     distance2 = delta_rot2.magnitude() + k_t * np.linalg.norm(imu_t_vec - vo_t_vec)
-        #     vect_rot2 = delta_rot2.as_rotvec()
-        #     delta_rot = Rotation.from_matrix(np.dot(imu_homog_matrix[0:3, 0:3], np.transpose(homog[0:3, 0:3])))
-        #     delta_rot = Rotation.from_matrix(np.dot(vo_rot_coord.apply(imu_homog_matrix[0:3, 0:3]),
-        #                                             np.transpose(vo_rot_coord.apply(homog[0:3, 0:3]))))
-        #     vect_rot = delta_rot.as_rotvec()
-        #     distance = np.linalg.norm(vect_rot)
-
-        #END MARCO THEO
 
             self.logger.debug(f"VO as euler \n{Rotation.from_matrix(homog[0:3, 0:3]).as_euler('xyz', degrees=True)}")
             self.logger.debug(f"rotate VO frame by \n{vo_to_camera}")
@@ -255,11 +233,8 @@ class PositionModule(Module):
         vo_angles = Rotation.from_matrix(best_match[0][..., :3]).as_euler("xyz", degrees=degrees)
         imu_xyz = str(imu_homog_matrix[..., 3:]).replace("\n", "")
         vo_xyz = str(best_match[0][..., 3:]).replace("\n", "")
-        self.logger.info(f"Prediction Offset:\n"
+        self.logger.debug(f"Prediction Offset:\n"
                          f"IMU angles :{imu_angles}\nVO angles :{vo_angles}, degrees? {degrees}\n"
                          f"IMU pos :{imu_xyz}\nVO pos  :{vo_xyz}")
-
-        #PLOT
-        # visualize_distance_metric(best_match, best_match2, degrees, imu_angles, vo_angles)
 
         return best_match[0]
