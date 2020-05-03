@@ -95,6 +95,7 @@ class ReprojectionModule(Module):
                 uncertainty = 1 / points3d.shape[0]
                 criticality = (1 / distances) #* abs(alignment)
                 criticality_smooth = 0.8 * criticality_smooth + 0.2 * criticality.mean()
+
                 plt.scatter(timestamps[0], criticality_smooth, c="r")
                 plt.scatter(timestamps[0], uncertainty, c="g")
                 plt.pause(0.001)

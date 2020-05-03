@@ -53,7 +53,7 @@ class FeatureTrackingModule(Module):
             img_dict = self.get("drivers_module:images")
 
             if not img_dict:
-                self.logger.warn("queue was empty")
+                self.logger.info("queue was empty")
             else:
                 # extract the image data and time stamp
                 img_encoded = img_dict["data"]["data"]
