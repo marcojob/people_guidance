@@ -41,7 +41,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    pipeline = Pipeline(args, log_level=logging.WARNING)
+    pipeline = Pipeline(args, log_level=logging.INFO)
 
     # Handles hardware drivers and interfaces
     pipeline.add_module(DriversModule, log_level=logging.WARNING)
