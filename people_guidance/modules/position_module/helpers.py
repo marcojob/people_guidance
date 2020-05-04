@@ -13,6 +13,7 @@ from math import atan2, sqrt, cos, sin
 
 IMUFrame = collections.namedtuple("IMUFrame", ["ax", "ay", "az", "gx", "gy", "gz", "ts"])
 VOResult = collections.namedtuple("VOResult", ["homogs", "pairs", "ts0", "ts1", "image"])
+Attitude = collections.namedtuple("Attitude", ["x", "y", "z", "roll", "pitch", "yaw"])
 
 DEG_TO_RAD = pi / 180.0
 RAD_TO_DEG = 180.0 / pi
@@ -69,10 +70,6 @@ class Homography:
     def __str__(self):
         return f"Homography: (translation ({self.x}, {self.y}, {self.z}), angles ({self.roll}, {self.pitch}, {self.yaw}))"
 
-    def as_matrix(self) -> np.array:
-        translation = np.array((self.x, self.y, self.z))
-        return np.column_stack((self.rotation_matrix, translation))
-
 
 class Pose:
     def __init__(self, roll: float = 0.0, pitch: float = 0.0, yaw: float = 0.0):
@@ -113,15 +110,16 @@ class ComplementaryFilter:
                 gx=frame.gx,
                 gy=frame.gy,
                 gz=frame.gz,
-                ts=frame.ts)
+                ts=frame.ts), {"roll": 0.0, "pitch": 0.0, "yaw": 0.0, "x": 0.0, "y": 0.0, "z": 0.0}
         else:
             self.last_frame = self.current_frame
             self.current_frame = frame
             dt_s = (self.last_frame.ts - self.current_frame.ts)/1000.0
 
             # Normalized accelerations, - frame.az is needed so that roll is not at 180 degrees
-            a_l = 1.0*np.array([frame.ax, frame.ay, -frame.az])
-            a_l /= np.linalg.norm(a_l)
+            a_l = np.array([frame.ax, frame.ay, -frame.az])
+            a_l_norm = np.linalg.norm(a_l)
+            a_l /= a_l_norm
 
             # PREDICTION
             w_q_l = np.array([0.0, frame.gx, frame.gy, frame.gz])*DEG_TO_RAD
@@ -181,7 +179,13 @@ class ComplementaryFilter:
 
             self.roll = global_att[0]
             self.pitch = global_att[1]
-            self.yaw = global_att[2]
+
+            # This performs best
+            self.yaw += frame.gz*dt_s
+
+            self.x = 0.0
+            self.y = 0.0
+            self.z = 0.0
 
             # Pygames visualization
             self.cam(self.q_g_l, name="q_update")
@@ -193,8 +197,7 @@ class ComplementaryFilter:
                 gx=frame.gx,
                 gy=frame.gy,
                 gz=frame.gz,
-                ts=frame.ts
-            )
+                ts=frame.ts), {"roll": self.roll, "pitch": self.pitch, "yaw": self.yaw, "x": self.x, "y": self.y, "z": self.z}
 
 # Quaternion multiply according to Valenti, 2015
 def quaternion_multiply(p, q):
@@ -228,3 +231,6 @@ def quaternion_conjugate(quaternion):
 
 def quaternion_to_euler(quaternion, degrees=True):
     return Rotation.from_quat(quaternion).as_euler('zyx', degrees=degrees)
+
+def euler_to_quaternion(euler, degrees=True):
+    return Rotation.from_euler('zyx', euler, degrees=degrees).as_quat()

@@ -175,6 +175,7 @@ class DriversModule(Module):
                     # No more imgs, exit
                     if not img_str:
                         self.logger.warning("Replay file empty, exiting")
+                        sleep(10)
                         raise SystemExit("Replay file empty: Exited with code 0")
 
                     out = re.search(r'([0-9]*): ([0-9]*)', img_str)

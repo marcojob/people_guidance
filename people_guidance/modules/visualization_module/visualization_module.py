@@ -24,6 +24,8 @@ DPI = 100
 
 MAX_DATA_LEN = 100
 
+PLOT_XY_LEN = 5
+
 KEYS = ["preview", "pos"]
 POS_KEYS = ["pos_x", "pos_y", "pos_z", "angle_x", "angle_y", "angle_z", "3d_pos_x", "3d_pos_y", "3d_pos_z"]
 
@@ -188,6 +190,8 @@ class VisualizationModule(Module):
             line_z[0].set_xdata([pos_x, pos_x + sc_xy*r[2][0]])
             line_z[0].set_ydata([pos_y, pos_y + sc_xy*r[2][1]])
             line_z[0].set_3d_properties([pos_z, pos_z + sc_z*r[2][2]])
+
+            ax_list["pos"].view_init(elev=80, azim=0)
 
     def animate_preview(self):
         global preview_p

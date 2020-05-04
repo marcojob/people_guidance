@@ -40,11 +40,17 @@ class PositionModule(Module):
 
         self.avg_filter = MovingAverageFilter()
         self.complementary_filter = ComplementaryFilter()
+        self.attitude = {topic: 0.0 for topic in ["x", "y", "z", "roll", "pitch", "yaw"]} 
 
     def start(self):
         while True:
+            # Get input data and rotate it
             self.get_inputs()
+
+            # Prune buffers of data
             self.prune_buffers()
+
+            # Predict relative pose
             self.predict_relative_pose()
 
     def get_inputs(self):
@@ -52,37 +58,26 @@ class PositionModule(Module):
         if vo_payload:
             self.vo_buffer.append(self.vo_result_from_payload(vo_payload))
         if len(self.imu_buffer) < 100:
-            imu_payload: Dict = self.get("drivers_module:accelerations")
+            imu_payload = self.get("drivers_module:accelerations")
             if imu_payload:
-                self.imu_buffer.append(self.imu_frame_from_payload(imu_payload))
+                # Construct a frame from the local frame data
+                frame_local = IMUFrame(
+                    ax=self.avg_filter("ax", -float(imu_payload['data']['accel_z']), 1), # m/s ** 2
+                    ay=self.avg_filter("ay", float(imu_payload['data']['accel_y']), 1),
+                    az=self.avg_filter("az", float(imu_payload['data']['accel_x']), 1),
+                    gx=self.avg_filter("gx", degree_to_rad(float(imu_payload['data']['gyro_z'])), 1), # °/s
+                    gy=self.avg_filter("gy", degree_to_rad(float(imu_payload['data']['gyro_y'])), 1),
+                    gz=self.avg_filter("gz", degree_to_rad(float(imu_payload['data']['gyro_x'])), 1),
+                    ts=imu_payload['data']['timestamp'])
 
-                # publish to vis
-                self.publish("position_vis", {"x": 0.0,
-                                              "y": 0.0,
-                                              "z": 0.0,
-                                              "roll": self.complementary_filter.roll,
-                                              "pitch": self.complementary_filter.pitch,
-                                              "yaw": self.complementary_filter.yaw,
-                                              "timestamp": self.complementary_filter.current_frame.ts}, 1000)
+                # Construct a frame rotated to global frame
+                frame_global, self.attitude = self.complementary_filter(frame_local)
+
+                # Append the frame to the buffer of frames
+                self.imu_buffer.append(frame_global)
+
             else:
                 time.sleep(0.001)
-
-    def imu_frame_from_payload(self, payload: Dict) -> IMUFrame:
-        # In Camera coordinates: X = -Z_IMU, Y = Y_IMU, Z = X_IMU (90° rotation around the Y axis)
-
-        frame = IMUFrame(
-            ax=self.avg_filter("ax", -float(payload['data']['accel_z']), 1), # m/s ** 2
-            ay=self.avg_filter("ay", float(payload['data']['accel_y']), 1),
-            az=self.avg_filter("az", float(payload['data']['accel_x']), 1),
-            gx=self.avg_filter("gx", degree_to_rad(float(payload['data']['gyro_z'])), 1), # °/s
-            gy=self.avg_filter("gy", degree_to_rad(float(payload['data']['gyro_y'])), 1),
-            gz=self.avg_filter("gz", degree_to_rad(float(payload['data']['gyro_x'])), 1),
-            ts=payload['data']['timestamp']
-        )
-        self.logger.info(f"Input frame from driver : \n{frame}")
-
-        return self.complementary_filter(frame)
-
 
     @staticmethod
     def vo_result_from_payload(payload: Dict):
@@ -97,18 +92,17 @@ class PositionModule(Module):
             self.prune_imu_buffer()
 
     def prune_vo_buffer(self):
-        # this should rarely happen. It discards items from the vo buffer that have timestamps older than
-        # the oldest still buffered imu frame.
+        # Prune the buffer if the VO ts is smaller than the IMU buffer ts
         for _ in range(len(self.vo_buffer)):
             if self.vo_buffer[0].ts0 < self.imu_buffer[0].ts:
                 self.vo_buffer.pop(0)
 
     def prune_imu_buffer(self):
         i = 0
-        # find the index i of the element that has a larger timestamp than the oldest vo_result still in the buffer.
+        # Find the index i of the element that has a larger timestamp than the oldest vo_result still in the buffer.
         while i < len(self.imu_buffer) and self.imu_buffer[i].ts < self.vo_buffer[0].ts0:
             i += 1
-        # we assume that the imu_frames are sorted by timestamp: remove the first i-1 elements from the imu_buffer
+        # We assume that the imu_frames are sorted by timestamp: remove the first i-1 elements from the imu_buffer
         for _ in range(i-2):
             self.imu_buffer.pop(0)
 
@@ -127,19 +121,27 @@ class PositionModule(Module):
                 self.logger.info(f"Found frames with timestamps: i0 {self.imu_buffer[i0].ts} t0 {vo_result.ts0} ts1 "
                                  f"{vo_result.ts1} i1 {self.imu_buffer[i1].ts}")
 
-                frames: List[IMUFrame] = self.find_integration_frames(vo_result.ts0, vo_result.ts1, i0, i1)
-                imu_homography: Homography = self.integrate(frames)
-                # self.logger.info(f"IMU : {imu_homography.roll}, {imu_homography.pitch}, {imu_homography.yaw}")
+                frames = self.find_integration_frames(vo_result.ts0, vo_result.ts1, i0, i1)
+                imu_homography = self.integrate(frames)
 
-                homog: np.array = self.choose_nearest_homography(vo_result, imu_homography)
+                homog = self.choose_nearest_homography(vo_result, imu_homography)
                 prune_idxs.append(idx)
 
                 self.publish("homography", {"homography": homog, "point_pairs": vo_result.pairs,
                                             "timestamps": (vo_result.ts0, vo_result.ts1),
                                             "image": vo_result.image}, 100)
 
+                # publish to vis
+                self.publish("position_vis", {"x": self.attitude["x"],
+                                              "y": self.attitude["y"],
+                                              "z": self.attitude["z"],
+                                              "roll": self.attitude["roll"],
+                                              "pitch": self.attitude["pitch"],
+                                              "yaw": self.attitude["yaw"],
+                                              "timestamp": vo_result.ts0}, 1000)
+
         for offset, idx in enumerate(prune_idxs):
-            # we assume that the prune_idxs are sorted low to high
+            # We assume that the prune_idxs are sorted low to high
             self.vo_buffer.pop(idx - offset)
 
     def find_imu_integration_interval(self, ts0, ts1) -> List[Optional[int]]:
@@ -155,23 +157,15 @@ class PositionModule(Module):
                 break
         return neighbors
 
-    def integrate(self, frames: List[IMUFrame]) -> Homography:
+    def integrate(self, frames):
         pos = Homography()
 
         for i in range(1, len(frames)):
-            dt = (frames[i].ts - frames[i-1].ts) / 1000
-            dt2 = dt * dt
+            dt = (frames[i].ts - frames[i-1].ts)/1000.0
 
-            pos.x += self.velocity.x * dt + 0.5 * frames[i].ax * dt2
-            pos.y += self.velocity.y * dt + 0.5 * frames[i].ay * dt2
-            pos.z += self.velocity.z * dt + 0.5 * frames[i].az * dt2
-
-            self.velocity.x = (self.velocity.x + frames[i].ax * dt)
-            self.velocity.y = (self.velocity.y + frames[i].ay * dt)
-            self.velocity.z = (self.velocity.z + frames[i].az * dt)
-            self.velocity.dampen()
-
-            self.logger.debug(f"pos calculated {pos}")
+            pos.x += 0.5 * frames[i].ax*dt*dt
+            pos.y += 0.5 * frames[i].ay*dt*dt
+            pos.z += 0.5 * frames[i].az*dt*dt
 
         return pos
 
@@ -188,26 +182,27 @@ class PositionModule(Module):
         return integration_frames
 
     def choose_nearest_homography(self, vo_result: VOResult, imu_homog: Homography) -> np.array:
-        imu_homog_matrix = imu_homog.as_matrix()
         best_match = (None, np.inf, None)
         best_match2 = (None, np.inf, None)
 
+        imu_rot = Rotation.from_euler('zyx', [imu_homog.roll, imu_homog.pitch, imu_homog.yaw])
+        imu_t_vec = np.array([imu_homog.x, imu_homog.y, imu_homog.z])
+
         for homog in vo_result.homogs:
             k_t = 0.0
-            imu_rot = Rotation.from_matrix(imu_homog_matrix[0:3, 0:3])
-            imu_t_vec = imu_homog_matrix[0:3, 3]
 
             # Correction: Homography gives a result rotated from our camera coordinate frame
             vo_to_camera = np.array([[0, 0, -1], [1, 0, 0], [0, 1, 0]])
 
-            vo_rot = Rotation.from_euler('xyz', np.dot(vo_to_camera, Rotation.from_matrix(homog[0:3, 0:3]).as_euler('xyz')))
+            vo_rot = Rotation.from_euler('zyx', np.dot(vo_to_camera, Rotation.from_matrix(homog[0:3, 0:3]).as_euler('zyx')))
             vo_t_vec = np.dot(vo_to_camera, homog[0:3, 3])
+
             # Robot dynamic script p51
             delta_rot2: Rotation = imu_rot.inv() * vo_rot
             distance2 = delta_rot2.magnitude() + k_t * np.linalg.norm(imu_t_vec - vo_t_vec)
             vect_rot2 = delta_rot2.as_rotvec()
 
-            delta_rot = Rotation.from_matrix(np.dot(imu_homog_matrix[0:3, 0:3], np.transpose(homog[0:3, 0:3])))
+            delta_rot = Rotation.from_matrix(np.dot(imu_rot.as_matrix(), np.transpose(homog[0:3, 0:3])))
             vect_rot = delta_rot.as_rotvec()
             distance = np.linalg.norm(vect_rot)
 
@@ -223,18 +218,9 @@ class PositionModule(Module):
                 vect_rot_norm = np.linalg.norm(vect_rot)
                 vect_rot_direction = vect_rot / vect_rot_norm
                 self.logger.debug(f"new optimal solution: vect_rot_norm {vect_rot_norm}, vect_rot_direction "
-                                    f"{vect_rot_direction}, euler (°) {delta_rot.as_euler('xyz', degrees=True)}, distance {distance}")
+                                    f"{vect_rot_direction}, euler (°) {delta_rot.as_euler('zyx', degrees=True)}, distance {distance}")
 
         if best_match[1] > 0.5:
-            self.logger.critical(f"Distance too high, distance: {best_match[1]}, euler: {best_match[2].as_euler('xyz', degrees=True)}")
-
-        degrees = True
-        imu_angles = Rotation.from_matrix(imu_homog_matrix[..., :3]).as_euler('xyz', degrees=degrees)
-        vo_angles = Rotation.from_matrix(best_match[0][..., :3]).as_euler("xyz", degrees=degrees)
-        imu_xyz = str(imu_homog_matrix[..., 3:]).replace("\n", "")
-        vo_xyz = str(best_match[0][..., 3:]).replace("\n", "")
-        self.logger.debug(f"Prediction Offset:\n"
-                         f"IMU angles :{imu_angles}\nVO angles :{vo_angles}, degrees? {degrees}\n"
-                         f"IMU pos :{imu_xyz}\nVO pos  :{vo_xyz}")
+            self.logger.critical(f"Distance too high, distance: {best_match[1]}, euler: {best_match[2].as_euler('zyx', degrees=True)}")
 
         return best_match[0]
