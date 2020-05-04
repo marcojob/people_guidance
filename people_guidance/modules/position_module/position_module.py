@@ -53,6 +53,9 @@ class PositionModule(Module):
             # Predict relative pose
             self.predict_relative_pose()
 
+            # Slow down
+            time.sleep(0.1)
+
     def get_inputs(self):
         vo_payload: Dict = self.get("feature_tracking_module:feature_point_pairs")
         if vo_payload:
@@ -157,15 +160,22 @@ class PositionModule(Module):
                 break
         return neighbors
 
-    def integrate(self, frames):
+    def integrate(self, frames: List[IMUFrame]) -> Homography:
         pos = Homography()
-
         for i in range(1, len(frames)):
-            dt = (frames[i].ts - frames[i-1].ts)/1000.0
+            dt = (frames[i].ts - frames[i-1].ts) / 1000
+            dt2 = dt * dt
 
-            pos.x += 0.5 * frames[i].ax*dt*dt
-            pos.y += 0.5 * frames[i].ay*dt*dt
-            pos.z += 0.5 * frames[i].az*dt*dt
+            pos.x += self.velocity.x * dt + 0.5 * frames[i].ax * dt2
+            pos.y += self.velocity.y * dt + 0.5 * frames[i].ay * dt2
+            pos.z += self.velocity.z * dt + 0.5 * frames[i].az * dt2
+
+            self.velocity.x = (self.velocity.x + frames[i].ax * dt)
+            self.velocity.y = (self.velocity.y + frames[i].ay * dt)
+            self.velocity.z = (self.velocity.z + frames[i].az * dt)
+            self.velocity.dampen()
+
+            self.logger.debug(f"pos calculated {pos}")
 
         return pos
 

@@ -7,8 +7,6 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 from scipy.linalg import norm
 
-from .cam import CameraPygame
-
 from math import atan2, sqrt, cos, sin
 
 IMUFrame = collections.namedtuple("IMUFrame", ["ax", "ay", "az", "gx", "gy", "gz", "ts"])
@@ -22,6 +20,10 @@ G_ACCEL = 9.80600
 ALPHA_BAR = 0.4
 ERROR_T_LOW = 0.1
 ERROR_T_HIGH = 0.2
+
+PLOT_CAM = False
+if PLOT_CAM:
+    from .cam import CameraPygame
 
 
 def degree_to_rad(angle: float) -> float:
@@ -94,7 +96,8 @@ class ComplementaryFilter:
         self.pitch = 0.0
         self.yaw = 0.0
 
-        self.cam = CameraPygame()
+        if PLOT_CAM:
+            self.cam = CameraPygame()
 
         # Orientation of global frame with respect to local frame
         self.q_g_l = np.array([1.0, 0.0, 0.0, 0.0])
@@ -179,16 +182,15 @@ class ComplementaryFilter:
 
             self.roll = global_att[0]
             self.pitch = global_att[1]
-
-            # This performs best
-            self.yaw += frame.gz*dt_s
+            self.yaw = global_att[2]
 
             self.x = 0.0
             self.y = 0.0
             self.z = 0.0
 
-            # Pygames visualization
-            self.cam(self.q_g_l, name="q_update")
+            if PLOT_CAM:
+                # Pygames visualization
+                self.cam(self.q_g_l, name="q_update")
 
             return IMUFrame(  # Need to compute that
                 ax=frame.ax - local_gravity[0],

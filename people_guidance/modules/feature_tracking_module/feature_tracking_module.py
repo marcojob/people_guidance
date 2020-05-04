@@ -37,7 +37,7 @@ class FeatureTrackingModule(Module):
         self.use_SURF = 0
 
         # use essential matrix estimation
-        self.use_essential_matrix = 0
+        self.use_essential_matrix = 1
 
         self.detector_object = None
         self.matcher_object = None
