@@ -7,7 +7,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 from scipy.linalg import norm
 
-# from .cam import CameraPygame
+from .cam import CameraPygame
 
 from math import atan2, sqrt, cos, sin
 
@@ -97,7 +97,7 @@ class ComplementaryFilter:
         self.pitch = 0.0
         self.yaw = 0.0
 
-        # self.cam = CameraPygame()
+        self.cam = CameraPygame()
 
         # Orientation of global frame with respect to local frame
         self.q_g_l = np.array([1.0, 0.0, 0.0, 0.0])
@@ -178,12 +178,13 @@ class ComplementaryFilter:
             local_gravity = quaternion_apply(self.q_g_l, [0, 0, -1])[1:] * G_ACCEL
 
             global_att = quaternion_to_euler(self.q_g_l, False)
+
             self.roll = global_att[0]
             self.pitch = global_att[1]
             self.yaw = global_att[2]
 
             # Pygames visualization
-            #self.cam(self.q_g_l, name="q_update")
+            self.cam(self.q_g_l, name="q_update")
 
             return IMUFrame(  # Need to compute that
                 ax=frame.ax - local_gravity[0],

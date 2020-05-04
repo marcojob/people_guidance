@@ -74,7 +74,7 @@ class PositionModule(Module):
             ax=self.avg_filter("ax", -float(payload['data']['accel_z']), 1), # m/s ** 2
             ay=self.avg_filter("ay", float(payload['data']['accel_y']), 1),
             az=self.avg_filter("az", float(payload['data']['accel_x']), 1),
-            gx=self.avg_filter("gx", -degree_to_rad(float(payload['data']['gyro_z'])), 1), # °/s
+            gx=self.avg_filter("gx", degree_to_rad(float(payload['data']['gyro_z'])), 1), # °/s
             gy=self.avg_filter("gy", degree_to_rad(float(payload['data']['gyro_y'])), 1),
             gz=self.avg_filter("gz", degree_to_rad(float(payload['data']['gyro_x'])), 1),
             ts=payload['data']['timestamp']
