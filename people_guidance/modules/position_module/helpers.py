@@ -7,7 +7,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 from scipy.linalg import norm
 
-#from .cam import CameraPygame
+# from .cam import CameraPygame
 
 from math import atan2, sqrt, cos, sin
 
@@ -18,6 +18,9 @@ DEG_TO_RAD = pi / 180.0
 RAD_TO_DEG = 180.0 / pi
 LERP_THRESHOLD = 0.9
 G_ACCEL = 9.80600
+ALPHA_BAR = 0.4
+ERROR_T_LOW = 0.1
+ERROR_T_HIGH = 0.2
 
 
 def degree_to_rad(angle: float) -> float:
@@ -40,7 +43,7 @@ class MovingAverageFilter:
     def __init__(self):
         self.keys: Dict[str, List] = {}
 
-    def __call__(self, key: str, value: Union[int, float], window_size: int = 5):
+    def __call__(self, key: str, value: Union[int, float], window_size: int = 100):
         if key not in self.keys:
             self.keys[key] = [value]
         else:
@@ -85,13 +88,19 @@ class ComplementaryFilter:
         self.current_frame = None
         self.pose = Pose()
         self.alpha = alpha
-        #self.cam = CameraPygame()
+
+        self.x = 0.0
+        self.y = 0.0
+        self.z = 0.0
+
         self.roll = 0.0
         self.pitch = 0.0
         self.yaw = 0.0
 
+        # self.cam = CameraPygame()
+
         # Orientation of global frame with respect to local frame
-        self.q_g_l = np.array([0.0, 1.0, 0.0, 0.0])
+        self.q_g_l = np.array([1.0, 0.0, 0.0, 0.0])
 
     def __call__(self, frame: IMUFrame) -> IMUFrame:
         if self.last_frame is None:
@@ -110,8 +119,8 @@ class ComplementaryFilter:
             self.current_frame = frame
             dt_s = (self.last_frame.ts - self.current_frame.ts)/1000.0
 
-            # Normalized accelerations
-            a_l = -1.0*np.array([frame.ax, frame.ay, frame.az])
+            # Normalized accelerations, - frame.az is needed so that roll is not at 180 degrees
+            a_l = 1.0*np.array([frame.ax, frame.ay, -frame.az])
             a_l /= np.linalg.norm(a_l)
 
             # PREDICTION
@@ -119,7 +128,7 @@ class ComplementaryFilter:
             w_q_l /= np.linalg.norm(w_q_l)
 
             # Gyro based attitude velocity of global frame with respect to local frame
-            q_w_dot_g_l = quaternion_multiply_alt(-0.5*w_q_l, self.q_g_l)
+            q_w_dot_g_l = quaternion_multiply(-0.5*w_q_l, self.q_g_l)
 
             # Gyro based attitude
             q_w_g_l = self.q_g_l + q_w_dot_g_l * dt_s
@@ -156,10 +165,15 @@ class ComplementaryFilter:
             delta_q_acc_hat /= delta_q_acc_hat_norm
 
             # UPDATE
-            self.q_g_l = quaternion_multiply_alt(q_w_g_l, delta_q_acc_hat)
+            self.q_g_l = quaternion_multiply(q_w_g_l, delta_q_acc_hat)
 
-            # Pygames visualization
-            #self.cam(self.q_g_l, name="q_update")
+            error = abs(np.linalg.norm(np.array([frame.ax, frame.ay, frame.az])) - G_ACCEL) / G_ACCEL
+            if error < ERROR_T_LOW:
+                self.alpha = ALPHA_BAR*1.0
+            elif error < ERROR_T_HIGH:
+                self.alpha = ALPHA_BAR*error/(ERROR_T_HIGH - ERROR_T_LOW)
+            else:
+                self.alpha = 0.0
 
             local_gravity = quaternion_apply(self.q_g_l, [0, 0, -1])[1:] * G_ACCEL
 
@@ -167,6 +181,9 @@ class ComplementaryFilter:
             self.roll = global_att[0]
             self.pitch = global_att[1]
             self.yaw = global_att[2]
+
+            # Pygames visualization
+            #self.cam(self.q_g_l, name="q_update")
 
             return IMUFrame(  # Need to compute that
                 ax=frame.ax - local_gravity[0],
@@ -178,8 +195,8 @@ class ComplementaryFilter:
                 ts=frame.ts
             )
 
-# Marco: Quaternion multiply according to Valenti, 2015
-def quaternion_multiply_alt(p, q):
+# Quaternion multiply according to Valenti, 2015
+def quaternion_multiply(p, q):
     p0, p1, p2, p3 = p
     q0, q1, q2, q3 = q
     output = np.array([p0*q0 - p1*q1 - p2*q2 - p3*q3,
@@ -196,17 +213,6 @@ def quaternion_R(q):
                   [2.0*(q1*q2 + q0*q3), q0**2 - q1**2 + q2**2 - q3**2, 2.0*(q2*q3 - q0*q1)],
                   [2.0*(q1*q3 - q0*q2), 2.0*(q2*q3 + q0*q1), q0**2 - q1**2 - q2**2 + q3**2]])
     return R
-
-
-# Quaternion kinematics for the error-state Kalman Filter, Joan Sola, November 8, 2017
-def quaternion_multiply(quaternion1, quaternion2):
-    w0, x0, y0, z0 = quaternion2 / norm(quaternion2)
-    w1, x1, y1, z1 = quaternion1 / norm(quaternion1)
-    output = np.array([-x1 * x0 - y1 * y0 - z1 * z0 + w1 * w0,
-                     x1 * w0 + y1 * z0 - z1 * y0 + w1 * x0,
-                     -x1 * z0 + y1 * w0 + z1 * x0 + w1 * y0,
-                     x1 * y0 - y1 * x0 + z1 * w0 + w1 * z0], dtype=np.float64)
-    return output / norm(output)
 
 
 def quaternion_apply(quaternion : List, vector : List):
