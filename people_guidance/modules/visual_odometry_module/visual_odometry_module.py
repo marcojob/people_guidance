@@ -213,14 +213,13 @@ class VisualOdometry:
         # Get scale
         self.scale = self.get_relative_scale()
 
-        if (t[2] > t[0] and t[2] > t[1]):  # Accepts only dominant forward motion
-            # Continue tracking of movement
-            self.cur_t = self.cur_t + self.scale * self.cur_r.dot(t)  # Concatenate the translation vectors
-            self.cur_r = r.dot(self.cur_r)  # Concatenate the rotation matrix
+        # Continue tracking of movement
+        self.cur_t = self.cur_t + self.scale * self.cur_r.dot(t)  # Concatenate the translation vectors
+        self.cur_r = r.dot(self.cur_r)  # Concatenate the rotation matrix
 
-            # Append vectors
-            self.t_vects.append(self.cur_t)
-            self.r_mats.append(self.cur_r)
+        # Append vectors
+        self.t_vects.append(self.cur_t)
+        self.r_mats.append(self.cur_r)
 
         # If we don't have enough features, detect new ones
         if self.prev_fts.shape[0] < MIN_NUM_FEATURES:
@@ -310,8 +309,10 @@ class VisualOdometry:
         """ Skip a frame if the difference is smaller than a certain value.
             Small difference means the frame almost did not change.
         """
-        DIFF_THRESHOLD = 0.1
-        return diff < DIFF_THRESHOLD
+        if diff == 0.0:
+            return False
+        else:
+            return diff < DIFF_THRESHOLD
 
     def get_relative_scale(self):
         """ Returns the relative scale based on point cloud.
