@@ -4,7 +4,7 @@ from ..module import Module
 from .beeper import Beeper
 
 
-class PositionModule(Module):
+class UIModule(Module):
     def __init__(self, log_dir: pathlib.Path, args=None):
         super().__init__(name="ui_module",
                          inputs=["reprojection_module:collision_prob",
@@ -19,4 +19,5 @@ class PositionModule(Module):
             while True:
                 proba_payload = self.get("reprojection_module:collision_prob")
                 if proba_payload:
-                    print(proba_payload)
+                    self.logger.critical(proba_payload)
+

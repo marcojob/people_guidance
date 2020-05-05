@@ -21,7 +21,8 @@ class ReprojectionModule(Module):
         super(ReprojectionModule, self).__init__(name="reprojection_module",
                                                  inputs=["position_module:homography"],
                                                  outputs=[("points3d", 10),
-                                                          ("collision_prob", 100)],
+                                                          ("collision_prob", 100),
+                                                          ("uncertainty", 100)],
                                                  log_dir=log_dir)
 
         self.point_buffer: List[np.array] = []
@@ -62,8 +63,7 @@ class ReprojectionModule(Module):
                 plt.scatter(points3d[..., 1], points3d[..., 0])
                 plt.pause(0.001)
 
-                cv2.imshow("visu", image)
-                cv2.waitKey(1)
+                
 
                 if cv2.waitKey(0) == ord('a'):
                     pass
@@ -100,6 +100,10 @@ class ReprojectionModule(Module):
                 self.publish("uncertainty", uncertainty, 100)
                 plt.scatter(timestamps[0], criticality_smooth, c="r")
                 plt.scatter(timestamps[0], uncertainty, c="g")
+
+                cv2.imshow("visu", image)
+                cv2.waitKey(1)
+
                 plt.pause(0.001)
 
                 self.logger.info(f"Reconstructed points \n{criticality.shape}")

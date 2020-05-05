@@ -10,7 +10,7 @@ from people_guidance.modules.position_estimation_module import PositionEstimatio
 from people_guidance.modules.visualization_module import VisualizationModule
 from people_guidance.modules.reprojection_module import ReprojectionModule
 from people_guidance.modules.position_module import PositionModule
-
+from people_guidance.modules.ui_module import UIModule
 
 
 if __name__ == '__main__':
@@ -55,6 +55,8 @@ if __name__ == '__main__':
 
         # Handles reprojection
         pipeline.add_module(ReprojectionModule, log_level=logging.WARNING)
+
+        pipeline.add_module(UIModule, log_level=logging.WARNING)
 
         # If argument is specified we start visualization
         if args.visualize:

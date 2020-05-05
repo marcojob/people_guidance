@@ -81,7 +81,7 @@ class ComplementaryFilter:
         self.last_frame = None
         self.pose = Pose()
         self.alpha = alpha
-        self.cam = CameraPygame()
+        # self.cam = CameraPygame()
         self.q_state = [1, 0, 0, 0]  # Local camera frame in inertial frame init
 
     def __call__(self, frame: IMUFrame) -> IMUFrame:
@@ -185,7 +185,7 @@ class ComplementaryFilter:
             # print(f"q_update: {q_gyro}")
 
             # Pygames visualization
-            self.cam(q_acc, name="q_update")
+            # self.cam(q_acc, name="q_update")
             # print(f"Acceleration: {[frame.ax, frame.ay, frame.az]}"
             #       f"first q: \n{q}, second: \n{q_second}, difference of rot: \n"
             #       f"first : \n{r_to_acc_vector.as_matrix()}, first inv \n{r_to_acc_vector.inv().as_matrix()}, "
