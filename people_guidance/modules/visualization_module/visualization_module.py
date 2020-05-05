@@ -36,8 +36,8 @@ preview_p = None
 class VisualizationModule(Module):
     def __init__(self, log_dir: pathlib.Path, args=None):
         super(VisualizationModule, self).__init__(name="visualization_module", outputs=[],
-                                                  inputs=["feature_tracking_module:feature_point_pairs_vis",
-                                                          "reprojection_module:points3d"],
+                                                  inputs=["visual_odometry_module:position_vis",
+                                                          "visual_odometry_module:features_vis",],
                                                   log_dir=log_dir)
         self.args = args
 
@@ -81,12 +81,12 @@ class VisualizationModule(Module):
             sleep(1.0/PREVIEW_PLOT_HZ)
             # POS DATA HANDLING
             if pos_last_ms is None:
-                pos_vis = dict() # self.get("position_estimation_module:position_vis")
+                pos_vis = self.get("visual_odometry_module:position_vis")
 
                 pos_last_ms = pos_vis.get("timestamp", None)
                 vis_pos_last_ms = self.get_time_ms()
             else:
-                pos_vis = self.get("position_estimation_module:position_vis")
+                pos_vis = self.get("visual_odometry_module:position_vis")
                 if pos_vis and self.get_time_ms() - vis_pos_last_ms > 1000/POS_PLOT_HZ and pos_vis["timestamp"] - pos_last_ms > 1000/POS_PLOT_HZ:
                     pos_last_ms = pos_vis["timestamp"]
                     vis_pos_last_ms = self.get_time_ms()
@@ -107,8 +107,7 @@ class VisualizationModule(Module):
                     except Exception as e:
                         self.logger.debug(f"{e}")
 
-
-            features = self.get("feature_tracking_module:feature_point_pairs_vis")
+            features = self.get("visual_odometry_module:features_vis")
             if features:
                 matches = features["data"]["point_pairs"]
                 preview = features["data"]["img"]
@@ -125,7 +124,7 @@ class VisualizationModule(Module):
                     self.logger.warning(f"{e}")
 
 
-            points_3d = self.get("reprojection_module:points3d")
+            points_3d = dict()#self.get("reprojection_module:points3d")
             rot_coord = R.from_matrix([[0, 0, 1], [-1, 0, 0], [0, -1, 0]])
             if points_3d:
                 self.data_dict["3d_pos_x"] = list()
@@ -157,12 +156,12 @@ class VisualizationModule(Module):
 
         r = R.from_rotvec(np.array([0, 0, angle_z])).as_matrix()
         sc_xy = 1
-        sc_z = 0.5
+        sc_z = 0.05
 
         if scatter_p == None:
             ax_list["pos"].set_title("pos")
-            ax_list["pos"].set_xlim((-2, 2))
-            ax_list["pos"].set_ylim((-2, 2))
+            ax_list["pos"].set_xlim((-20, 20))
+            ax_list["pos"].set_ylim((-20, 20))
             ax_list["pos"].set_zlim((-0, 2))
 
             scatter_p = ax_list["pos"].scatter(
@@ -219,13 +218,12 @@ class VisualizationModule(Module):
             ax_list["pos"].figure.canvas.draw_idle()
 
     def draw_matches(self, img, matches):
-        RADIUS = 15
+        RADIUS = 5
         THICKNESS = 3
         if matches is not None:
-            shape = matches.shape
-            for m in range(shape[2]):
-                end_point = (matches[0][0][m], matches[0][1][m])
-                start_point = (matches[1][0][m], matches[1][1][m])
+            for m in matches:
+                end_point = (m[0][0], m[0][1])
+                start_point = (m[1][0], m[1][1])
                 img = cv2.circle(img, start_point, RADIUS,
                                  (255, 0, 0), THICKNESS)
                 img = cv2.circle(img, end_point, RADIUS,

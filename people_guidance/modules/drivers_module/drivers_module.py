@@ -23,7 +23,7 @@ if RPI:
 class DriversModule(Module):
     def __init__(self, log_dir: Path, args=None):
         super(DriversModule, self).__init__(name="drivers_module",
-                                            outputs=[("images", 10),
+                                            outputs=[("images", 1000),
                                                      ("accelerations", 100), ("accelerations_vis", 100)],
                                             inputs=[], log_dir=log_dir)
         self.args = args
@@ -192,9 +192,8 @@ class DriversModule(Module):
                             self.img_data_file = fp.read()
 
                 # If the relative time is correct, we publish the data
-
                 if self.img_timestamp and self.get_time_ms() - self.replay_start_timestamp > self.img_timestamp - self.img_first_timestamp:
-                    self.publish("images", {"data": self.img_data_file, "timestamp": self.img_timestamp}, IMAGES_VALIDITY_MS)
+                    self.publish("images", {"data": self.img_data_file, "timestamp": self.img_timestamp}, -1)
 
                     # Reset the timestamp so that a new dataset is read
                     self.img_timestamp = None

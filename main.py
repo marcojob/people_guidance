@@ -5,12 +5,8 @@ from people_guidance.pipeline import Pipeline
 from people_guidance.utils import init_logging
 
 from people_guidance.modules.drivers_module import DriversModule
-from people_guidance.modules.feature_tracking_module import FeatureTrackingModule
-from people_guidance.modules.position_estimation_module import PositionEstimationModule
+from people_guidance.modules.visual_odometry_module import VisualOdometryModule
 from people_guidance.modules.visualization_module import VisualizationModule
-from people_guidance.modules.reprojection_module import ReprojectionModule
-from people_guidance.modules.position_module import PositionModule
-
 
 
 if __name__ == '__main__':
@@ -41,20 +37,14 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    pipeline = Pipeline(args, log_level=logging.INFO)
+    pipeline = Pipeline(args, log_level=logging.WARNING)
 
     # Handles hardware drivers and interfaces
     pipeline.add_module(DriversModule, log_level=logging.WARNING)
 
     if not args.record:
-        # Handles IMU data to compute a position estimation
-        pipeline.add_module(PositionModule, log_level=logging.WARNING)
-
-        # Handles feature tracking
-        pipeline.add_module(FeatureTrackingModule, log_level=logging.WARNING)
-
-        # Handles reprojection
-        pipeline.add_module(ReprojectionModule, log_level=logging.WARNING)
+        # Handles visual odometry
+        pipeline.add_module(VisualOdometryModule, log_level=logging.DEBUG)
 
         # If argument is specified we start visualization
         if args.visualize:

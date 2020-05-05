@@ -79,8 +79,16 @@ class Module:
         # If the queue is empty we return an empty dict, error handling should be done after
 
         def is_valid(msg_body_item: Dict):
-            return msg_body_item is not None and msg_body_item['timestamp'] + \
+            valid = msg_body_item is not None and msg_body_item['timestamp'] + \
                    msg_body_item['validity'] > self.get_time_ms()
+
+            if valid:
+                return True
+
+            if not valid and msg_body_item['validity'] == -1:
+                return True
+            else:
+                return False
 
         try:
             msg_body = None
