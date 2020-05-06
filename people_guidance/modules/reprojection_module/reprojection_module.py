@@ -57,13 +57,15 @@ class ReprojectionModule(Module):
                 for i in range(point_pairs.shape[0]):
                     image = cv2.line(image, tuple(point_pairs[1, :, i]), tuple(points2d[i, 0, :]), orange, 5)
 
-                """
+
                 fig = plt.gcf()
                 fig.clear()
+                plt.xlim(-3, 3)
+                plt.ylim(-3, 3)
                 plt.scatter(points3d[..., 1], points3d[..., 0])
                 plt.pause(0.001)
 
-                
+                """
 
                 if cv2.waitKey(0) == ord('a'):
                     pass
@@ -88,25 +90,27 @@ class ReprojectionModule(Module):
                 
                 #  how far away are the points from the user?
                 distances = np.linalg.norm(point_vectors, axis=1, keepdims=False)
-                distances.sort()
 
                 #  how close are the points to the trajectory of the user?
                 alignment = np.dot(normalize(point_vectors), normalize(user_trajectory))
                 # weigh the distance and alignment to obtain an estimate of how likely a collision is.
                 uncertainty = 1 / points3d.shape[0]
-                criticality = (1 / distances) #* abs(alignment)
+
+                criticality = np.arctan(1 / distances) * (2.0 / np.pi)
                 criticality_smooth = 0.8 * criticality_smooth + 0.2 * criticality.mean()
-                self.publish("collision_prob", criticality_smooth, 100)
-                self.publish("uncertainty", uncertainty, 100)
+
+                """
                 plt.scatter(timestamps[0], criticality_smooth, c="r")
                 plt.scatter(timestamps[0], uncertainty, c="g")
+                plt.pause(0.001)
+                """
 
-                cv2.imshow("visu", image)
+                self.publish("collision_prob", float(criticality_smooth), 100)
+                self.publish("uncertainty", uncertainty, 100)
+
+                cv2.imshow("awasd", image)
                 cv2.waitKey(1)
 
-                plt.pause(0.001)
-
-                self.logger.info(f"Reconstructed points \n{criticality.shape}")
 
 
     def create_projection_matrices(self, homography) -> Tuple[np.array, np.array]:

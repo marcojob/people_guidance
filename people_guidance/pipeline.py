@@ -115,10 +115,10 @@ class Pipeline:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.logger.warning("Terminating all children...")
         for proc in self.processes:
-            proc.join(timeout=2)
+            proc.join(timeout=1)
             if proc.is_alive():
                 self.logger.critical("Child did not exit fast enough and will be terminated.")
-                proc.kill()
+                proc.terminate()
 
 
 
