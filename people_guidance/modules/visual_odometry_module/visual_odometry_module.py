@@ -17,7 +17,8 @@ class VisualOdometryModule(Module):
     def __init__(self, log_dir: pathlib.Path, args=None):
         super(VisualOdometryModule, self).__init__(name="visual_odometry_module",
                                                    outputs=[("position_vis", 100),
-                                                            ("features_vis", 10)],
+                                                            ("features_vis", 10),
+                                                            ("cloud", 10)],
                                                    inputs=["drivers_module:images",
                                                            "drivers_module:accelerations"],
                                                    log_dir=log_dir)
@@ -29,6 +30,9 @@ class VisualOdometryModule(Module):
 
         img_id = 0
         traj = np.zeros((600, 600, 3), dtype=np.uint8)
+
+        last_timestamp = 0
+        timestamp = 0
 
         while True:
             # Process all the imu data, this loop usally takes max 2ms
@@ -57,6 +61,7 @@ class VisualOdometryModule(Module):
                 clahe = cv2.createCLAHE(clipLimit=5.0)
                 img = clahe.apply(img)
 
+                last_timestamp = timestamp
                 timestamp = img_dict["data"]["timestamp"]
 
                 # Update VO based on image
@@ -67,9 +72,9 @@ class VisualOdometryModule(Module):
                 if vo.stage == STAGE_DEFAULT:
                     euler = Rotation.from_matrix(vo.cur_r).as_euler('zyx', degrees=True)
                     data_dict = {
-                        "x": vo.cur_t[2][0],
-                        "y": vo.cur_t[0][0],
-                        "z": vo.cur_t[1][0],
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": 0.0,
                         "roll": 0.0,
                         "pitch": 0.0,
                         "yaw": 0.0,
@@ -84,10 +89,17 @@ class VisualOdometryModule(Module):
                     self.publish("features_vis",
                                 {"point_pairs": point_pairs,
                                  "img": img_encoded,
+                                 "cloud": vo.new_cloud,
                                  "timestamp": timestamp}, 1000)
 
                     x, y, z = vo.cur_t[0], vo.cur_t[1], vo.cur_t[2]
-                    traj = RT_trajectory_window(traj, x, y, z, img_id)  # Draw the trajectory window
+                    # traj = RT_trajectory_window(traj, x, y, z, img_id)  # Draw the trajectory window
+
+                    # Publish to reprojection_module
+                    self.publish("cloud",
+                                {"cloud": vo.new_cloud,
+                                 "homography": vo.homography,
+                                 "timestamps": (last_timestamp, timestamp)}, 1000)
 
 
 class VisualOdometry:
@@ -146,6 +158,8 @@ class VisualOdometry:
         self.ay_prev = 0.0
         self.az_prev = 0.0
 
+        self.homography = np.zeros((3,4))
+
     def update(self, img, frame_id, timestamp):
         self.new_frame = img
         self.new_timestamp = timestamp
@@ -198,6 +212,9 @@ class VisualOdometry:
         # Triangulate points
         self.new_cloud = self.triangulatePoints(self.cur_r, self.cur_t)
 
+        # Create homography
+        self.homography = np.concatenate((self.cur_r, self.cur_t), axis=1)
+
         # Optical flow field vars
         self.OFF_prev = self.prev_fts
         self.OFF_cur = self.cur_fts
@@ -244,9 +261,6 @@ class VisualOdometry:
         # Recover pose, meaning rotation and translation
         _, r, t, mask = cv2.recoverPose(E, self.cur_fts, self.prev_fts, self.intrinsic_matrix)
 
-        # Triangulate points
-        self.new_cloud = self.triangulatePoints(self.cur_r, self.cur_t)
-
         # Get scale
         if USE_RELATIVE_SCALE:
             self.scale = self.get_relative_scale()
@@ -256,6 +270,12 @@ class VisualOdometry:
         # Continue tracking of movement
         self.cur_t = self.cur_t + self.scale * self.cur_r.dot(t)  # Concatenate the translation vectors
         self.cur_r = r.dot(self.cur_r)  # Concatenate the rotation matrix
+
+        # Triangulate points
+        self.new_cloud = self.triangulatePoints(self.cur_r, self.cur_t)
+
+        # Create homography
+        self.homography = np.concatenate((self.cur_r, self.cur_t), axis=1)
 
         # Append vectors
         self.t_vects.append(self.cur_t)
@@ -338,7 +358,9 @@ class VisualOdometry:
         point1 = self.prev_fts.reshape(2, -1)
         point2 = self.cur_fts.reshape(2, -1)
 
-        return cv2.triangulatePoints(P0, P1, point1, point2).reshape(-1, 4)[:, :3]
+        cloud_homo = cv2.triangulatePoints(P0, P1, point1, point2)
+        cloud = cv2.convertPointsFromHomogeneous(cloud_homo.T).reshape(-1, 3)
+        return cloud
 
     def skip_frame(self, diff):
         """ Skip a frame if the difference is smaller than a certain value.
@@ -388,7 +410,6 @@ class VisualOdometry:
         # Scale
         scale = np.sqrt((self.ax_cur - self.ax_prev)**2 + (self.ay_cur - self.ay_prev)**2 + (self.az_cur - self.az_prev)**2)
 
-        print(scale)
         return scale
 
 class ComplementaryFilter:

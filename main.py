@@ -7,6 +7,7 @@ from people_guidance.utils import init_logging
 from people_guidance.modules.drivers_module import DriversModule
 from people_guidance.modules.visual_odometry_module import VisualOdometryModule
 from people_guidance.modules.visualization_module import VisualizationModule
+from people_guidance.modules.reprojection_module import ReprojectionModule
 
 
 if __name__ == '__main__':
@@ -45,6 +46,9 @@ if __name__ == '__main__':
     if not args.record:
         # Handles visual odometry
         pipeline.add_module(VisualOdometryModule, log_level=logging.DEBUG)
+
+        # Reprojection module
+        pipeline.add_module(ReprojectionModule, log_level=logging.DEBUG)
 
         # If argument is specified we start visualization
         if args.visualize:
