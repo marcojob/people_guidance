@@ -7,7 +7,7 @@ import time
 
 from typing import Optional, Any, Dict, List, Tuple, Callable, Union
 
-from ..utils import get_logger, INTRINSIC_MATRIX
+from ..utils import get_logger, INTRINSIC_MATRIX, DISTORTION_COEFFS
 
 
 class ModuleService:

@@ -58,6 +58,10 @@ class VisualOdometryModule(Module):
                 img_encoded = img_dict["data"]["data"]
                 img = cv2.imdecode(np.frombuffer(img_encoded, dtype=np.int8), flags=cv2.IMREAD_GRAYSCALE)
 
+                # Undistort image
+                img = cv2.undistort(img, self.intrinsic_matrix, self.distortion_coeffs)
+
+                # Apply CLAHE filter
                 clahe = cv2.createCLAHE(clipLimit=5.0)
                 img = clahe.apply(img)
 
