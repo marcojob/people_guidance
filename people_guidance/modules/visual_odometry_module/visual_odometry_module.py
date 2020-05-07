@@ -10,12 +10,6 @@ from people_guidance.utils import project_path
 
 from .utils import *
 
-# CONSTANT VARIABLES
-STAGE_FIRST_FRAME = 0  # The three STAGE variables
-STAGE_SECOND_FRAME = 1  # define which function will be
-STAGE_DEFAULT_FRAME = 2  # used in the update function.
-kMinNumFeature = 1000  # Minimum amount of features needed, if less feature detection is used
-fMATCHING_DIFF = 1  # Minimum difference in the KLT point correspondence
 
 class VisualOdometryModule(Module):
 
@@ -87,9 +81,10 @@ class VisualOdometry:
         self.intrinsic_matrix = intrinsic_matrix
 
 
-        avail_detectors = {'FAST': cv2.FastFeatureDetector_create(threshold=25, nonmaxSuppression=True),
-                       'SIFT': cv2.xfeatures2d.SIFT_create(),
-                       'SURF': cv2.xfeatures2d.SURF_create(),
+        avail_detectors = {
+                       'FAST': cv2.FastFeatureDetector_create(threshold=25, nonmaxSuppression=True),
+                       'SIFT': cv2.xfeatures2d.SIFT_create(MAX_NUM_FEATURES),
+                       'SURF': cv2.xfeatures2d.SURF_create(MAX_NUM_FEATURES),
                        'SHI-TOMASI': 'SHI-TOMASI'}
         self.detector = avail_detectors[detector]
 
@@ -108,14 +103,17 @@ class VisualOdometry:
 
         # Point clouds
         self.new_cloud = np.array([])
-        self.old_cloud = np.array([])
+        self.last_cloud = np.array([])
 
         # Scale
-        self.scale = 1.0
+        self.scale = 0.0
 
         # Optical Flow Field
         self.OFF_cur = None
         self.OFF_prev = None
+
+        # Frame skip flag
+        self.do_frame_skip = False
 
     def update(self, img, frame_id):
         self.new_frame = img
@@ -190,7 +188,8 @@ class VisualOdometry:
         self.prev_fts, self.cur_fts, diff = self.KLT_featureTracking(prev_img, cur_img, self.prev_fts)
 
         # If the difference between images is small, then we can skip it
-        if self.skip_frame(diff):
+        self.do_frame_skip = self.skip_frame(diff)
+        if self.do_frame_skip:
             self.logger.debug(f"Skipping frame with diff: {diff}")
             # If we decide to skip the feature, we try to detect more features to make it more robust
             if self.prev_fts.shape[0] < MIN_NUM_FEATURES:
@@ -213,17 +212,18 @@ class VisualOdometry:
         # Get scale
         self.scale = self.get_relative_scale()
 
-        # Continue tracking of movement
-        self.cur_t = self.cur_t + self.scale * self.cur_r.dot(t)  # Concatenate the translation vectors
-        self.cur_r = r.dot(self.cur_r)  # Concatenate the rotation matrix
-
-        # Append vectors
-        self.t_vects.append(self.cur_t)
-        self.r_mats.append(self.cur_r)
-
         # If we don't have enough features, detect new ones
         if self.prev_fts.shape[0] < MIN_NUM_FEATURES:
             self.cur_fts = self.detect_new_features(cur_img)
+
+        else:
+            # Continue tracking of movement
+            self.cur_t = self.cur_t + self.scale * self.cur_r.dot(t)  # Concatenate the translation vectors
+            self.cur_r = r.dot(self.cur_r)  # Concatenate the rotation matrix
+
+            # Append vectors
+            self.t_vects.append(self.cur_t)
+            self.r_mats.append(self.cur_r)
 
         # Optical flow field vars
         self.OFF_prev = self.prev_fts

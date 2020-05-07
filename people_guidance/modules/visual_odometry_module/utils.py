@@ -8,7 +8,7 @@ General helper definition
 
 # VisualOdemetry class helpers
 
-DETECTOR = 'SURF' # Can be either FAST, SIFT, SURF, SHI-TOMASI
+DETECTOR = 'SIFT' # Can be either FAST, SIFT, SURF, SHI-TOMASI
 
 STAGE_FIRST = 0 # First stage: first image
 STAGE_SECOND = 1 # Second stage: second image found
@@ -16,9 +16,13 @@ STAGE_DEFAULT = 2 # Third stage: pipeline full
 
 # Parameters used for cv2.calcOpticalFlowPyrLK (KLT tracker)
 lk_params = dict(winSize=(21, 21), maxLevel=3, criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01))
+
+# Params for Shi-Tomasi
+feature_params = dict(maxCorners=500, qualityLevel=0.3, minDistance=7, blockSize=7)
 MIN_MATCHING_DIFF = 1  # Minimum difference in the KLT point correspondence
-MIN_NUM_FEATURES = 500 # If features fall below this threshold we detect new ones
-DIFF_THRESHOLD = 0.1
+MIN_NUM_FEATURES = 100 # If features fall below this threshold we detect new ones
+MAX_NUM_FEATURES = 5000 # Maximum number of features
+DIFF_THRESHOLD = 0.5
 
 def drawOpticalFlowField(img, ref_pts, cur_pts):
     """ Shows a window which shows the optical flow of detected features. """
