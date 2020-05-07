@@ -185,6 +185,11 @@ class VisualOdometry:
         prev_img = self.last_frame
         cur_img = self.new_frame
 
+        # If we don't have enough features, detect new ones
+        if self.prev_fts.shape[0] < MIN_NUM_FEATURES:
+            self.cur_fts = self.detect_new_features(cur_img)
+            self.prev_fts = self.detect_new_features(prev_img)
+
         self.prev_fts, self.cur_fts, diff = self.KLT_featureTracking(prev_img, cur_img, self.prev_fts)
 
         # If the difference between images is small, then we can skip it
@@ -212,18 +217,13 @@ class VisualOdometry:
         # Get scale
         self.scale = self.get_relative_scale()
 
-        # If we don't have enough features, detect new ones
-        if self.prev_fts.shape[0] < MIN_NUM_FEATURES:
-            self.cur_fts = self.detect_new_features(cur_img)
+        # Continue tracking of movement
+        self.cur_t = self.cur_t + self.scale * self.cur_r.dot(t)  # Concatenate the translation vectors
+        self.cur_r = r.dot(self.cur_r)  # Concatenate the rotation matrix
 
-        else:
-            # Continue tracking of movement
-            self.cur_t = self.cur_t + self.scale * self.cur_r.dot(t)  # Concatenate the translation vectors
-            self.cur_r = r.dot(self.cur_r)  # Concatenate the rotation matrix
-
-            # Append vectors
-            self.t_vects.append(self.cur_t)
-            self.r_mats.append(self.cur_r)
+        # Append vectors
+        self.t_vects.append(self.cur_t)
+        self.r_mats.append(self.cur_r)
 
         # Optical flow field vars
         self.OFF_prev = self.prev_fts
@@ -256,8 +256,7 @@ class VisualOdometry:
         kp1, status, error = cv2.calcOpticalFlowPyrLK(cur_img, prev_img, kp2, None, **lk_params)
 
         d = abs(prev_fts - kp1).reshape(-1, 2).max(-1)  # Verify the absolute difference between feature points
-        good = d < MIN_MATCHING_DIFF  # Verify which features produced good results by the difference being less
-                                   # than the fMATCHING_DIFF threshold.
+        good = d < MIN_MATCHING_DIFF
 
         # Error Management
         if len(d) == 0:
