@@ -1,4 +1,5 @@
 import cv2
+import math
 import numpy as np
 import pathlib
 
@@ -22,31 +23,45 @@ class VisualOdometryModule(Module):
                                                    log_dir=log_dir)
 
     def start(self):
+        cf = ComplementaryFilter()
+
+        vo = VisualOdometry(cf, self.logger, self.intrinsic_matrix)
+
         img_id = 0
-
-        vo = VisualOdometry(self.logger, self.intrinsic_matrix)
-        #vo = VisualOdometry(self.intrinsic_matrix, 'SIFT', None)
-        ts_prev = 0
-        ts_cur = 0
-
         traj = np.zeros((600, 600, 3), dtype=np.uint8)
 
         while True:
+            # Process all the imu data, this loop usally takes max 2ms
+            while True:
+                imu_dict = self.get("drivers_module:accelerations")
+                if imu_dict:
+                    imu_data = imu_dict["data"]
+                    frame = {"ax": imu_data["accel_x"],
+                             "ay": imu_data["accel_y"],
+                             "az": imu_data["accel_z"],
+                             "gx": imu_data["accel_x"],
+                             "gy": imu_data["gyro_x"],
+                             "gz": imu_data["gyro_x"],
+                             "ts": imu_data["timestamp"]}
+
+                    cf.update(frame)
+                else:
+                    break
+
             img_dict = self.get("drivers_module:images")
-            if not img_dict:
-                self.logger.info("queue was empty")
-                sleep(0.001)
-            else:
+            if img_dict:
                 # Convert img to grayscale
                 img_encoded = img_dict["data"]["data"]
                 img = cv2.imdecode(np.frombuffer(img_encoded, dtype=np.int8), flags=cv2.IMREAD_GRAYSCALE)
+
                 clahe = cv2.createCLAHE(clipLimit=5.0)
                 img = clahe.apply(img)
 
+                timestamp = img_dict["data"]["timestamp"]
+
                 # Update VO based on image
-                vo.update(img, img_id)
+                vo.update(img, img_id, timestamp)
                 img_id += 1
-                ts = 0
 
                 # Publish to visualization
                 if vo.stage == STAGE_DEFAULT:
@@ -58,7 +73,7 @@ class VisualOdometryModule(Module):
                         "roll": 0.0,
                         "pitch": 0.0,
                         "yaw": 0.0,
-                        "timestamp": ts
+                        "timestamp": timestamp
                     }
                     self.publish("position_vis", data_dict, 1000)
 
@@ -69,13 +84,17 @@ class VisualOdometryModule(Module):
                     self.publish("features_vis",
                                 {"point_pairs": point_pairs,
                                  "img": img_encoded,
-                                 "timestamp": ts}, 1000)
+                                 "timestamp": timestamp}, 1000)
 
                     x, y, z = vo.cur_t[0], vo.cur_t[1], vo.cur_t[2]
                     traj = RT_trajectory_window(traj, x, y, z, img_id)  # Draw the trajectory window
 
+
 class VisualOdometry:
-    def __init__(self, logger, intrinsic_matrix, detector=DETECTOR):
+    def __init__(self, cf, logger, intrinsic_matrix, detector=DETECTOR):
+        # Give access to complementary filter class instance
+        self.cf = cf
+
         # Carry over elements from main class
         self.logger = logger
         self.intrinsic_matrix = intrinsic_matrix
@@ -115,8 +134,21 @@ class VisualOdometry:
         # Frame skip flag
         self.do_frame_skip = False
 
-    def update(self, img, frame_id):
+        self.new_timestamp = 0
+        self.last_timestamp = 0
+
+        # Integrated accelerations
+        self.ax_cur = 0.0
+        self.ay_cur = 0.0
+        self.az_cur = 0.0
+
+        self.ax_prev = 0.0
+        self.ay_prev = 0.0
+        self.az_prev = 0.0
+
+    def update(self, img, frame_id, timestamp):
         self.new_frame = img
+        self.new_timestamp = timestamp
 
         # Algorithm stage handling
         if self.stage == STAGE_DEFAULT:
@@ -129,6 +161,7 @@ class VisualOdometry:
         # Update last frame
         self.last_id = frame_id
         self.last_frame = self.new_frame
+        self.last_timestamp = timestamp
 
     def process_first_frame(self):
         """ Find feature points in first frame for Kanade-Lucas-Tomasi Tracker
@@ -215,7 +248,10 @@ class VisualOdometry:
         self.new_cloud = self.triangulatePoints(self.cur_r, self.cur_t)
 
         # Get scale
-        self.scale = self.get_relative_scale()
+        if USE_RELATIVE_SCALE:
+            self.scale = self.get_relative_scale()
+        else:
+            self.scale = self.get_absolute_scale()
 
         # Continue tracking of movement
         self.cur_t = self.cur_t + self.scale * self.cur_r.dot(t)  # Concatenate the translation vectors
@@ -337,3 +373,169 @@ class VisualOdometry:
         # Take the median of ratios list as the final ratio
         d_ratio = np.median(ratios)
         return d_ratio
+
+    def get_absolute_scale(self):
+        ts_prev = self.last_timestamp
+        ts_cur = self.new_timestamp
+
+        # Robocentric, gravity corrected accelerations
+        self.ax_prev = self.ax_cur
+        self.ay_prev = self.ay_cur
+        self.az_prev = self.az_cur
+
+        self.ax_cur, self.ay_cur, self.az_cur = self.cf.integrate(ts_prev, ts_cur)
+
+        # Scale
+        scale = np.sqrt((self.ax_cur - self.ax_prev)**2 + (self.ay_cur - self.ay_prev)**2 + (self.az_cur - self.az_prev)**2)
+
+        print(scale)
+        return scale
+
+class ComplementaryFilter:
+    # https://www.mdpi.com/1424-8220/15/8/19302/htm
+    def __init__(self, ALPHA = 0.4):
+        self.last_frame = None
+        self.current_frame = {"ax": 0.0, "ay": 0.0, "az": 0.0, "gx": 0.0, "gy": 0.0, "gz": 0.0, "ts": 0}
+        self.alpha = ALPHA
+
+        self.x = 0.0
+        self.y = 0.0
+        self.z = 0.0
+
+        self.roll = 0.0
+        self.pitch = 0.0
+        self.yaw = 0.0
+
+        # Orientation of global frame with respect to local frame
+        self.q_g_l = np.array([1.0, 0.0, 0.0, 0.0])
+
+        # Gravity corrected frames in IMU coordinate system
+        self.frames_corrected = list()
+
+    def integrate(self, ts_prev, ts_cur):
+        ax_int = 0.0
+        ay_int = 0.0
+        az_int = 0.0
+        for idx, frame in enumerate(self.frames_corrected):
+            # Find all frames between the two timestamps
+            if frame["ts"] >= ts_prev and frame["ts"] < ts_cur:
+                # Add up accelerationss
+                ax_int += frame["ax"]
+                ay_int += frame["ay"]
+                az_int += frame["az"]
+
+                # Remove the element
+                del self.frames_corrected[idx]
+
+            elif frame["ts"] < ts_prev:
+                # Discard too old frames immediately
+                del self.frames_corrected[idx]
+
+        return ax_int, ay_int, az_int
+
+    def update(self, frame: dict):
+        if self.last_frame is None:
+            self.last_frame = frame
+            self.current_frame = frame
+        else:
+            self.last_frame = self.current_frame
+            self.current_frame = frame
+            dt_s = (self.last_frame["ts"] - self.current_frame["ts"])/1000.0
+
+            # Normalized accelerations, - frame.az is needed so that roll is not at 180 degrees
+            a_l = np.array([frame["ax"], frame["ay"], -frame["az"]])
+            a_l_norm = np.linalg.norm(a_l)
+            a_l /= a_l_norm
+
+            # PREDICTION
+            w_q_l = np.array([0.0, frame["gx"], frame["gy"], frame["gz"]])*DEG_TO_RAD
+            w_q_l /= np.linalg.norm(w_q_l)
+
+            # Gyro based attitude velocity of global frame with respect to local frame
+            q_w_dot_g_l = quaternion_multiply(-0.5*w_q_l, self.q_g_l)
+
+            # Gyro based attitude
+            q_w_g_l = self.q_g_l + q_w_dot_g_l * dt_s
+            q_w_g_l /= np.linalg.norm(q_w_g_l)
+
+            # Inverse gyro based attitude
+            q_w_l_g = quaternion_conjugate(q_w_g_l)
+
+            # CORRECTION
+            R_q_w_l_g = quaternion_R(q_w_l_g)
+
+            # Compute a prediction for the gravity vector
+            g_predicted_g = np.dot(R_q_w_l_g, a_l)
+
+            # Compute delta q acc
+            gx, gy, gz = g_predicted_g
+            gz_1 = gz + 1.0
+            delta_q_acc = np.array([math.sqrt(gz_1/2.0), -gy/math.sqrt(2.0*gz_1), gx/math.sqrt(2.0*gz_1), 0.0])
+            delta_q_acc_norm = np.linalg.norm(delta_q_acc)
+
+            delta_q_acc /= delta_q_acc_norm
+
+            q_identity = np.array([1.0, 0.0, 0.0, 0.0])
+
+            # Omega is given by angle subtended by the two quaternions, in our case just:
+            omega = delta_q_acc[0]
+
+            if omega > LERP_THRESHOLD:
+                delta_q_acc_hat = (1.0 - self.alpha)*q_identity + self.alpha*delta_q_acc
+            else:
+                delta_q_acc_hat = math.sin((1.0 - self.alpha)*omega)/math.sin(omega)*q_identity + math.sin(self.alpha*omega)/math.sin(omega)*delta_q_acc
+
+            delta_q_acc_hat_norm = np.linalg.norm(delta_q_acc_hat)
+            delta_q_acc_hat /= delta_q_acc_hat_norm
+
+            # UPDATE
+            self.q_g_l = quaternion_multiply(q_w_g_l, delta_q_acc_hat)
+
+            error = abs(np.linalg.norm(np.array([frame["ax"], frame["ay"], frame["az"]])) - G_ACCEL) / G_ACCEL
+            if error < ERROR_T_LOW:
+                self.alpha = ALPHA_BAR*1.0
+            elif error < ERROR_T_HIGH:
+                self.alpha = ALPHA_BAR*error/(ERROR_T_HIGH - ERROR_T_LOW)
+            else:
+                self.alpha = 0.0
+
+            local_gravity = quaternion_apply(self.q_g_l, [0, 0, 1])[1:] * G_ACCEL
+
+            new_frame_corrected = {"ax": frame["ax"] - local_gravity[0], "ay": frame["ay"] - local_gravity[1], "az": frame["az"] - local_gravity[2], "ts": frame["ts"]}
+            self.frames_corrected.append(new_frame_corrected)
+
+# Quaternion multiply according to Valenti, 2015
+def quaternion_multiply(p, q):
+    p0, p1, p2, p3 = p
+    q0, q1, q2, q3 = q
+    output = np.array([p0*q0 - p1*q1 - p2*q2 - p3*q3,
+                       p0*q1 + p1*q0 + p2*q3 - p3*q2,
+                       p0*q2 - p1*q3 + p2*q0 + p3*q1,
+                       p0*q3 + p1*q2 - p2*q1 + p3*q0], dtype=np.float64)
+    output /= np.linalg.norm(output)
+    return output
+
+
+def quaternion_R(q):
+    q0, q1, q2, q3 = q
+    R = np.array([[q0**2 + q1**2 - q2**2 - q3**2, 2.0*(q1*q2 - q0*q3), 2.0*(q1*q3 + q0*q2)],
+                  [2.0*(q1*q2 + q0*q3), q0**2 - q1**2 + q2**2 - q3**2, 2.0*(q2*q3 - q0*q1)],
+                  [2.0*(q1*q3 - q0*q2), 2.0*(q2*q3 + q0*q1), q0**2 - q1**2 - q2**2 + q3**2]])
+    return R
+
+
+def quaternion_apply(quaternion, vector):
+    q2 = np.concatenate((np.array([0.0]), np.array(vector)))
+    return quaternion_multiply(quaternion_multiply(quaternion, q2),
+                               quaternion_conjugate(quaternion))
+
+
+def quaternion_conjugate(quaternion):
+    w, x, y, z = quaternion
+    return np.array([w, -x, -y, -z])
+
+def quaternion_to_euler(quaternion, degrees=True):
+    return Rotation.from_quat(quaternion).as_euler('zyx', degrees=degrees)
+
+def euler_to_quaternion(euler, degrees=True):
+    return Rotation.from_euler('zyx', euler, degrees=degrees).as_quat()

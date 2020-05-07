@@ -24,6 +24,16 @@ MIN_NUM_FEATURES = 100 # If features fall below this threshold we detect new one
 MAX_NUM_FEATURES = 5000 # Maximum number of features
 DIFF_THRESHOLD = 0.5
 
+DEG_TO_RAD = math.pi / 180.0
+RAD_TO_DEG = 180.0 / math.pi
+LERP_THRESHOLD = 0.9
+G_ACCEL = 9.80600
+ALPHA_BAR = 0.4
+ERROR_T_LOW = 0.1
+ERROR_T_HIGH = 0.2
+
+USE_RELATIVE_SCALE = False
+
 def drawOpticalFlowField(img, ref_pts, cur_pts):
     """ Shows a window which shows the optical flow of detected features. """
 
