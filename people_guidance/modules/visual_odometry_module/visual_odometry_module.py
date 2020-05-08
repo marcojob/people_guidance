@@ -43,9 +43,9 @@ class VisualOdometryModule(Module):
                     frame = {"ax": imu_data["accel_x"],
                              "ay": imu_data["accel_y"],
                              "az": imu_data["accel_z"],
-                             "gx": imu_data["accel_x"],
-                             "gy": imu_data["gyro_x"],
-                             "gz": imu_data["gyro_x"],
+                             "gx": imu_data["gyro_x"],
+                             "gy": imu_data["gyro_y"],
+                             "gz": imu_data["gyro_z"],
                              "ts": imu_data["timestamp"]}
 
                     cf.update(frame)
