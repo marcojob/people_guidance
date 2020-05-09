@@ -23,8 +23,6 @@ class ReprojectionModule(Module):
                                                  outputs=[("points3d", 10)],
                                                  log_dir=log_dir)
 
-        self.intrinsic_matrix: np.array = np.array([[2581.33211, 0, 320], [0, 2576, 240], [0, 0, 1]])
-
         self.point_buffer: List[np.array] = []
         self.request_counter = 0
 
@@ -97,10 +95,11 @@ class ReprojectionModule(Module):
                 uncertainty = 1 / points3d.shape[0]
                 criticality = (1 / distances) #* abs(alignment)
                 criticality_smooth = 0.8 * criticality_smooth + 0.2 * criticality.mean()
-                # plt.scatter(timestamps[0], criticality_smooth, c="r")
-                # plt.scatter(timestamps[0], uncertainty, c="g")
-                # plt.pause(0.001)
-                
+
+                plt.scatter(timestamps[0], criticality_smooth, c="r")
+                plt.scatter(timestamps[0], uncertainty, c="g")
+                plt.pause(0.001)
+
                 self.logger.info(f"Reconstructed points \n{criticality.shape}")
 
 

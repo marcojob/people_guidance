@@ -236,7 +236,7 @@ class PositionModule(Module):
             self.logger.debug(f"VO as euler \n{Rotation.from_matrix(homog[0:3, 0:3]).as_euler('xyz', degrees=True)}")
             self.logger.debug(f"rotate VO frame by \n{vo_to_camera}")
             self.logger.debug(f"VO rotated \n{vo_rot.as_euler('xyz', degrees=True)}")
-            self.logger.warning(f"Data from VO: angles: {vo_rot.as_euler('xyz', degrees=True)}, displacement: {vo_t_vec}")
+            self.logger.debug(f"Data from VO: angles: {vo_rot.as_euler('xyz', degrees=True)}, displacement: {vo_t_vec}")
 
             if distance < best_match[1]:
                 best_match = (homog, distance, delta_rot)

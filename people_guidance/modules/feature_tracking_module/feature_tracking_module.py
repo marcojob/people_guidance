@@ -9,10 +9,9 @@ from typing import Tuple
 from people_guidance.modules.module import Module
 from people_guidance.utils import project_path
 
-
-
-
-
+# Need this to get cv imshow working on Ubuntu 20.04
+import gi
+gi.require_version('Gtk', '2.0')
 
 
 class FeatureTrackingModule(Module):
@@ -22,25 +21,39 @@ class FeatureTrackingModule(Module):
                                                     inputs=["drivers_module:images"],
                                                     log_dir=log_dir)
 
+    def cleanup(self):
+        plt.close('all')
+
     def start(self):
         self.old_timestamp = None
         self.old_keypoints = None
         self.old_descriptors = None
-        self.intrinsic_matrix: Optional[np.array] = np.array([[2581.33211, 0, 320], [0, 2576, 240], [0, 0, 1]])
 
         # maximum numbers of keypoints to keep and calculate descriptors of,
         # reducing this number can improve computation time:
         self.max_num_keypoints = 1000
 
-        # create cv2 ORB feature descriptor and brute force matcher object
-        self.orb = cv2.ORB_create(nfeatures=self.max_num_keypoints)
-        self.matcher = cv2.BFMatcher_create(cv2.NORM_HAMMING, crossCheck=True)
+        # create each an ORB and a SURF feature descriptor and brute force matcher object
+        self.use_SURF = 0
+
+        # use essential matrix estimation
+        self.use_essential_matrix = 0
+
+        self.detector_object = None
+        self.matcher_object = None
+
+        if self.use_SURF:
+            self.detector_object = cv2.xfeatures2d.SURF_create(hessianThreshold=2000)
+            self.matcher_object = cv2.BFMatcher_create(cv2.NORM_L2, crossCheck=True)
+        else: # use ORB
+            self.detector_object = cv2.ORB_create(nfeatures=self.max_num_keypoints)
+            self.matcher_object = cv2.BFMatcher_create(cv2.NORM_HAMMING, crossCheck=True)
 
         while True:
             img_dict = self.get("drivers_module:images")
 
             if not img_dict:
-                self.logger.warn("queue was empty")
+                self.logger.info("queue was empty")
             else:
                 # extract the image data and time stamp
                 img_encoded = img_dict["data"]["data"]
@@ -49,65 +62,82 @@ class FeatureTrackingModule(Module):
                 self.logger.debug(f"Processing image with timestamp {timestamp} ...")
 
                 img = cv2.imdecode(np.frombuffer(img_encoded, dtype=np.int8), flags=cv2.IMREAD_GRAYSCALE)
-                keypoints, descriptors = self.extract_feature_descriptors(img)
 
-                # only do feature matching if there were keypoints found in the new image, discard it otherwise
-                if len(keypoints) == 0:
-                    self.logger.warn(f"Didn't find any features in image with timestamp {timestamp}, skipping...")
-                else:
-                    if self.old_descriptors is not None:  # skip the matching step for the first image
-                        # match the feature descriptors of the old and new image
+                for i in range(2):
+                    keypoints, descriptors = self.extract_feature_descriptors(img, i)
 
-                        inliers, delta_positions, total_nr_matches = self.match_features(keypoints, descriptors)
+                    # only do feature matching if there were keypoints found in the new image, discard it otherwise
+                    if len(keypoints) == 0:
+                        self.logger.warn(f"Didn't find any features in image with timestamp {timestamp}, skipping...")
+                    else:
+                        if self.old_descriptors is not None:  # skip the matching step for the first image
+                            # match the feature descriptors of the old and new image
 
-                        if total_nr_matches == 0:
-                            # there were 0 inliers found, print a warning
-                            self.logger.warn("Couldn't find enough matching features in the images with timestamps: " +
-                                            f"{self.old_timestamp} and {timestamp}")
-                        else:
-                            visualization_img = self.visualize_matches(img, keypoints, inliers, total_nr_matches)
-                            #visualization_img = cv2.resize(visualization_img, None, fx=0.85, fy=0.85)
+                            inliers, delta_positions, total_nr_matches = self.match_features(keypoints, descriptors)
 
-                            self.publish("feature_point_pairs",
-                                         {"camera_positions" : delta_positions,
-                                          "image": visualization_img,
-                                          "point_pairs": inliers,
-                                          "timestamp_pair": (self.old_timestamp, timestamp)},
-                                         1000)
-                            self.publish("feature_point_pairs_vis",
-                                         {"point_pairs": inliers,
-                                          "img": img_encoded,
-                                          "timestamp": timestamp},
-                                         1000)
+                            if total_nr_matches == 0:
+                                # there were 0 inliers found, print a warning
+                                self.logger.warn("Couldn't find enough matching features in the images with timestamps: " +
+                                                f"{self.old_timestamp} and {timestamp}")
+                            else:
+                                visualization_img = self.visualize_matches(img, keypoints, inliers, total_nr_matches)
+                                #visualization_img = cv2.resize(visualization_img, None, fx=0.85, fy=0.85)
 
-                    # store the date of the new image as old_img... for the next iteration
-                    # If there are no features found in the new image this step is skipped
-                    # This means that the next image will be compared witht he same old image again
-                    self.old_timestamp = timestamp
-                    self.old_keypoints = keypoints
-                    self.old_descriptors = descriptors
+                                self.publish("feature_point_pairs",
+                                                {"camera_positions" : delta_positions,
+                                                "image": visualization_img,
+                                                "point_pairs": inliers,
+                                                "timestamp_pair": (self.old_timestamp, timestamp)},
+                                                1000)
+                                self.publish("feature_point_pairs_vis",
+                                                {"point_pairs": inliers,
+                                                "img": img_encoded,
+                                                "timestamp": timestamp},
+                                                1000)
 
-    def extract_feature_descriptors(self, img: np.ndarray) -> (list, np.ndarray):
-        # first detect the ORB keypoints and then compute the feature descriptors of those points
-        keypoints = self.orb.detect(img, None)
-        keypoints, descriptors = self.orb.compute(img, keypoints)
+                        # store the date of the new image as old_img... for the next iteration
+                        # If there are no features found in the new image this step is skipped
+                        # This means that the next image will be compared witht he same old image again
+                        self.old_timestamp = timestamp
+                        self.old_keypoints = keypoints
+                        self.old_descriptors = descriptors
+
+    def extract_feature_descriptors(self, img: np.ndarray, method: int) -> (list, np.ndarray):
+        keypoints = None
+        descriptors = None
+
+        if self.use_SURF:
+            # surf detects and describes the feature in one function
+            keypoints, descriptors = self.detector_object.detectAndCompute(img, None)
+        else:
+            # first detect the ORB keypoints and then compute the feature descriptors of those points
+            keypoints = self.detector_object.detect(img, None)
+            keypoints, descriptors = self.detector_object.compute(img, keypoints)
+        
         self.logger.debug(f"Found {len(keypoints)} feautures")
 
         return (keypoints, descriptors)
 
     def match_features(self, keypoints: list, descriptors: np.ndarray) -> Tuple[np.ndarray, np.ndarray, int]:
-        matches = self.matcher.match(self.old_descriptors, descriptors)
+        matches = self.matcher_object.match(self.old_descriptors, descriptors)
 
         if len(matches) > 10:
             # assemble the coordinates of the matched features into a numpy matrix for each image
             old_match_points = np.float32([self.old_keypoints[match.queryIdx].pt for match in matches])
             match_points = np.float32([keypoints[match.trainIdx].pt for match in matches])
 
-            # if we found enough matches do a RANSAC search to find inliers corresponding to one homography
-            # TODO: add camera pose info to improve matching
-            H, mask = cv2.findHomography(old_match_points, match_points, cv2.RANSAC, 1.0)
+            if not self.use_essential_matrix:
+                # if we found enough matches do a RANSAC search to find inliers corresponding to one homography
+                H, mask = cv2.findHomography(old_match_points, match_points, cv2.RANSAC, 1.0)
+                nb_solutions, H_rots, H_trans, H_norms = cv2.decomposeHomographyMat(H, self.intrinsic_matrix)
+            else:
+                E, mask = cv2.findEssentialMat(old_match_points, match_points, self.intrinsic_matrix, cv2.RANSAC, 0.999, 1.0, None)
+                ret, R, t, _ = cv2.recoverPose(E, old_match_points, match_points, self.intrinsic_matrix, mask)
 
-            nb_solutions, H_rots, H_trans, H_norms = cv2.decomposeHomographyMat(H, self.intrinsic_matrix)
+                # Essential matrix return only one solution
+                nb_solutions = 1
+                H_rots = np.array(R)
+                H_trans = np.array(t)
 
             if nb_solutions > 0:
                 delta_positions = np.zeros((nb_solutions, 3, 4))
