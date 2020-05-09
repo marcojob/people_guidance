@@ -8,7 +8,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 from scipy.linalg import norm
 
-from .cam import CameraPygame
+# from .cam import CameraPygame
 
 from math import atan2, sqrt, cos, sin
 
@@ -94,7 +94,7 @@ class ComplementaryFilter:
         self.last_frame = None
         self.pose = Pose()
         self.alpha = alpha
-        self.cam = CameraPygame()
+        # self.cam = CameraPygame()
         self.q_gyro_state = [1, 0, 0, 0]  # Local camera frame in inertial frame init
         # Debug
         self.yaw = 0
@@ -219,7 +219,7 @@ class ComplementaryFilter:
             # print(f"q_update: {q_gyro}")
 
             # Pygames visualization
-            self.cam(self.q_gyro_state, name=f"q_update, time = {frame.ts/1000}, yaw = {self.yaw}")
+            # self.cam(self.q_gyro_state, name=f"q_update, time = {frame.ts/1000}, yaw = {self.yaw}")
             # self.cam(np.array([yaw, pitch, roll]) / DEGREE_TO_RAD, name=f"q_update, time = {frame.ts/1000}, dt = {dt}", useQuat=False) # in case of not passing quaternion: [yaw, pitch, roll] in DEGREES
 
             # print(f"Acceleration: {[frame.ax, frame.ay, frame.az]}"
