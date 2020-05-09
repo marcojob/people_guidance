@@ -40,12 +40,12 @@ class VisualOdometryModule(Module):
                 imu_dict = self.get("drivers_module:accelerations")
                 if imu_dict:
                     imu_data = imu_dict["data"]
-                    frame = {"ax": imu_data["accel_x"],
+                    frame = {"ax": imu_data["accel_z"],
                              "ay": imu_data["accel_y"],
-                             "az": imu_data["accel_z"],
-                             "gx": imu_data["gyro_x"],
-                             "gy": imu_data["gyro_y"],
-                             "gz": imu_data["gyro_z"],
+                             "az": imu_data["accel_x"],
+                             "gx": imu_data["gyro_z"]*DEG_TO_RAD,
+                             "gy": imu_data["gyro_y"]*DEG_TO_RAD,
+                             "gz": imu_data["gyro_x"]*DEG_TO_RAD,
                              "ts": imu_data["timestamp"]}
 
                     cf.update(frame)
@@ -515,6 +515,7 @@ class ComplementaryFilter:
 
             # UPDATE
             self.q_g_l = quaternion_multiply(q_w_g_l, delta_q_acc_hat)
+            print(quaternion_to_euler(self.q_g_l, True))
 
             error = abs(np.linalg.norm(np.array([frame["ax"], frame["ay"], frame["az"]])) - G_ACCEL) / G_ACCEL
             if error < ERROR_T_LOW:
