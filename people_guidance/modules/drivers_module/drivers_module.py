@@ -175,7 +175,6 @@ class DriversModule(Module):
                     # No more imgs, exit
                     if not img_str:
                         self.logger.warning("Replay file empty, exiting")
-                        raise SystemExit("Replay file empty: Exited with code 0")
 
                     out = re.search(r'([0-9]*): ([0-9]*)', img_str)
                     if out:
@@ -193,6 +192,7 @@ class DriversModule(Module):
 
                 # If the relative time is correct, we publish the data
                 if self.img_timestamp and self.get_time_ms() - self.replay_start_timestamp > self.img_timestamp - self.img_first_timestamp:
+                    sleep(0.1)
                     self.publish("images", {"data": self.img_data_file, "timestamp": self.img_timestamp}, -1)
 
                     # Reset the timestamp so that a new dataset is read

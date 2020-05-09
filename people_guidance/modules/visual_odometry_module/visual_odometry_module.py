@@ -515,7 +515,6 @@ class ComplementaryFilter:
 
             # UPDATE
             self.q_g_l = quaternion_multiply(q_w_g_l, delta_q_acc_hat)
-            print(quaternion_to_euler(self.q_g_l, True))
 
             error = abs(np.linalg.norm(np.array([frame["ax"], frame["ay"], frame["az"]])) - G_ACCEL) / G_ACCEL
             if error < ERROR_T_LOW:
