@@ -1,5 +1,6 @@
 from argparse import ArgumentParser
 import logging
+import platform
 
 from people_guidance.pipeline import Pipeline
 from people_guidance.utils import init_logging
