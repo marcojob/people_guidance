@@ -231,7 +231,7 @@ class ComplementaryFilter:
             # 4. Express the gravity vector in the local frame
             # To recreate [0, 0, -g], apply this formula:
             local_gravity = quaternion_apply(self.q_gyro_state, [0, 0, -1])[1:] * 9.81
-            print(f"gravity compensation: {np.array([frame.ax, frame.ay, frame.az]) - local_gravity}")
+            # print(f"gravity compensation: {np.array([frame.ax, frame.ay, frame.az]) - local_gravity}")
 
             #Update before returning
             self.last_frame = frame
