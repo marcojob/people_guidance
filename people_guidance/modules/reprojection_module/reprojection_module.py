@@ -19,8 +19,8 @@ def normalize(v: np.array) -> np.array:
 class ReprojectionModule(Module):
     def __init__(self, log_dir: pathlib.Path, args=None):
         super(ReprojectionModule, self).__init__(name="reprojection_module",
-                                                 inputs=["position_module:homography"],
-                                                 outputs=[("points3d", 10)],
+                                                 inputs=["visual_odometry_module:cloud"],
+                                                 outputs=[],
                                                  log_dir=log_dir)
 
         self.point_buffer: List[np.array] = []
@@ -32,18 +32,12 @@ class ReprojectionModule(Module):
     def start(self):
         criticality_smooth = 0.0
         while True:
-            homog_payload = self.get("position_module:homography")
-            if homog_payload:
-                homography = homog_payload["data"]["homography"]
-                point_pairs = homog_payload["data"]["point_pairs"]
-                timestamps = homog_payload["data"]["timestamps"]
-                image = homog_payload["data"]["image"]
+            cloud = self.get("visual_odometry_module:cloud")
+            if cloud:
+                points3d = cloud["data"]["cloud"]
+                homography = cloud["data"]["homography"]
+                timestamps = cloud["data"]["timestamps"]
 
-                pm1, pm2 = self.create_projection_matrices(homography)
-
-                points_homo = cv2.triangulatePoints(pm1, pm2, point_pairs[0, ...], point_pairs[1, ...])
-                points3d = cv2.convertPointsFromHomogeneous(points_homo.T)
-                self.publish("points3d", data=points3d, validity=100, timestamp=self.get_time_ms())
                 rvec = cv2.Rodrigues(homography[:, :3])[0]
                 tvec = homography[:, 3:]
                 points2d = cv2.projectPoints(points3d, rvec, tvec, self.intrinsic_matrix, distCoeffs=None)[0]
@@ -51,9 +45,9 @@ class ReprojectionModule(Module):
                 pink = (255, 153, 255)
                 orange = (255, 128, 0)
                 keypoints = [cv2.KeyPoint(points2d[i, 0, 0], points2d[i, 0, 1], 5) for i in range(points2d.shape[0])]
-                image = cv2.drawKeypoints(image, keypoints, None, color=pink, flags=0)
-                for i in range(point_pairs.shape[0]):
-                    image = cv2.line(image, tuple(point_pairs[1, :, i]), tuple(points2d[i, 0, :]), orange, 5)
+                # image = cv2.drawKeypoints(image, keypoints, None, color=pink, flags=0)
+                # for i in range(point_pairs.shape[0]):
+                #     image = cv2.line(image, tuple(point_pairs[1, :, i]), tuple(points2d[i, 0, :]), orange, 5)
 
                 """
                 fig = plt.gcf()
@@ -98,6 +92,7 @@ class ReprojectionModule(Module):
 
                 plt.scatter(timestamps[0], criticality_smooth, c="r")
                 plt.scatter(timestamps[0], uncertainty, c="g")
+                plt.gca().set_ylim((0, 0.25))
                 plt.pause(0.001)
 
                 self.logger.info(f"Reconstructed points \n{criticality.shape}")

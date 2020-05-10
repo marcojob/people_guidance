@@ -24,8 +24,10 @@ DPI = 100
 
 MAX_DATA_LEN = 100
 
+PLOT_LIM = 50
+
 KEYS = ["preview", "pos"]
-POS_KEYS = ["pos_x", "pos_y", "pos_z", "angle_x", "angle_y", "angle_z", "3d_pos_x", "3d_pos_y", "3d_pos_z"]
+POS_KEYS = ["pos_x", "pos_y", "pos_z", "angle_x", "angle_y", "angle_z", "cloud_x", "cloud_y", "cloud_z"]
 
 ax_list = dict()
 scatter_p = None
@@ -36,8 +38,8 @@ preview_p = None
 class VisualizationModule(Module):
     def __init__(self, log_dir: pathlib.Path, args=None):
         super(VisualizationModule, self).__init__(name="visualization_module", outputs=[],
-                                                  inputs=["feature_tracking_module:feature_point_pairs_vis",
-                                                          "reprojection_module:points3d"],
+                                                  inputs=["visual_odometry_module:position_vis",
+                                                          "visual_odometry_module:features_vis",],
                                                   log_dir=log_dir)
         self.args = args
 
@@ -81,12 +83,12 @@ class VisualizationModule(Module):
             sleep(1.0/PREVIEW_PLOT_HZ)
             # POS DATA HANDLING
             if pos_last_ms is None:
-                pos_vis = dict() # self.get("position_estimation_module:position_vis")
+                pos_vis = self.get("visual_odometry_module:position_vis")
 
                 pos_last_ms = pos_vis.get("timestamp", None)
                 vis_pos_last_ms = self.get_time_ms()
             else:
-                pos_vis = self.get("position_estimation_module:position_vis")
+                pos_vis = self.get("visual_odometry_module:position_vis")
                 if pos_vis and self.get_time_ms() - vis_pos_last_ms > 1000/POS_PLOT_HZ and pos_vis["timestamp"] - pos_last_ms > 1000/POS_PLOT_HZ:
                     pos_last_ms = pos_vis["timestamp"]
                     vis_pos_last_ms = self.get_time_ms()
@@ -107,11 +109,11 @@ class VisualizationModule(Module):
                     except Exception as e:
                         self.logger.debug(f"{e}")
 
-
-            features = self.get("feature_tracking_module:feature_point_pairs_vis")
+            features = self.get("visual_odometry_module:features_vis")
             if features:
                 matches = features["data"]["point_pairs"]
                 preview = features["data"]["img"]
+                cloud = features["data"]["cloud"]
 
                 img_dec = cv2.imdecode(np.frombuffer(
                         preview, dtype=np.int8), flags=cv2.IMREAD_COLOR)
@@ -124,21 +126,23 @@ class VisualizationModule(Module):
                 except Exception as e:
                     self.logger.warning(f"{e}")
 
+                # Point cloud handling
+                self.data_dict["cloud_x"] = list()
+                self.data_dict["cloud_y"] = list()
+                self.data_dict["cloud_z"] = list()
 
-            points_3d = self.get("reprojection_module:points3d")
-            rot_coord = R.from_matrix([[0, 0, 1], [-1, 0, 0], [0, -1, 0]])
-            if points_3d:
-                self.data_dict["3d_pos_x"] = list()
-                self.data_dict["3d_pos_y"] = list()
-                self.data_dict["3d_pos_z"] = list()
-                for point in points_3d["data"]:
-                    point_r = rot_coord.apply(point[0])
-                    self.data_dict["3d_pos_x"].append(point_r[0])
-                    self.data_dict["3d_pos_y"].append(point_r[1])
-                    self.data_dict["3d_pos_z"].append(point_r[2])
+                # Rotation from camera coord to world coord
+                rot_coord = R.from_matrix([[0, 0, 1], [-1, 0, 0], [0, -1, 0]])
+
+                for point in cloud:
+                    point_r = rot_coord.apply(point)
+                    # point_r = point
+                    self.data_dict["cloud_x"].append(point_r[0])
+                    self.data_dict["cloud_y"].append(point_r[1])
+                    self.data_dict["cloud_z"].append(point_r[2])
 
                 try:
-                    self.animate_3d_points()
+                    self.animate_cloud()
                 except Exception as e:
                     self.logger.warning(f"{e}")
 
@@ -157,13 +161,13 @@ class VisualizationModule(Module):
 
         r = R.from_rotvec(np.array([0, 0, angle_z])).as_matrix()
         sc_xy = 1
-        sc_z = 0.5
+        sc_z = 1
 
         if scatter_p == None:
             ax_list["pos"].set_title("pos")
-            ax_list["pos"].set_xlim((-2, 2))
-            ax_list["pos"].set_ylim((-2, 2))
-            ax_list["pos"].set_zlim((-0, 2))
+            ax_list["pos"].set_xlim((-PLOT_LIM, PLOT_LIM))
+            ax_list["pos"].set_ylim((-PLOT_LIM, PLOT_LIM))
+            ax_list["pos"].set_zlim((-PLOT_LIM, PLOT_LIM))
 
             scatter_p = ax_list["pos"].scatter(
                 self.data_dict["pos_x"], self.data_dict["pos_y"], self.data_dict["pos_z"], alpha=0.01)
@@ -202,30 +206,29 @@ class VisualizationModule(Module):
             ax_list["preview"].figure.canvas.draw_idle()
 
 
-    def animate_3d_points(self):
+    def animate_cloud(self):
         global scatter_r
         if scatter_r == None:
             ax_list["pos"].set_title("pos")
-            ax_list["pos"].set_xlim((-2, 2))
-            ax_list["pos"].set_ylim((-2, 2))
-            ax_list["pos"].set_zlim((-0, 2))
+            ax_list["pos"].set_xlim((-PLOT_LIM, PLOT_LIM))
+            ax_list["pos"].set_ylim((-PLOT_LIM, PLOT_LIM))
+            ax_list["pos"].set_zlim((-PLOT_LIM, PLOT_LIM))
 
             scatter_r = ax_list["pos"].scatter(
-                self.data_dict["3d_pos_x"], self.data_dict["3d_pos_y"], self.data_dict["3d_pos_z"])
+                self.data_dict["cloud_x"], self.data_dict["cloud_y"], self.data_dict["cloud_z"])
 
             ax_list["pos"].figure.canvas.draw_idle()
         else:
-            scatter_r._offsets3d = (self.data_dict["3d_pos_x"], self.data_dict["3d_pos_y"], self.data_dict["3d_pos_z"])
+            scatter_r._offsets3d = (self.data_dict["cloud_x"], self.data_dict["cloud_y"], self.data_dict["cloud_z"])
             ax_list["pos"].figure.canvas.draw_idle()
 
     def draw_matches(self, img, matches):
-        RADIUS = 15
+        RADIUS = 5
         THICKNESS = 3
         if matches is not None:
-            shape = matches.shape
-            for m in range(shape[2]):
-                end_point = (matches[0][0][m], matches[0][1][m])
-                start_point = (matches[1][0][m], matches[1][1][m])
+            for m in matches:
+                end_point = (m[0][0], m[0][1])
+                start_point = (m[1][0], m[1][1])
                 img = cv2.circle(img, start_point, RADIUS,
                                  (255, 0, 0), THICKNESS)
                 img = cv2.circle(img, end_point, RADIUS,
