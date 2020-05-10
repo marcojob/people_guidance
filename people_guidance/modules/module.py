@@ -54,8 +54,6 @@ class Module:
 
         self.intrinsic_matrix = INTRINSIC_MATRIX
 
-        self.distortion_coeffs = DISTORTION_COEFFS
-
     def subscribe(self, channel: str, queue_obj: mp.Queue):
         return self.inputs.update({channel: queue_obj})
 

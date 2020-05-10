@@ -102,7 +102,6 @@ class ReprojectionModule(Module):
 
                 self.logger.info(f"Reconstructed points \n{criticality.shape}")
 
-
     def create_projection_matrices(self, homography) -> Tuple[np.array, np.array]:
         pm1 = np.matmul(self.intrinsic_matrix, np.eye(3, 4))
         pm2 = np.matmul(self.intrinsic_matrix, homography)
