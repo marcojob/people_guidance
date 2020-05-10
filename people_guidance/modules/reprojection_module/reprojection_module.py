@@ -49,31 +49,6 @@ class ReprojectionModule(Module):
                 # for i in range(point_pairs.shape[0]):
                 #     image = cv2.line(image, tuple(point_pairs[1, :, i]), tuple(points2d[i, 0, :]), orange, 5)
 
-                """
-                fig = plt.gcf()
-                fig.clear()
-                plt.scatter(points3d[..., 1], points3d[..., 0])
-                plt.pause(0.001)
-
-                cv2.imshow("visu", image)
-                cv2.waitKey(1)
-
-                if cv2.waitKey(0) == ord('a'):
-                    pass
-                c = cv2.waitKey(0)
-                if 'q' == chr(c & 255):
-                    pass
-                
-
-
-                fig = plt.gcf()
-                fig.clear()
-                plt.scatter(points3d[..., 0], points3d[..., 1])
-                plt.pause(0.001)
-                cv2.imshow("vis", image)
-                if cv2.waitKey(0) == ord('a'):
-                    pass
-                """
                 user_pos = np.array((0, 0, 0))
                 user_trajectory: np.array = normalize(homography[:, 3])
                 point_vectors = np.subtract(points3d, user_pos)
@@ -89,14 +64,12 @@ class ReprojectionModule(Module):
                 uncertainty = 1 / points3d.shape[0]
                 criticality = (1 / distances) #* abs(alignment)
                 criticality_smooth = 0.8 * criticality_smooth + 0.2 * criticality.mean()
-
+                """
                 plt.scatter(timestamps[0], criticality_smooth, c="r")
                 plt.scatter(timestamps[0], uncertainty, c="g")
                 plt.gca().set_ylim((0, 0.25))
                 plt.pause(0.001)
-
-                self.logger.info(f"Reconstructed points \n{criticality.shape}")
-
+                """
 
     def create_projection_matrices(self, homography) -> Tuple[np.array, np.array]:
         pm1 = np.matmul(self.intrinsic_matrix, np.eye(3, 4))
