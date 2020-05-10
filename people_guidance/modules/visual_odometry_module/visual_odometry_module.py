@@ -1,14 +1,8 @@
-import cv2
-import math
-import numpy as np
 import pathlib
 
-from time import sleep
 from scipy.spatial.transform import Rotation
 
 from people_guidance.modules.module import Module
-from people_guidance.utils import project_path
-
 from .utils import *
 
 
@@ -43,9 +37,9 @@ class VisualOdometryModule(Module):
                     frame = {"ax": imu_data["accel_z"],
                              "ay": imu_data["accel_y"],
                              "az": imu_data["accel_x"],
-                             "gx": imu_data["gyro_z"]*DEG_TO_RAD,
-                             "gy": imu_data["gyro_y"]*DEG_TO_RAD,
-                             "gz": imu_data["gyro_x"]*DEG_TO_RAD,
+                             "gx": imu_data["gyro_z"] * DEG_TO_RAD,
+                             "gy": imu_data["gyro_y"] * DEG_TO_RAD,
+                             "gz": imu_data["gyro_x"] * DEG_TO_RAD,
                              "ts": imu_data["timestamp"]}
 
                     cf.update(frame)
@@ -91,19 +85,19 @@ class VisualOdometryModule(Module):
                         point_pairs.append((new, old))
 
                     self.publish("features_vis",
-                                {"point_pairs": point_pairs,
-                                 "img": img_encoded,
-                                 "cloud": vo.new_cloud,
-                                 "timestamp": timestamp}, 1000)
+                                 {"point_pairs": point_pairs,
+                                  "img": img_encoded,
+                                  "cloud": vo.new_cloud,
+                                  "timestamp": timestamp}, 1000)
 
                     x, y, z = vo.cur_t[0], vo.cur_t[1], vo.cur_t[2]
                     # traj = RT_trajectory_window(traj, x, y, z, img_id)  # Draw the trajectory window
 
                     # Publish to reprojection_module
                     self.publish("cloud",
-                                {"cloud": vo.new_cloud,
-                                 "homography": vo.homography,
-                                 "timestamps": (last_timestamp, timestamp)}, 1000)
+                                 {"cloud": vo.new_cloud,
+                                  "homography": vo.homography,
+                                  "timestamps": (last_timestamp, timestamp)}, 1000)
 
 
 class VisualOdometry:
@@ -115,22 +109,21 @@ class VisualOdometry:
         self.logger = logger
         self.intrinsic_matrix = intrinsic_matrix
 
-
         avail_detectors = {
-                       'FAST': cv2.FastFeatureDetector_create(threshold=25, nonmaxSuppression=True),
-                       'SIFT': cv2.xfeatures2d.SIFT_create(MAX_NUM_FEATURES),
-                       'SURF': cv2.xfeatures2d.SURF_create(MAX_NUM_FEATURES),
-                       'SHI-TOMASI': 'SHI-TOMASI'}
+            'FAST': cv2.FastFeatureDetector_create(threshold=25, nonmaxSuppression=True),
+            'SIFT': cv2.xfeatures2d.SIFT_create(MAX_NUM_FEATURES),
+            'SURF': cv2.xfeatures2d.SURF_create(MAX_NUM_FEATURES),
+            'SHI-TOMASI': 'SHI-TOMASI'}
         self.detector = avail_detectors[detector]
 
         self.new_frame = None
-        self.stage = STAGE_FIRST # Start with first stage
+        self.stage = STAGE_FIRST  # Start with first stage
 
-        self.prev_fts = None # Previous features
-        self.cur_fts = None # Current features
+        self.prev_fts = None  # Previous features
+        self.cur_fts = None  # Current features
 
-        self.cur_r = None # Current rotation
-        self.cur_t = None # Current translation
+        self.cur_r = None  # Current rotation
+        self.cur_t = None  # Current translation
 
         # List of t vectors and R matrices
         self.t_vects = list()
@@ -162,7 +155,7 @@ class VisualOdometry:
         self.ay_prev = 0.0
         self.az_prev = 0.0
 
-        self.homography = np.zeros((3,4))
+        self.homography = np.zeros((3, 4))
 
     def update(self, img, frame_id, timestamp):
         self.new_frame = img
@@ -187,8 +180,8 @@ class VisualOdometry:
         self.prev_fts = self.detect_new_features(self.new_frame)
 
         # First t & R are zeros
-        self.t_vects.append(np.zeros((3,1)))
-        self.r_mats.append(np.zeros((3,3)))
+        self.t_vects.append(np.zeros((3, 1)))
+        self.r_mats.append(np.zeros((3, 3)))
 
         # Advance stage
         self.stage = STAGE_SECOND
@@ -204,7 +197,8 @@ class VisualOdometry:
         self.prev_fts, self.cur_fts, diff = self.KLT_featureTracking(prev_img, cur_img, self.prev_fts)
 
         # Estimate essential matrix
-        E, mask = cv2.findEssentialMat(self.cur_fts, self.prev_fts, self.intrinsic_matrix, method=cv2.RANSAC, prob= 0.999, threshold=1.0)
+        E, mask = cv2.findEssentialMat(self.cur_fts, self.prev_fts, self.intrinsic_matrix, method=cv2.RANSAC,
+                                       prob=0.999, threshold=1.0)
 
         # Recover pose, meaning rotation and translation
         _, self.cur_r, self.cur_t, mask = cv2.recoverPose(E, self.cur_fts, self.prev_fts, self.intrinsic_matrix)
@@ -229,7 +223,6 @@ class VisualOdometry:
         # Update points
         self.prev_fts = self.cur_fts
         self.last_cloud = self.new_cloud
-
 
     def process_frame(self, frame_id):
         """ Processes general frames
@@ -260,7 +253,8 @@ class VisualOdometry:
             return
 
         # If we don't skip, continue normally
-        E, mask = cv2.findEssentialMat(self.cur_fts, self.prev_fts, self.intrinsic_matrix, method=cv2.RANSAC, prob= 0.999, threshold=1.0)
+        E, mask = cv2.findEssentialMat(self.cur_fts, self.prev_fts, self.intrinsic_matrix, method=cv2.RANSAC,
+                                       prob=0.999, threshold=1.0)
 
         # Recover pose, meaning rotation and translation
         _, r, t, mask = cv2.recoverPose(E, self.cur_fts, self.prev_fts, self.intrinsic_matrix)
@@ -293,7 +287,6 @@ class VisualOdometry:
         self.prev_fts = self.cur_fts
         self.last_cloud = self.new_cloud
 
-
     def detect_new_features(self, img):
         """ Detect features using selected detector
         """
@@ -305,7 +298,6 @@ class VisualOdometry:
             feature_pts = np.array([x.pt for x in feature_pts], dtype=np.float32)
 
         return feature_pts
-
 
     def KLT_featureTracking(self, prev_img, cur_img, prev_fts):
         """Feature tracking using the Kanade-Lucas-Tomasi tracker.
@@ -321,7 +313,8 @@ class VisualOdometry:
         # Error Management
         if len(d) == 0:
             self.logger.warning('No point correspondance.')
-        elif list(good).count(True) <= 5:  # If less than 5 good points, it uses the features obtain without the backtracking check
+        elif list(good).count(
+                True) <= 5:  # If less than 5 good points, it uses the features obtain without the backtracking check
             self.logger.warning('Few point correspondances')
             return kp1, kp2, MIN_MATCHING_DIFF
 
@@ -412,13 +405,15 @@ class VisualOdometry:
         self.ax_cur, self.ay_cur, self.az_cur = self.cf.integrate(ts_prev, ts_cur)
 
         # Scale
-        scale = np.sqrt((self.ax_cur - self.ax_prev)**2 + (self.ay_cur - self.ay_prev)**2 + (self.az_cur - self.az_prev)**2)
+        scale = np.sqrt(
+            (self.ax_cur - self.ax_prev) ** 2 + (self.ay_cur - self.ay_prev) ** 2 + (self.az_cur - self.az_prev) ** 2)
 
         return scale
 
+
 class ComplementaryFilter:
     # https://www.mdpi.com/1424-8220/15/8/19302/htm
-    def __init__(self, ALPHA = 0.4):
+    def __init__(self, ALPHA=0.4):
         self.last_frame = None
         self.current_frame = {"ax": 0.0, "ay": 0.0, "az": 0.0, "gx": 0.0, "gy": 0.0, "gz": 0.0, "ts": 0}
         self.alpha = ALPHA
@@ -465,7 +460,7 @@ class ComplementaryFilter:
         else:
             self.last_frame = self.current_frame
             self.current_frame = frame
-            dt_s = (self.last_frame["ts"] - self.current_frame["ts"])/1000.0
+            dt_s = (self.last_frame["ts"] - self.current_frame["ts"]) / 1000.0
 
             # Normalized accelerations, - frame.az is needed so that roll is not at 180 degrees
             a_l = np.array([frame["ax"], frame["ay"], -frame["az"]])
@@ -473,11 +468,11 @@ class ComplementaryFilter:
             a_l /= a_l_norm
 
             # PREDICTION
-            w_q_l = np.array([0.0, frame["gx"], frame["gy"], frame["gz"]])*DEG_TO_RAD
+            w_q_l = np.array([0.0, frame["gx"], frame["gy"], frame["gz"]]) * DEG_TO_RAD
             w_q_l /= np.linalg.norm(w_q_l)
 
             # Gyro based attitude velocity of global frame with respect to local frame
-            q_w_dot_g_l = quaternion_multiply(-0.5*w_q_l, self.q_g_l)
+            q_w_dot_g_l = quaternion_multiply(-0.5 * w_q_l, self.q_g_l)
 
             # Gyro based attitude
             q_w_g_l = self.q_g_l + q_w_dot_g_l * dt_s
@@ -495,7 +490,8 @@ class ComplementaryFilter:
             # Compute delta q acc
             gx, gy, gz = g_predicted_g
             gz_1 = gz + 1.0
-            delta_q_acc = np.array([math.sqrt(gz_1/2.0), -gy/math.sqrt(2.0*gz_1), gx/math.sqrt(2.0*gz_1), 0.0])
+            delta_q_acc = np.array(
+                [math.sqrt(gz_1 / 2.0), -gy / math.sqrt(2.0 * gz_1), gx / math.sqrt(2.0 * gz_1), 0.0])
             delta_q_acc_norm = np.linalg.norm(delta_q_acc)
 
             delta_q_acc /= delta_q_acc_norm
@@ -506,9 +502,10 @@ class ComplementaryFilter:
             omega = delta_q_acc[0]
 
             if omega > LERP_THRESHOLD:
-                delta_q_acc_hat = (1.0 - self.alpha)*q_identity + self.alpha*delta_q_acc
+                delta_q_acc_hat = (1.0 - self.alpha) * q_identity + self.alpha * delta_q_acc
             else:
-                delta_q_acc_hat = math.sin((1.0 - self.alpha)*omega)/math.sin(omega)*q_identity + math.sin(self.alpha*omega)/math.sin(omega)*delta_q_acc
+                delta_q_acc_hat = math.sin((1.0 - self.alpha) * omega) / math.sin(omega) * q_identity + math.sin(
+                    self.alpha * omega) / math.sin(omega) * delta_q_acc
 
             delta_q_acc_hat_norm = np.linalg.norm(delta_q_acc_hat)
             delta_q_acc_hat /= delta_q_acc_hat_norm
@@ -518,34 +515,36 @@ class ComplementaryFilter:
 
             error = abs(np.linalg.norm(np.array([frame["ax"], frame["ay"], frame["az"]])) - G_ACCEL) / G_ACCEL
             if error < ERROR_T_LOW:
-                self.alpha = ALPHA_BAR*1.0
+                self.alpha = ALPHA_BAR * 1.0
             elif error < ERROR_T_HIGH:
-                self.alpha = ALPHA_BAR*error/(ERROR_T_HIGH - ERROR_T_LOW)
+                self.alpha = ALPHA_BAR * error / (ERROR_T_HIGH - ERROR_T_LOW)
             else:
                 self.alpha = 0.0
 
             local_gravity = quaternion_apply(self.q_g_l, [0, 0, 1])[1:] * G_ACCEL
 
-            new_frame_corrected = {"ax": frame["ax"] - local_gravity[0], "ay": frame["ay"] - local_gravity[1], "az": frame["az"] - local_gravity[2], "ts": frame["ts"]}
+            new_frame_corrected = {"ax": frame["ax"] - local_gravity[0], "ay": frame["ay"] - local_gravity[1],
+                                   "az": frame["az"] - local_gravity[2], "ts": frame["ts"]}
             self.frames_corrected.append(new_frame_corrected)
+
 
 # Quaternion multiply according to Valenti, 2015
 def quaternion_multiply(p, q):
     p0, p1, p2, p3 = p
     q0, q1, q2, q3 = q
-    output = np.array([p0*q0 - p1*q1 - p2*q2 - p3*q3,
-                       p0*q1 + p1*q0 + p2*q3 - p3*q2,
-                       p0*q2 - p1*q3 + p2*q0 + p3*q1,
-                       p0*q3 + p1*q2 - p2*q1 + p3*q0], dtype=np.float64)
+    output = np.array([p0 * q0 - p1 * q1 - p2 * q2 - p3 * q3,
+                       p0 * q1 + p1 * q0 + p2 * q3 - p3 * q2,
+                       p0 * q2 - p1 * q3 + p2 * q0 + p3 * q1,
+                       p0 * q3 + p1 * q2 - p2 * q1 + p3 * q0], dtype=np.float64)
     output /= np.linalg.norm(output)
     return output
 
 
 def quaternion_R(q):
     q0, q1, q2, q3 = q
-    R = np.array([[q0**2 + q1**2 - q2**2 - q3**2, 2.0*(q1*q2 - q0*q3), 2.0*(q1*q3 + q0*q2)],
-                  [2.0*(q1*q2 + q0*q3), q0**2 - q1**2 + q2**2 - q3**2, 2.0*(q2*q3 - q0*q1)],
-                  [2.0*(q1*q3 - q0*q2), 2.0*(q2*q3 + q0*q1), q0**2 - q1**2 - q2**2 + q3**2]])
+    R = np.array([[q0 ** 2 + q1 ** 2 - q2 ** 2 - q3 ** 2, 2.0 * (q1 * q2 - q0 * q3), 2.0 * (q1 * q3 + q0 * q2)],
+                  [2.0 * (q1 * q2 + q0 * q3), q0 ** 2 - q1 ** 2 + q2 ** 2 - q3 ** 2, 2.0 * (q2 * q3 - q0 * q1)],
+                  [2.0 * (q1 * q3 - q0 * q2), 2.0 * (q2 * q3 + q0 * q1), q0 ** 2 - q1 ** 2 - q2 ** 2 + q3 ** 2]])
     return R
 
 
@@ -559,8 +558,10 @@ def quaternion_conjugate(quaternion):
     w, x, y, z = quaternion
     return np.array([w, -x, -y, -z])
 
+
 def quaternion_to_euler(quaternion, degrees=True):
     return Rotation.from_quat(quaternion).as_euler('zyx', degrees=degrees)
+
 
 def euler_to_quaternion(euler, degrees=True):
     return Rotation.from_euler('zyx', euler, degrees=degrees).as_quat()
