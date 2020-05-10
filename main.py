@@ -1,13 +1,21 @@
 from argparse import ArgumentParser
 import logging
+import platform
 
 from people_guidance.pipeline import Pipeline
 from people_guidance.utils import init_logging
 
+# Need to fix this properly
+is_rpi: bool = platform.uname().machine == 'armv7l'
+
 from people_guidance.modules.drivers_module import DriversModule
-from people_guidance.modules.visual_odometry_module import VisualOdometryModule
-from people_guidance.modules.visualization_module import VisualizationModule
-from people_guidance.modules.reprojection_module import ReprojectionModule
+
+if not is_rpi:
+    from people_guidance.modules.feature_tracking_module import FeatureTrackingModule
+    from people_guidance.modules.position_estimation_module import PositionEstimationModule
+    from people_guidance.modules.visualization_module import VisualizationModule
+    from people_guidance.modules.reprojection_module import ReprojectionModule
+    from people_guidance.modules.position_module import PositionModule
 
 
 if __name__ == '__main__':
