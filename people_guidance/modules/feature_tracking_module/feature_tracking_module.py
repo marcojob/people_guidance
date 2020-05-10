@@ -1,17 +1,16 @@
 import pathlib
+import platform
+from typing import Tuple
+
 import cv2
 import numpy as np
 
-from time import sleep
-from scipy.spatial.transform import Rotation
-from typing import Tuple
+from ..module import Module
 
-from people_guidance.modules.module import Module
-from people_guidance.utils import project_path
-
-# Need this to get cv imshow working on Ubuntu 20.04
-import gi
-gi.require_version('Gtk', '2.0')
+if "Linux" in platform.system():
+    # Need this to get cv imshow working on Ubuntu 20.04
+    import gi
+    gi.require_version('Gtk', '2.0')
 
 
 class FeatureTrackingModule(Module):
