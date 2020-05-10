@@ -11,7 +11,6 @@ is_rpi: bool = platform.uname().machine == 'armv7l'
 from people_guidance.modules.drivers_module import DriversModule
 
 if not is_rpi:
-    from people_guidance.modules.feature_tracking_module import FeatureTrackingModule
     from people_guidance.modules.visualization_module import VisualizationModule
     from people_guidance.modules.reprojection_module import ReprojectionModule
     from people_guidance.modules.visual_odometry_module import VisualOdometryModule
