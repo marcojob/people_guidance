@@ -1,7 +1,6 @@
 import re
 import cv2
 import numpy as np
-import pickle
 
 from pathlib import Path
 
@@ -68,10 +67,5 @@ if __name__ == '__main__':
             print(f"Progress: {cnt} / {len(img_list)}\r", end='')
 
     img_shape = (1640, 1232)
-    ret, mtx, dist_coeffs, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, img_shape,None,None)
-
-    calib_dict = {"intrinsic_matrix": mtx, "distortion_coeffs": dist_coeffs}
-    print(calib_dict)
-    pickle_out = open("calib.pickle", "wb")
-    pickle.dump(calib_dict, pickle_out)
-    pickle_out.close()
+    ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, img_shape,None,None)
+    print(mtx)

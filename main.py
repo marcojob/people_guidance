@@ -6,7 +6,10 @@ from people_guidance.pipeline import Pipeline
 from people_guidance.utils import init_logging
 
 # Need to fix this properly
-is_rpi: bool = platform.uname().machine == 'armv7l'
+if platform.uname().machine == 'armv7l':
+    is_rpi = True
+else:
+    is_rpi = False
 
 from people_guidance.modules.drivers_module import DriversModule
 
@@ -16,6 +19,7 @@ if not is_rpi:
     from people_guidance.modules.visualization_module import VisualizationModule
     from people_guidance.modules.reprojection_module import ReprojectionModule
     from people_guidance.modules.position_module import PositionModule
+
 
 
 if __name__ == '__main__':
@@ -46,17 +50,20 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    pipeline = Pipeline(args, log_level=logging.WARNING)
+    pipeline = Pipeline(args, log_level=logging.INFO)
 
     # Handles hardware drivers and interfaces
     pipeline.add_module(DriversModule, log_level=logging.WARNING)
 
     if not args.record:
-        # Handles visual odometry
-        pipeline.add_module(VisualOdometryModule, log_level=logging.DEBUG)
+        # Handles IMU data to compute a position estimation
+        pipeline.add_module(PositionModule, log_level=logging.WARNING)
 
-        # Reprojection module
-        pipeline.add_module(ReprojectionModule, log_level=logging.DEBUG)
+        # Handles feature tracking
+        pipeline.add_module(FeatureTrackingModule, log_level=logging.WARNING)
+
+        # Handles reprojection
+        pipeline.add_module(ReprojectionModule, log_level=logging.WARNING)
 
         # If argument is specified we start visualization
         if args.visualize:
