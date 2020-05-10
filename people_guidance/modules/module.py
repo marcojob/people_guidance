@@ -7,7 +7,7 @@ import time
 
 from typing import Optional, Any, Dict, List, Tuple, Callable, Union
 
-from ..utils import get_logger, INTRINSIC_MATRIX, DISTORTION_COEFFS
+from ..utils import get_logger, INTRINSIC_MATRIX
 
 
 class ModuleService:
@@ -54,8 +54,6 @@ class Module:
 
         self.intrinsic_matrix = INTRINSIC_MATRIX
 
-        self.distortion_coeffs = DISTORTION_COEFFS
-
     def subscribe(self, channel: str, queue_obj: mp.Queue):
         return self.inputs.update({channel: queue_obj})
 
@@ -81,16 +79,8 @@ class Module:
         # If the queue is empty we return an empty dict, error handling should be done after
 
         def is_valid(msg_body_item: Dict):
-            valid = msg_body_item is not None and msg_body_item['timestamp'] + \
+            return msg_body_item is not None and msg_body_item['timestamp'] + \
                    msg_body_item['validity'] > self.get_time_ms()
-
-            if valid:
-                return True
-
-            if not valid and msg_body_item['validity'] == -1:
-                return True
-            else:
-                return False
 
         try:
             msg_body = None

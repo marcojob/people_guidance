@@ -23,7 +23,7 @@ if RPI:
 class DriversModule(Module):
     def __init__(self, log_dir: Path, args=None):
         super(DriversModule, self).__init__(name="drivers_module",
-                                            outputs=[("images", 1500),
+                                            outputs=[("images", 10),
                                                      ("accelerations", 100), ("accelerations_vis", 100)],
                                             inputs=[], log_dir=log_dir)
         self.args = args
@@ -175,6 +175,7 @@ class DriversModule(Module):
                     # No more imgs, exit
                     if not img_str:
                         self.logger.warning("Replay file empty, exiting")
+                        raise SystemExit("Replay file empty: Exited with code 0")
 
                     out = re.search(r'([0-9]*): ([0-9]*)', img_str)
                     if out:
@@ -191,9 +192,9 @@ class DriversModule(Module):
                             self.img_data_file = fp.read()
 
                 # If the relative time is correct, we publish the data
+
                 if self.img_timestamp and self.get_time_ms() - self.replay_start_timestamp > self.img_timestamp - self.img_first_timestamp:
-                    sleep(0.1)
-                    self.publish("images", {"data": self.img_data_file, "timestamp": self.img_timestamp}, -1)
+                    self.publish("images", {"data": self.img_data_file, "timestamp": self.img_timestamp}, IMAGES_VALIDITY_MS)
 
                     # Reset the timestamp so that a new dataset is read
                     self.img_timestamp = None
