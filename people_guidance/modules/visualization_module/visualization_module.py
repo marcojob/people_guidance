@@ -113,11 +113,8 @@ class VisualizationModule(Module):
                 matches = features["data"]["point_pairs"]
                 preview = features["data"]["img"]
 
-                img_dec = cv2.imdecode(np.frombuffer(
-                        preview, dtype=np.int8), flags=cv2.IMREAD_COLOR)
-
                 # Draw matches onto image
-                self.data_dict["preview"] = self.draw_matches(img_dec, matches)
+                self.data_dict["preview"] = self.draw_matches(preview, matches)
 
                 try:
                     self.animate_preview()
@@ -219,7 +216,7 @@ class VisualizationModule(Module):
             ax_list["pos"].figure.canvas.draw_idle()
 
     def draw_matches(self, img, matches):
-        RADIUS = 15
+        RADIUS = 5
         THICKNESS = 3
         if matches is not None:
             shape = matches.shape

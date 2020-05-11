@@ -1,6 +1,8 @@
 import io
 import platform
 import re
+import cv2
+import numpy as np
 from queue import Queue
 from time import sleep, monotonic
 from statistics import median
@@ -189,12 +191,24 @@ class DriversModule(Module):
                         img_file_path = self.files_dir / 'imgs' / img_filename
 
                         with open(img_file_path, 'rb') as fp:
-                            self.img_data_file = fp.read()
+                            img_data_file = fp.read()
+
+                        # Decode image
+                        self.img = cv2.imdecode(np.frombuffer(img_data_file, dtype=np.int8), flags=cv2.IMREAD_COLOR)
+
+                        # Undistort image
+                        if UNDISTORT_IMAGE:
+                            self.img = cv2.undistort(self.img, self.intrinsic_matrix, self.distortion_coeffs)
+
+                        # Resize image
+                        if RESIZE_IMAGE:
+                            self.img = cv2.resize(self.img, RESIZED_IMAGE)
+
 
                 # If the relative time is correct, we publish the data
 
                 if self.img_timestamp and self.get_time_ms() - self.replay_start_timestamp > self.img_timestamp - self.img_first_timestamp:
-                    self.publish("images", {"data": self.img_data_file, "timestamp": self.img_timestamp}, IMAGES_VALIDITY_MS)
+                    self.publish("images", {"data": self.img, "timestamp": self.img_timestamp}, IMAGES_VALIDITY_MS)
 
                     # Reset the timestamp so that a new dataset is read
                     self.img_timestamp = None
