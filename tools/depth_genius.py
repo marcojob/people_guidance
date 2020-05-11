@@ -1,15 +1,18 @@
 from pathlib import Path
+from typing import Optional, Tuple
 
 import numpy as np
+import cv2
 from PIL import Image
 
 
 class DepthGenius:
-    def __init__(self, dataset_name, dataset_dir, resize_size = None):
+    def __init__(self, dataset_name, dataset_dir, resize_size=None):
         self.dataset_name = dataset_name
         self.dataset_dir = dataset_dir
 
         self.truth_timestamps = []
+        self.resize_size: Optional[Tuple[int, int]] = resize_size
         self.truth_fpaths = []
         with open(self.dataset_dir / "depth.txt") as fp:
             # 11873.252219439 depth/11873.252219.png
@@ -42,6 +45,8 @@ class DepthGenius:
 
     def load_depth_from_fpath(self, fpath: str):
         arr = np.array(Image.open(self.dataset_dir / fpath))
+        if self.resize_size is not None:
+            arr = cv2.resize(arr, self.resize_size)
         return arr
 
     @staticmethod
