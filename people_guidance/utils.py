@@ -1,6 +1,8 @@
 import pathlib
 import logging
 import os
+from typing import Dict, List, Union
+
 import numpy as np
 
 import coloredlogs
@@ -22,7 +24,6 @@ def init_logging() -> None:
     logging.basicConfig(level=logging.DEBUG)
 
 
-
 def get_logger(name: str, log_dir: pathlib.Path, level=logging.DEBUG):
     logger = logging.getLogger(name)
     logfile = log_dir / f"{name}_{os.getpid()}.log"
@@ -35,3 +36,27 @@ def get_logger(name: str, log_dir: pathlib.Path, level=logging.DEBUG):
     logger.addHandler(fh)
 
     return logger
+
+
+def normalize(v: np.array) -> np.array:
+    # normalizes a vector
+    norm = np.linalg.norm(v)
+    if norm == 0:
+        return v
+    else:
+        return v / norm
+
+
+class MovingAverageFilter:
+    def __init__(self):
+        self.keys: Dict[str, List] = {}
+
+    def __call__(self, key: str, value: Union[int, float], window_size: int = 5):
+        if key not in self.keys:
+            self.keys[key] = [value]
+        else:
+            self.keys[key].append(value)
+            while len(self.keys[key]) > window_size:
+                self.keys[key].pop(0)
+
+        return float(sum(self.keys[key]) / len(self.keys[key]))
