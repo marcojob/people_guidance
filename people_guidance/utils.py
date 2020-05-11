@@ -1,6 +1,8 @@
 import pathlib
 import logging
 import os
+from typing import Dict, List, Union
+
 import numpy as np
 
 import coloredlogs
@@ -8,7 +10,7 @@ import coloredlogs
 ROOT_DIR = pathlib.Path(__file__).parent.parent
 ROOT_LOG_DIR = ROOT_DIR / "logs"
 ROOT_DATA_DIR = ROOT_DIR / "data"
-DEFAULT_DATASET = ROOT_DATA_DIR / "indoor_dataset_6"
+DEFAULT_DATASET = ROOT_DATA_DIR / "outdoor_dataset_18"
 
 INTRINSIC_MATRIX = np.array([[1.29168322e+03, 0.0, 8.10433936e+02], [0.0, 1.29299333e+03, 6.15008893e+02], [0.0, 0.0, 1.0]])
 DISTORTION_COEFFS = np.array([[ 0.1952957 , -0.48124548, -0.00223218, -0.00106617,  0.2668875]])
@@ -20,7 +22,6 @@ def project_path(relative_path: str) -> pathlib.Path:
 
 def init_logging() -> None:
     logging.basicConfig(level=logging.DEBUG)
-
 
 
 def get_logger(name: str, log_dir: pathlib.Path, level=logging.DEBUG):
@@ -35,3 +36,27 @@ def get_logger(name: str, log_dir: pathlib.Path, level=logging.DEBUG):
     logger.addHandler(fh)
 
     return logger
+
+
+def normalize(v: np.array) -> np.array:
+    # normalizes a vector
+    norm = np.linalg.norm(v)
+    if norm == 0:
+        return v
+    else:
+        return v / norm
+
+
+class MovingAverageFilter:
+    def __init__(self):
+        self.keys: Dict[str, List] = {}
+
+    def __call__(self, key: str, value: Union[int, float], window_size: int = 5):
+        if key not in self.keys:
+            self.keys[key] = [value]
+        else:
+            self.keys[key].append(value)
+            while len(self.keys[key]) > window_size:
+                self.keys[key].pop(0)
+
+        return float(sum(self.keys[key]) / len(self.keys[key]))
