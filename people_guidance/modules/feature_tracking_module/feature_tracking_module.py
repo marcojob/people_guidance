@@ -1,6 +1,7 @@
 import pathlib
 import cv2
 import numpy as np
+import platform
 
 from time import sleep
 from scipy.spatial.transform import Rotation
@@ -10,8 +11,9 @@ from people_guidance.modules.module import Module
 from people_guidance.utils import project_path
 
 # Need this to get cv imshow working on Ubuntu 20.04
-import gi
-gi.require_version('Gtk', '2.0')
+if "Linux" in platform.system():
+    import gi
+    gi.require_version('Gtk', '2.0')
 
 
 class FeatureTrackingModule(Module):
@@ -63,46 +65,45 @@ class FeatureTrackingModule(Module):
 
                 img = cv2.imdecode(np.frombuffer(img_encoded, dtype=np.int8), flags=cv2.IMREAD_GRAYSCALE)
 
-                for i in range(2):
-                    keypoints, descriptors = self.extract_feature_descriptors(img, i)
+                keypoints, descriptors = self.extract_feature_descriptors(img)
 
-                    # only do feature matching if there were keypoints found in the new image, discard it otherwise
-                    if len(keypoints) == 0:
-                        self.logger.warn(f"Didn't find any features in image with timestamp {timestamp}, skipping...")
-                    else:
-                        if self.old_descriptors is not None:  # skip the matching step for the first image
-                            # match the feature descriptors of the old and new image
+                # only do feature matching if there were keypoints found in the new image, discard it otherwise
+                if len(keypoints) == 0:
+                    self.logger.warn(f"Didn't find any features in image with timestamp {timestamp}, skipping...")
+                else:
+                    if self.old_descriptors is not None:  # skip the matching step for the first image
+                        # match the feature descriptors of the old and new image
 
-                            inliers, delta_positions, total_nr_matches = self.match_features(keypoints, descriptors)
+                        inliers, delta_positions, total_nr_matches = self.match_features(keypoints, descriptors)
 
-                            if total_nr_matches == 0:
-                                # there were 0 inliers found, print a warning
-                                self.logger.warn("Couldn't find enough matching features in the images with timestamps: " +
-                                                f"{self.old_timestamp} and {timestamp}")
-                            else:
-                                visualization_img = self.visualize_matches(img, keypoints, inliers, total_nr_matches)
-                                #visualization_img = cv2.resize(visualization_img, None, fx=0.85, fy=0.85)
+                        if total_nr_matches == 0:
+                            # there were 0 inliers found, print a warning
+                            self.logger.warn("Couldn't find enough matching features in the images with timestamps: " +
+                                            f"{self.old_timestamp} and {timestamp}")
+                        else:
+                            visualization_img = self.visualize_matches(img, keypoints, inliers, total_nr_matches)
+                            #visualization_img = cv2.resize(visualization_img, None, fx=0.85, fy=0.85)
 
-                                self.publish("feature_point_pairs",
-                                                {"camera_positions" : delta_positions,
-                                                "image": visualization_img,
-                                                "point_pairs": inliers,
-                                                "timestamp_pair": (self.old_timestamp, timestamp)},
-                                                1000)
-                                self.publish("feature_point_pairs_vis",
-                                                {"point_pairs": inliers,
-                                                "img": img_encoded,
-                                                "timestamp": timestamp},
-                                                1000)
+                            self.publish("feature_point_pairs",
+                                            {"camera_positions" : delta_positions,
+                                            "image": visualization_img,
+                                            "point_pairs": inliers,
+                                            "timestamp_pair": (self.old_timestamp, timestamp)},
+                                            1000)
+                            self.publish("feature_point_pairs_vis",
+                                            {"point_pairs": inliers,
+                                            "img": img_encoded,
+                                            "timestamp": timestamp},
+                                            1000)
 
-                        # store the date of the new image as old_img... for the next iteration
-                        # If there are no features found in the new image this step is skipped
-                        # This means that the next image will be compared witht he same old image again
-                        self.old_timestamp = timestamp
-                        self.old_keypoints = keypoints
-                        self.old_descriptors = descriptors
+                    # store the date of the new image as old_img... for the next iteration
+                    # If there are no features found in the new image this step is skipped
+                    # This means that the next image will be compared witht he same old image again
+                    self.old_timestamp = timestamp
+                    self.old_keypoints = keypoints
+                    self.old_descriptors = descriptors
 
-    def extract_feature_descriptors(self, img: np.ndarray, method: int) -> (list, np.ndarray):
+    def extract_feature_descriptors(self, img: np.ndarray) -> (list, np.ndarray):
         keypoints = None
         descriptors = None
 
