@@ -55,11 +55,8 @@ class VisualOdometryModule(Module):
             img_dict = self.get("drivers_module:images")
             if img_dict:
                 # Convert img to grayscale
-                img_encoded = img_dict["data"]["data"]
-                img = cv2.imdecode(np.frombuffer(img_encoded, dtype=np.int8), flags=cv2.IMREAD_GRAYSCALE)
-
-                # Undistort image
-                img = cv2.undistort(img, self.intrinsic_matrix, self.distortion_coeffs)
+                img_rgb = img_dict["data"]["data"]
+                img = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
 
                 # Apply CLAHE filter
                 clahe = cv2.createCLAHE(clipLimit=5.0)
@@ -92,7 +89,7 @@ class VisualOdometryModule(Module):
 
                     self.publish("features_vis",
                                 {"point_pairs": point_pairs,
-                                 "img": img_encoded,
+                                 "img": img_rgb,
                                  "cloud": vo.new_cloud,
                                  "timestamp": timestamp}, 1000)
 

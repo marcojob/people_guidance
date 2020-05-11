@@ -115,11 +115,8 @@ class VisualizationModule(Module):
                 preview = features["data"]["img"]
                 cloud = features["data"]["cloud"]
 
-                img_dec = cv2.imdecode(np.frombuffer(
-                        preview, dtype=np.int8), flags=cv2.IMREAD_COLOR)
-
                 # Draw matches onto image
-                self.data_dict["preview"] = self.draw_matches(img_dec, matches)
+                self.data_dict["preview"] = self.draw_matches(preview, matches)
 
                 try:
                     self.animate_preview()

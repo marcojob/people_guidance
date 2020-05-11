@@ -8,7 +8,7 @@ General helper definition
 
 # VisualOdemetry class helpers
 
-DETECTOR = 'FAST' # Can be either FAST, SIFT, SURF, SHI-TOMASI
+DETECTOR = 'SURF' # Can be either FAST, SIFT, SURF, SHI-TOMASI
 
 STAGE_FIRST = 0 # First stage: first image
 STAGE_SECOND = 1 # Second stage: second image found
