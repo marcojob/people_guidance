@@ -120,7 +120,8 @@ class VisualOdometry:
                        'FAST': cv2.FastFeatureDetector_create(threshold=25, nonmaxSuppression=True),
                        'SIFT': cv2.xfeatures2d.SIFT_create(MAX_NUM_FEATURES),
                        'SURF': cv2.xfeatures2d.SURF_create(MAX_NUM_FEATURES),
-                       'SHI-TOMASI': 'SHI-TOMASI'}
+                       'SHI-TOMASI': 'SHI-TOMASI',
+                       'ORB': cv2.ORB_create(nfeatures=MAX_NUM_FEATURES)}
         self.detector = avail_detectors[detector]
 
         self.new_frame = None
