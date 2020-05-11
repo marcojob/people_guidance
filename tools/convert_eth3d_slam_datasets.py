@@ -1,8 +1,9 @@
 from pathlib import Path
 from PIL import Image
 from tqdm import tqdm
+import shutil
 
-from tools.download_eth3d_slam_datasets import download_dataset_for_conversion
+from download_eth3d_slam_datasets import download_dataset_for_conversion
 
 ROOT_DIR = Path(__file__).parent.resolve()
 
@@ -58,3 +59,8 @@ if __name__ == '__main__':
                     line = f"{convert_s_to_ms(frame[0])}: accel_x: {frame[4]}, accel_y: {frame[5]}, " \
                            f"accel_z: {frame[6]}, gyro_x: {frame[1]}, gyro_y: {frame[2]}, gyro_z: {frame[3]}\n"
                     out_fp.write(line)
+
+    # copy the depth images
+    shutil.copytree(dataset_dir / "depth", converted_dataset_dir / "depth")
+    shutil.copy(dataset_dir / "depth.txt", converted_dataset_dir / "depth.txt")
+
