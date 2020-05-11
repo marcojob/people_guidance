@@ -216,7 +216,7 @@ class VisualizationModule(Module):
             ax_list["pos"].figure.canvas.draw_idle()
 
     def draw_matches(self, img, matches):
-        RADIUS = 15
+        RADIUS = 5
         THICKNESS = 3
         if matches is not None:
             shape = matches.shape
