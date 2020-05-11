@@ -8,22 +8,10 @@ from scipy.spatial.transform import Rotation
 from math import tan, atan2, cos, sin, pi, sqrt, atan, acos
 
 from ..module import Module
-from .helpers import IMUFrame, VOResult, Homography, interpolate_frames, visualize_input_data, visualize_distance_metric
-from .helpers import degree_to_rad, MovingAverageFilter, ComplementaryFilter
-
-
-class Velocity:
-    def __init__(self, x: float = 0.0, y: float = 0.0, z: float= 0.0):
-        self.x: float = x
-        self.y: float = y
-        self.z: float = z
-
-        self.mu = 0.1
-
-    def dampen(self):
-        self.x *= (1-self.mu)
-        self.y *= (1 - self.mu)
-        self.z *= (1 - self.mu)
+from .helpers import IMUFrame, VOResult, Homography, interpolate_frames, visualize_input_data, \
+    visualize_distance_metric
+from .helpers import degree_to_rad, MovingAverageFilter, ComplementaryFilter, Velocity
+from .helpers import rotMat_to_anlgeAxis, quat_to_rotMat, rotMat_to_ypr
 
 
 class PositionModule(Module):
@@ -36,10 +24,11 @@ class PositionModule(Module):
 
         self.vo_buffer: List[VOResult] = []
         self.imu_buffer: List[IMUFrame] = []
-        self.velocity = Velocity()
 
         self.avg_filter = MovingAverageFilter()
         self.complementary_filter = ComplementaryFilter()
+
+        self.velocity = Velocity()
 
     def start(self):
         while True:
@@ -48,7 +37,6 @@ class PositionModule(Module):
             self.predict_relative_pose()
 
     def get_inputs(self):
-
         vo_payload: Dict = self.get("feature_tracking_module:feature_point_pairs")
         if vo_payload:
             self.vo_buffer.append(self.vo_result_from_payload(vo_payload))
@@ -61,7 +49,6 @@ class PositionModule(Module):
 
     def imu_frame_from_payload(self, payload: Dict) -> IMUFrame:
         # In Camera coordinates: X = -Z_IMU, Y = Y_IMU, Z = X_IMU (90° rotation around the Y axis)
-
         frame = IMUFrame(
             ax=self.avg_filter("ax", -float(payload['data']['accel_z']), 10), # m/s ** 2
             ay=self.avg_filter("ay", float(payload['data']['accel_y']), 10),
@@ -69,11 +56,13 @@ class PositionModule(Module):
             gx=self.avg_filter("gx", -degree_to_rad(float(payload['data']['gyro_z'])), 10), # input: °/s, output : RAD/s
             gy=self.avg_filter("gy", degree_to_rad(float(payload['data']['gyro_y'])), 10),
             gz=self.avg_filter("gz", degree_to_rad(float(payload['data']['gyro_x'])), 10),
+            quaternion=[1, 0, 0, 0],
             ts=payload['data']['timestamp']
         )
         self.logger.info(f"Input frame from driver : \n{frame}")
 
-        return self.complementary_filter(frame)
+        # Combine Gyro and Accelerometer data to extract the gravity and add the current rotation to *frame*
+        return self.complementary_filter(frame, alpha=0.5)
 
 
     @staticmethod
@@ -154,6 +143,8 @@ class PositionModule(Module):
         #PLOT
         # visualize_input_data(frames)
 
+        # Displacement
+        # TODO rotate the frames before integrating, write the update in original coordinates
         for i in range(1, len(frames)):
             dt = (frames[i].ts - frames[i-1].ts) / 1000
             dt2 = dt * dt
@@ -165,9 +156,18 @@ class PositionModule(Module):
             self.velocity.x = (self.velocity.x + frames[i].ax * dt)
             self.velocity.y = (self.velocity.y + frames[i].ay * dt)
             self.velocity.z = (self.velocity.z + frames[i].az * dt)
+
             self.velocity.dampen()
 
             self.logger.debug(f"pos calculated {pos}")
+
+        # Rotation between the first and last frame
+        rot_first = quat_to_rotMat(frames[0].quaternion)
+        rot_last = quat_to_rotMat(frames[-1].quaternion)
+        # Difference in rotation
+        pos.rotation_matrix = rot_first.T.dot(rot_last)
+        # Extraction of the angle axis from the rotation matrix
+        [pos.roll, pos.pitch, pos.yaw] = rotMat_to_anlgeAxis(pos.rotation_matrix)
 
         return pos
 
@@ -184,82 +184,47 @@ class PositionModule(Module):
         return integration_frames
 
     def choose_nearest_homography(self, vo_result: VOResult, imu_homog: Homography) -> np.array:
-        imu_homog_matrix = imu_homog.as_matrix()
-        best_match = (None, np.inf, None)
-        best_match2 = (None, np.inf, None)
+        imu_homog_matrix = imu_homog.as_Tmatrix()
+        imu_rot = imu_homog_matrix[0:3, 0:3]
+        imu_t_vec = imu_homog_matrix[0:3, 3]
 
-        #THEO
+        best_match = (None, np.inf, None)
+
         for homog in vo_result.homogs:
             k_t = 0.0
-            imu_rot = Rotation.from_matrix(imu_homog_matrix[0:3, 0:3])
-            imu_t_vec = imu_homog_matrix[0:3, 3]
 
             # Correction: Homography gives a result rotated from our camera coordinate frame
+            # TODO check again
             vo_to_camera = np.array([[0, 0, -1], [1, 0, 0], [0, 1, 0]])
+            print(f"vo_to_camera \n{vo_to_camera}")
+            vo_rot = homog[0:3, 0:3]
+            print(f"vo_rot \n{vo_rot}")
+            vo_t_vec = vo_to_camera.dot(homog[0:3, 3])
+            print(f"vo_t_vec \n{vo_t_vec}")
 
-            vo_rot = Rotation.from_euler('xyz', np.dot(vo_to_camera, Rotation.from_matrix(homog[0:3, 0:3]).as_euler('xyz')))
-            vo_t_vec = np.dot(vo_to_camera, homog[0:3, 3])
             # Robot dynamic script p51
-            delta_rot2: Rotation = imu_rot.inv() * vo_rot
-            distance2 = delta_rot2.magnitude() + k_t * np.linalg.norm(imu_t_vec - vo_t_vec)
-            vect_rot2 = delta_rot2.as_rotvec()
+            # Issues for rotation angles close to zero or pi
+            delta_rot = rotMat_to_anlgeAxis(imu_rot.T.dot(vo_rot))
+            distance = np.linalg.norm(delta_rot) + k_t * np.linalg.norm(imu_t_vec - vo_t_vec)
 
-            delta_rot = Rotation.from_matrix(np.dot(imu_homog_matrix[0:3, 0:3], np.transpose(homog[0:3, 0:3])))
-            vect_rot = delta_rot.as_rotvec()
-            distance = np.linalg.norm(vect_rot)
-
-        #MARCO
-        # # Rotate the VO coordinate system (https://docs.opencv.org/2.4/modules/calib3d/doc/camera_calibration_and_3d_reconstruction.html)
-        # vo_rot_coord = Rotation.from_matrix([[0, 0, 1], [-1, 0, 0], [0, -1, 0]])
-        # vo_to_camera = vo_rot_coord.as_matrix()
-        #
-        # for homog in vo_result.homogs:
-        #     k_t = 1
-        #     imu_rot = Rotation.from_matrix(imu_homog_matrix[0:3, 0:3])
-        #     imu_t_vec = imu_homog_matrix[0:3, 3]
-        #     vo_rot = Rotation.from_matrix(homog[0:3, 0:3])
-        #     vo_t_vec = homog[0:3, 3]
-        #     vo_rot = Rotation.from_matrix(homog[0:3, 0:3]) * vo_rot_coord
-        #     vo_t_vec = vo_rot_coord.apply(homog[0:3, 3])
-        #     # Robot dynamic script p51
-        #     delta_rot2: Rotation = imu_rot.inv() * vo_rot
-        #     distance2 = delta_rot2.magnitude() + k_t * np.linalg.norm(imu_t_vec - vo_t_vec)
-        #     vect_rot2 = delta_rot2.as_rotvec()
-        #     delta_rot = Rotation.from_matrix(np.dot(imu_homog_matrix[0:3, 0:3], np.transpose(homog[0:3, 0:3])))
-        #     delta_rot = Rotation.from_matrix(np.dot(vo_rot_coord.apply(imu_homog_matrix[0:3, 0:3]),
-        #                                             np.transpose(vo_rot_coord.apply(homog[0:3, 0:3]))))
-        #     vect_rot = delta_rot.as_rotvec()
-        #     distance = np.linalg.norm(vect_rot)
-
-        #END MARCO THEO
-
-            self.logger.debug(f"VO as euler \n{Rotation.from_matrix(homog[0:3, 0:3]).as_euler('xyz', degrees=True)}")
-            self.logger.debug(f"rotate VO frame by \n{vo_to_camera}")
-            self.logger.debug(f"VO rotated \n{vo_rot.as_euler('xyz', degrees=True)}")
-            self.logger.debug(f"Data from VO: angles: {vo_rot.as_euler('xyz', degrees=True)}, displacement: {vo_t_vec}")
+            # self.logger.debug(f"VO as euler \n{Rotation.from_matrix(homog[0:3, 0:3]).as_euler('xyz', degrees=True)}")
+            # self.logger.debug(f"rotate VO frame by \n{vo_to_camera}")
+            # self.logger.debug(f"VO rotated \n{vo_rot.as_euler('xyz', degrees=True)}")
+            # self.logger.debug(f"Data from VO: angles: {vo_rot.as_euler('xyz', degrees=True)}, displacement: {vo_t_vec}")
 
             if distance < best_match[1]:
                 best_match = (homog, distance, delta_rot)
-                best_match2 = (homog, distance2, delta_rot2)
 
-                vect_rot_norm = np.linalg.norm(vect_rot)
-                vect_rot_direction = vect_rot / vect_rot_norm
-                self.logger.debug(f"new optimal solution: vect_rot_norm {vect_rot_norm}, vect_rot_direction "
-                                    f"{vect_rot_direction}, euler (°) {delta_rot.as_euler('xyz', degrees=True)}, distance {distance}")
-
-        if best_match[1] > 0.5:
-            self.logger.critical(f"Distance too high, distance: {best_match[1]}, euler: {best_match[2].as_euler('xyz', degrees=True)}")
-
-        degrees = True
-        imu_angles = Rotation.from_matrix(imu_homog_matrix[..., :3]).as_euler('xyz', degrees=degrees)
-        vo_angles = Rotation.from_matrix(best_match[0][..., :3]).as_euler("xyz", degrees=degrees)
+        imu_ypr = rotMat_to_ypr(imu_homog_matrix[..., :3])
+        vo_ypr = rotMat_to_ypr(best_match[0][..., :3])
         imu_xyz = str(imu_homog_matrix[..., 3:]).replace("\n", "")
         vo_xyz = str(best_match[0][..., 3:]).replace("\n", "")
         self.logger.info(f"Prediction Offset:\n"
-                         f"IMU angles :{imu_angles}\nVO angles :{vo_angles}, degrees? {degrees}\n"
+                         f"IMU Euler [yaw, pitch, roll] angles :\n{imu_ypr}\nVO angles :\n{vo_ypr}, (RAD)\n"
                          f"IMU pos :{imu_xyz}\nVO pos  :{vo_xyz}")
 
         #PLOT
         # visualize_distance_metric(best_match, best_match2, degrees, imu_angles, vo_angles)
 
         return best_match[0]
+

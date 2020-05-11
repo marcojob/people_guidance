@@ -12,7 +12,7 @@ from .cam import CameraPygame
 
 from math import atan2, sqrt, cos, sin
 
-IMUFrame = collections.namedtuple("IMUFrame", ["ax", "ay", "az", "gx", "gy", "gz", "ts"])
+IMUFrame = collections.namedtuple("IMUFrame", ["ax", "ay", "az", "gx", "gy", "gz", "quaternion", "ts"])
 VOResult = collections.namedtuple("VOResult", ["homogs", "pairs", "ts0", "ts1", "image"])
 
 DEGREE_TO_RAD = float(pi / 180)
@@ -34,8 +34,21 @@ def interpolate_frames(frame0, frame1, ts: int):
     for key in ["ax", "ay", "az", "gx", "gy", "gz"]:
         value = getattr(frame0, key) + ((getattr(frame1, key) - getattr(frame0, key)) * lever)
         properties[key] = value
+    for key in ["q_w", "q_x", "q_y", "q_z"]:
+        properties[key] = 0.5
+    # TODO: interpolate quaternion
     return IMUFrame(**properties)
 
+class Velocity:
+    def __init__(self, x: float = 0.0, y: float = 0.0, z: float= 0.0):
+        self.x: float = x
+        self.y: float = y
+        self.z: float = z
+
+    def dampen(self, mu=0.95):
+        self.x *= mu
+        self.y *= mu
+        self.z *= mu
 
 class MovingAverageFilter:
     def __init__(self):
@@ -49,14 +62,13 @@ class MovingAverageFilter:
             while len(self.keys[key]) > window_size:
                 self.keys[key].pop(0)
 
-            #implement a median filter taking out the largest n_median values
+            # median filter taking out the largest n_median values
             if median and window_size > n_median * 5:
                 for i in range(n_median):
                     try:
                         self.keys[key].remove(max(abs(self.keys[key])))
                     except:
                         self.keys[key].remove(-max(abs(self.keys[key])))
-
 
         return float(sum(self.keys[key]) / len(self.keys[key]))
 
@@ -65,18 +77,21 @@ class Homography:
     def __init__(self, x: float = 0.0, y: float = 0.0, z: float = 0.0,
                  roll: float = 0.0, pitch: float = 0.0, yaw: float = 0.0,
                  rotation_matrix=np.identity(3)):
+        # acceleration
         self.x: float = x
         self.y: float = y
         self.z: float = z
+        # angle axis
         self.roll: float = roll
         self.pitch: float = pitch
         self.yaw: float = yaw
+        # rotation matrix
         self.rotation_matrix: np.array[float] = rotation_matrix
 
     def __str__(self):
         return f"Homography: (translation ({self.x}, {self.y}, {self.z}), angles ({self.roll}, {self.pitch}, {self.yaw}))"
 
-    def as_matrix(self) -> np.array:
+    def as_Tmatrix(self) -> np.array:
         translation = np.array((self.x, self.y, self.z))
         return np.column_stack((self.rotation_matrix, translation))
 
@@ -110,6 +125,7 @@ class ComplementaryFilter:
                 gx=frame.gx,
                 gy=frame.gy,
                 gz=frame.gz,
+                quaternion=[1, 0, 0, 0],
                 ts=frame.ts
             )
         else:
@@ -207,7 +223,6 @@ class ComplementaryFilter:
             [accel_yaw, accel_pitch, accel_roll] = quat_to_ypr(q_acc)
 
 
-            alpha = 1
             # 3.2 complementary filter considering that the gyro yaw is correct
             # RADIAN
             [yaw, pitch, roll] = np.array([gyro_yaw, gyro_pitch, gyro_roll]) * (1-alpha)  + \
@@ -247,6 +262,7 @@ class ComplementaryFilter:
                 gx=frame.gx,
                 gy=frame.gy,
                 gz=frame.gz,
+                quaternion=self.q_gyro_state,
                 ts=frame.ts
             )
 
@@ -380,6 +396,54 @@ def ypr_to_quat(ypr): # yaw (Z), pitch (Y), roll (X)
 
     return q
 
+def quat_to_rotMat(q):
+    '''
+    :param q: np array representing the quaternion [w, x, y, z].T
+    :return: the rotation matrix
+    '''
+    # Extract the scalar part.
+    quat_w = quat[0]
+
+    # Extract the vector part.
+    quat_n = np.array(quat[1:3])
+
+    # Map the unit quaternion to a rotation matrix.
+    return (2 * quat_w ** 2 - 1) * np.ones(3) + 2.0 * quat_w * skewMatrix(quat_n) + 2.0 * (quat_n.dot(quat_n.T))
+
+def rotMat_to_quaternion(C):
+    '''
+    :param rot: rotation matrix
+    :return: corresponding quaternion [w, x, y, z]
+    '''
+    return 0.5 * np.array([[sqrt((1 + np.trace(C)))],
+    sign(C(3, 2) - C(2, 3)) * sqrt(C(1, 1) - C(2, 2) - C(3, 3) + 1)
+    sign(C(1, 3) - C(3, 1)) * sqrt(C(2, 2) - C(3, 3) - C(1, 1) + 1)
+    sign(C(2, 1) - C(1, 2)) * sqrt(C(3, 3) - C(1, 1) - C(2, 2) + 1)])
+
+def skewMatrix(q_n):
+    return np.array([[0, -q_n[2], q_n[1]],
+                     [q_n[2], 0, -q_n[0]],
+                     [-q_n[1], q_n[0], 0]])
+
+def rotMat_to_anlgeAxis(rot_mat):
+    '''
+    :param rot_mat: a rotation matrix
+    :return: the rotational vector which describes the rotation as np.array
+    '''
+    th = acos(0.5 * (rot_mat[0, 0] + rot_mat[1, 1] + rot_mat[2, 2] - 1))
+
+    if (abs(th) < 0.0000000001): # prevent division by 0 in 1 / (2 * sin(th))
+        n = np.zeros(3, 1)
+    else:
+        n = 1 / (2 * sin(th)) * np.array([rot_mat[2, 1] - rot_mat[1, 2],
+                                          rot_mat[0, 2] - rot_mat[2, 0],
+                                          rot_mat[1, 0] - rot_mat[0, 1]])
+    return th * n
+
+
+def rotMat_to_ypr(rot):
+    q = rotMat_to_quaternion(rot)
+    return quat_to_ypr(q) #[yaw, pitch, roll]
 
 # Quaternion kinematics for the error-state Kalman Filter, Joan Sola, November 8, 2017
 def quaternion_multiply(quaternion1, quaternion2):
