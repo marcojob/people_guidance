@@ -2,6 +2,7 @@ from pathlib import Path
 from PIL import Image
 from tqdm import tqdm
 import shutil
+import numpy as np
 
 from download_eth3d_slam_datasets import download_dataset_for_conversion
 
@@ -10,6 +11,10 @@ ROOT_DIR = Path(__file__).parent.resolve()
 
 def convert_s_to_ms(timestamp):
     return int(timestamp * 1000)
+
+
+def convert_rad_to_degree(rads):
+    return rads * (180 / np.pi)
 
 
 if __name__ == '__main__':
@@ -57,7 +62,8 @@ if __name__ == '__main__':
                     line = line.replace("\n", "")
                     frame = [float(elem) for elem in line.split(" ")]
                     line = f"{convert_s_to_ms(frame[0])}: accel_x: {frame[4]}, accel_y: {frame[5]}, " \
-                           f"accel_z: {frame[6]}, gyro_x: {frame[1]}, gyro_y: {frame[2]}, gyro_z: {frame[3]}\n"
+                           f"accel_z: {frame[6]}, gyro_x: {convert_rad_to_degree(frame[1])}, " \
+                           f"gyro_y: {convert_rad_to_degree(frame[2])}, gyro_z: {convert_rad_to_degree(frame[3])}\n"
                     out_fp.write(line)
 
     # copy the depth images
