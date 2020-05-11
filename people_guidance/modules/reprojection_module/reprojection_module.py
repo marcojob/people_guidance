@@ -17,6 +17,7 @@ class ReprojectionModule(Module):
                                                  log_dir=log_dir)
 
         self.average_filter = MovingAverageFilter()
+        self.use_alignment = False
 
         self.last_update_ts: Optional[float] = None
         self.origin_pm: np.array = np.matmul(self.intrinsic_matrix, np.eye(3, 4))
@@ -84,7 +85,8 @@ class ReprojectionModule(Module):
         alignment_vectors = np.cross(point_vectors, self.forward_direction)
         alignment = np.linalg.norm(alignment_vectors, axis=1, keepdims=False)
 
-        distances *= alignment
+        if self.use_alignment:
+            distances *= alignment
 
         # get the indices of the 10th percentile smallest distances
         n = int(0.1 * distances.shape[0])
