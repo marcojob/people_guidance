@@ -12,6 +12,7 @@ from .helpers import IMUFrame, VOResult, Homography, interpolate_frames, visuali
     visualize_distance_metric
 from .helpers import degree_to_rad, MovingAverageFilter, ComplementaryFilter, Velocity
 from .helpers import rotMat_to_anlgeAxis, quat_to_rotMat, rotMat_to_ypr
+from .helpers import check_correct_rot_mat, normalise_rotation
 
 
 class PositionModule(Module):
@@ -188,19 +189,18 @@ class PositionModule(Module):
         imu_rot = imu_homog_matrix[0:3, 0:3]
         imu_t_vec = imu_homog_matrix[0:3, 3]
 
-        best_match = (None, np.inf, None)
+        best_match = (None, None, np.inf, None)
 
         for homog in vo_result.homogs:
             k_t = 0.0
 
             # Correction: Homography gives a result rotated from our camera coordinate frame
-            # TODO check again
             vo_to_camera = np.array([[0, 0, -1], [1, 0, 0], [0, 1, 0]])
-            print(f"vo_to_camera \n{vo_to_camera}")
             vo_rot = homog[0:3, 0:3]
-            print(f"vo_rot \n{vo_rot}")
+            vo_rot = normalise_rotation(vo_rot)
+            check_correct_rot_mat(vo_rot)
+
             vo_t_vec = vo_to_camera.dot(homog[0:3, 3])
-            print(f"vo_t_vec \n{vo_t_vec}")
 
             # Robot dynamic script p51
             # Issues for rotation angles close to zero or pi
@@ -212,19 +212,19 @@ class PositionModule(Module):
             # self.logger.debug(f"VO rotated \n{vo_rot.as_euler('xyz', degrees=True)}")
             # self.logger.debug(f"Data from VO: angles: {vo_rot.as_euler('xyz', degrees=True)}, displacement: {vo_t_vec}")
 
-            if distance < best_match[1]:
-                best_match = (homog, distance, delta_rot)
+            if distance < best_match[2]:
+                best_match = (vo_rot, vo_t_vec, distance, delta_rot)
 
         imu_ypr = rotMat_to_ypr(imu_homog_matrix[..., :3])
-        vo_ypr = rotMat_to_ypr(best_match[0][..., :3])
+        vo_ypr = rotMat_to_ypr(best_match[0])
         imu_xyz = str(imu_homog_matrix[..., 3:]).replace("\n", "")
-        vo_xyz = str(best_match[0][..., 3:]).replace("\n", "")
-        self.logger.info(f"Prediction Offset:\n"
+        vo_xyz = str(best_match[1]).replace("\n", "")
+        self.logger.warning(f"Prediction Offset:\n"
                          f"IMU Euler [yaw, pitch, roll] angles :\n{imu_ypr}\nVO angles :\n{vo_ypr}, (RAD)\n"
                          f"IMU pos :{imu_xyz}\nVO pos  :{vo_xyz}")
 
         #PLOT
         # visualize_distance_metric(best_match, best_match2, degrees, imu_angles, vo_angles)
 
-        return best_match[0]
+        return np.column_stack((best_match[0], best_match[1]))
 

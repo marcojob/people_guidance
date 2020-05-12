@@ -1,4 +1,5 @@
 import collections
+import sys
 from math import pi, atan, sqrt, sin, cos, tan
 from time import sleep
 from typing import List, Dict, Union
@@ -11,6 +12,7 @@ from scipy.linalg import norm
 from .cam import CameraPygame
 
 from math import atan2, sqrt, cos, sin
+from cmath import acos
 
 IMUFrame = collections.namedtuple("IMUFrame", ["ax", "ay", "az", "gx", "gy", "gz", "quaternion", "ts"])
 VOResult = collections.namedtuple("VOResult", ["homogs", "pairs", "ts0", "ts1", "image"])
@@ -34,9 +36,12 @@ def interpolate_frames(frame0, frame1, ts: int):
     for key in ["ax", "ay", "az", "gx", "gy", "gz"]:
         value = getattr(frame0, key) + ((getattr(frame1, key) - getattr(frame0, key)) * lever)
         properties[key] = value
-    for key in ["q_w", "q_x", "q_y", "q_z"]:
-        properties[key] = 0.5
-    # TODO: interpolate quaternion
+
+    # interpolate quaternion
+    q0 = frame0.quaternion
+    q1 = frame1.quaternion
+    properties["quaternion"] = nlerp(q0, q1, lever)
+
     return IMUFrame(**properties)
 
 class Velocity:
@@ -86,6 +91,8 @@ class Homography:
         self.pitch: float = pitch
         self.yaw: float = yaw
         # rotation matrix
+        # Check if orthogonal and determinant = 1
+        check_correct_rot_mat(rotation_matrix)
         self.rotation_matrix: np.array[float] = rotation_matrix
 
     def __str__(self):
@@ -95,6 +102,19 @@ class Homography:
         translation = np.array((self.x, self.y, self.z))
         return np.column_stack((self.rotation_matrix, translation))
 
+def check_correct_rot_mat(rotation_matrix) -> None:
+    if (np.abs(np.round(rotation_matrix.dot(rotation_matrix.T), 2)) == np.eye(3, 3)).all() and np.round(np.linalg.det(rotation_matrix), 2) == 1:
+        pass
+    else:
+        sys.exit(f'rotation matrix is no orthogonal matrix, {rotation_matrix}, det: {np.linalg.det(rotation_matrix)}, mat: {rotation_matrix.dot(rotation_matrix.T)}')
+
+def normalise_rotation(vo_rot):
+    if (np.round(vo_rot, 3) <= np.ones(3)).all() and (np.round(norm(vo_rot, axis=1), 4) > np.ones((1,3))).any():
+        # re-normalize
+        vo_rot = np.round(vo_rot, 5)
+        for i in range(3):
+            vo_rot[:, i] = vo_rot[:, i] / norm(vo_rot[:, i])
+    return vo_rot
 
 class Pose:
     def __init__(self, roll: float = 0.0, pitch: float = 0.0, yaw: float = 0.0):
@@ -221,18 +241,12 @@ class ComplementaryFilter:
             # 3.1 get the angles
             [gyro_yaw, gyro_pitch, gyro_roll] = quat_to_ypr(self.q_gyro_state)
             [accel_yaw, accel_pitch, accel_roll] = quat_to_ypr(q_acc)
-
-
             # 3.2 complementary filter considering that the gyro yaw is correct
             # RADIAN
             [yaw, pitch, roll] = np.array([gyro_yaw, gyro_pitch, gyro_roll]) * (1-alpha)  + \
                                  np.array([gyro_yaw, accel_pitch, accel_roll]) * alpha
             # 3.3 Save to quaternion and update state
             self.q_gyro_state = ypr_to_quat(ypr=[yaw, pitch, roll])
-
-            # print(f"current gyro data : {gyro}")
-            # print(f"current q_state_gyro : {self.q_state}")
-            # print(f"q_update: {q_gyro}")
 
             # Pygames visualization
             if self.visualize:
@@ -254,7 +268,6 @@ class ComplementaryFilter:
             #Update before returning
             self.last_frame = frame
 
-            # TODO: Use this new pose estimate to remove gravity acc from frame, return the frame.
             return IMUFrame(  # Need to compute that
                 ax=frame.ax - local_gravity[0],
                 ay=frame.ay - local_gravity[1],
@@ -335,39 +348,49 @@ class ComplementaryFilter:
             q_vector[2] = 0
             q_vector[3] = ax / x
 
-        # TODO: subtract the yaw since g does not give any information regarding the yaw
-
         return np.array(q_vector)
 
-    def slerp(self, v0, v1, t_=0):
-        """Spherical linear interpolation.
-        https://en.wikipedia.org/wiki/Slerp
-        """
-        # >>> slerp([1,0,0,0], [0,0,0,1], np.arange(0, 1, 0.001))
-        v0 = np.array(v0)
-        v0 /= norm(v0)
-        v1 = np.array(v1)
-        v1 /= norm(v1)
-        dot = np.sum(v0 * v1)
+def nlerp(v0, v1, t_):
+    '''
+    :param v0: first quaternion as np.array
+    :param v1: second quaternion as np.array
+    :param t_: interpolation coefficient 0: v0, 1: v1
+    lerp([1,0,0,0], [0,0,0,1], 0.2)
+    :return: interpolated and normalised quaternion
+    '''
+    if 0 <= t_ <= 1:
+        q = (1 - t_) * v0 + t_ * v1
+    return q / norm(q)
 
-        if dot < 0.0:
-            v1 = -v1
-            dot = -dot
+def slerp(v0, v1, t_=0):
+    """Spherical linear interpolation.
+    https://en.wikipedia.org/wiki/Slerp
+    """
+    # >>> slerp([1,0,0,0], [0,0,0,1], np.arange(0, 1, 0.001))
+    v0 = np.array(v0)
+    v0 /= norm(v0)
+    v1 = np.array(v1)
+    v1 /= norm(v1)
+    dot = np.sum(v0 * v1)
 
-        DOT_THRESHOLD = 0.9995
-        if dot > DOT_THRESHOLD:
-            result = v0 + t_ * (v1 - v0)
-            return result / norm(result)
+    if dot < 0.0:
+        v1 = -v1
+        dot = -dot
 
-        theta_0 = np.arccos(dot)
-        sin_theta_0 = np.sin(theta_0)
+    DOT_THRESHOLD = 0.9995
+    if dot > DOT_THRESHOLD:
+        result = v0 + t_ * (v1 - v0)
+        return result / norm(result)
 
-        theta = theta_0 * t_
-        sin_theta = np.sin(theta)
+    theta_0 = acos(dot)
+    sin_theta_0 = sin(theta_0)
 
-        s0 = np.cos(theta) - dot * sin_theta / sin_theta_0
-        s1 = sin_theta / sin_theta_0
-        return (s0 * v0) + (s1 * v1)
+    theta = theta_0 * t_
+    sin_theta = sin(theta)
+
+    s0 = cos(theta) - dot * sin_theta / sin_theta_0
+    s1 = sin_theta / sin_theta_0
+    return (s0 * v0) + (s1 * v1)
 
 def quat_to_ypr(q):
     # Output in RAD
@@ -396,19 +419,47 @@ def ypr_to_quat(ypr): # yaw (Z), pitch (Y), roll (X)
 
     return q
 
-def quat_to_rotMat(q):
+def quat_to_rotMat(quat):
     '''
-    :param q: np array representing the quaternion [w, x, y, z].T
+    :param q: np array representing the quaternion [w, x, y, z]
     :return: the rotation matrix
     '''
-    # Extract the scalar part.
-    quat_w = quat[0]
+    quat = quat / norm(quat)
 
-    # Extract the vector part.
-    quat_n = np.array(quat[1:3])
+    x = quat[0]
+    y = quat[1]
+    z = quat[2]
+    w = quat[3]
 
-    # Map the unit quaternion to a rotation matrix.
-    return (2 * quat_w ** 2 - 1) * np.ones(3) + 2.0 * quat_w * skewMatrix(quat_n) + 2.0 * (quat_n.dot(quat_n.T))
+    x2 = x * x
+    y2 = y * y
+    z2 = z * z
+    w2 = w * w
+
+    xy = x * y
+    zw = z * w
+    xz = x * z
+    yw = y * w
+    yz = y * z
+    xw = x * w
+
+    matrix = np.empty((3, 3))
+    
+    matrix[0, 0] = x2 - y2 - z2 + w2
+    matrix[1, 0] = 2 * (xy + zw)
+    matrix[2, 0] = 2 * (xz - yw)
+
+    matrix[0, 1] = 2 * (xy - zw)
+    matrix[1, 1] = - x2 + y2 - z2 + w2
+    matrix[2, 1] = 2 * (yz + xw)
+
+    matrix[0, 2] = 2 * (xz + yw)
+    matrix[1, 2] = 2 * (yz - xw)
+    matrix[2, 2] = - x2 - y2 + z2 + w2
+
+    check_correct_rot_mat(matrix)
+    return matrix
+
 
 def rotMat_to_quaternion(C):
     '''
@@ -416,9 +467,9 @@ def rotMat_to_quaternion(C):
     :return: corresponding quaternion [w, x, y, z]
     '''
     return 0.5 * np.array([[sqrt((1 + np.trace(C)))],
-                           [np.sign(C[2, 1] - C[1, 2]) * sqrt(C[0, 0] - C[1, 1] - C[2, 2] + 1)],
-                           [np.sign(C[0, 2] - C[2, 0]) * sqrt(C[1, 1] - C[2, 2] - C[0, 0] + 1)],
-                           [np.sign(C[1, 0] - C[0, 1]) * sqrt(C[2, 2] - C[0, 0] - C[1, 1] + 1)]])
+                           [np.sign(C[2, 1] - C[1, 2]) * sqrt(abs(C[0, 0] - C[1, 1] - C[2, 2] + 1))],
+                           [np.sign(C[0, 2] - C[2, 0]) * sqrt(abs(C[1, 1] - C[2, 2] - C[0, 0] + 1))],
+                           [np.sign(C[1, 0] - C[0, 1]) * sqrt(abs(C[2, 2] - C[0, 0] - C[1, 1] + 1))]])
 
 def skewMatrix(q_n):
     return np.array([[0, -q_n[2], q_n[1]],
@@ -430,10 +481,10 @@ def rotMat_to_anlgeAxis(rot_mat):
     :param rot_mat: a rotation matrix
     :return: the rotational vector which describes the rotation as np.array
     '''
-    th = acos(0.5 * (rot_mat[0, 0] + rot_mat[1, 1] + rot_mat[2, 2] - 1))
+    th = acos(0.5 * (rot_mat[0, 0] + rot_mat[1, 1] + rot_mat[2, 2] - 1)).real
 
-    if (abs(th) < 0.0000000001): # prevent division by 0 in 1 / (2 * sin(th))
-        n = np.zeros(3, 1)
+    if (abs(th) < 0.00000000000001): # prevent division by 0 in 1 / (2 * sin(th))
+        n = np.zeros(3)
     else:
         n = 1 / (2 * sin(th)) * np.array([rot_mat[2, 1] - rot_mat[1, 2],
                                           rot_mat[0, 2] - rot_mat[2, 0],
