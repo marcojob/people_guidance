@@ -144,24 +144,6 @@ class PositionModule(Module):
         #PLOT
         # visualize_input_data(frames)
 
-        # Displacement
-        # TODO rotate the frames before integrating, write the update in original coordinates
-        for i in range(1, len(frames)):
-            dt = (frames[i].ts - frames[i-1].ts) / 1000
-            dt2 = dt * dt
-
-            pos.x += self.velocity.x * dt + 0.5 * frames[i].ax * dt2
-            pos.y += self.velocity.y * dt + 0.5 * frames[i].ay * dt2
-            pos.z += self.velocity.z * dt + 0.5 * frames[i].az * dt2
-
-            self.velocity.x = (self.velocity.x + frames[i].ax * dt)
-            self.velocity.y = (self.velocity.y + frames[i].ay * dt)
-            self.velocity.z = (self.velocity.z + frames[i].az * dt)
-
-            self.velocity.dampen()
-
-            self.logger.debug(f"pos calculated {pos}")
-
         # Rotation between the first and last frame
         rot_first = quat_to_rotMat(frames[0].quaternion)
         rot_last = quat_to_rotMat(frames[-1].quaternion)
@@ -169,6 +151,30 @@ class PositionModule(Module):
         pos.rotation_matrix = rot_first.T.dot(rot_last)
         # Extraction of the angle axis from the rotation matrix
         [pos.roll, pos.pitch, pos.yaw] = rotMat_to_anlgeAxis(pos.rotation_matrix)
+
+        # Save and update the rotation
+        current_rot = rot_first
+        # Displacement
+        for i in range(1, len(frames)):
+            dt = (frames[i].ts - frames[i-1].ts) / 1000
+            dt2 = dt * dt
+
+            current_rot = current_rot.dot(quat_to_rotMat(frames[0].quaternion))
+
+            # get the acceleration in the primary (starting) frame
+            [ax_, ay_, az_] = current_rot.T.dot([frames[i].ax, frames[i].ay, frames[i].az])
+
+            pos.x += self.velocity.x * dt + 0.5 * ax_ * dt2
+            pos.y += self.velocity.y * dt + 0.5 * ay_ * dt2
+            pos.z += self.velocity.z * dt + 0.5 * az_ * dt2
+
+            self.velocity.x = (self.velocity.x + ax_ * dt)
+            self.velocity.y = (self.velocity.y + ay_ * dt)
+            self.velocity.z = (self.velocity.z + az_ * dt)
+
+            self.velocity.dampen()
+
+            self.logger.debug(f"pos calculated {pos}")
 
         return pos
 
@@ -195,8 +201,9 @@ class PositionModule(Module):
             k_t = 0.0
 
             # Correction: Homography gives a result rotated from our camera coordinate frame
-            vo_to_camera = np.array([[0, 0, -1], [1, 0, 0], [0, 1, 0]])
-            vo_rot = homog[0:3, 0:3]
+            vo_to_camera = np.array([[0, 0, 1], [1, 0, 0], [0, 1, 0]]) #TODO not working ...
+            vo_rot = vo_to_camera.dot(homog[0:3, 0:3])
+            print("vo_rot", vo_rot, rotMat_to_ypr(vo_rot))
             vo_rot = normalise_rotation(vo_rot)
             check_correct_rot_mat(vo_rot)
 
@@ -206,11 +213,6 @@ class PositionModule(Module):
             # Issues for rotation angles close to zero or pi
             delta_rot = rotMat_to_anlgeAxis(imu_rot.T.dot(vo_rot))
             distance = np.linalg.norm(delta_rot) + k_t * np.linalg.norm(imu_t_vec - vo_t_vec)
-
-            # self.logger.debug(f"VO as euler \n{Rotation.from_matrix(homog[0:3, 0:3]).as_euler('xyz', degrees=True)}")
-            # self.logger.debug(f"rotate VO frame by \n{vo_to_camera}")
-            # self.logger.debug(f"VO rotated \n{vo_rot.as_euler('xyz', degrees=True)}")
-            # self.logger.debug(f"Data from VO: angles: {vo_rot.as_euler('xyz', degrees=True)}, displacement: {vo_t_vec}")
 
             if distance < best_match[2]:
                 best_match = (vo_rot, vo_t_vec, distance, delta_rot)

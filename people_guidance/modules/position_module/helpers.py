@@ -38,8 +38,8 @@ def interpolate_frames(frame0, frame1, ts: int):
         properties[key] = value
 
     # interpolate quaternion
-    q0 = frame0.quaternion
-    q1 = frame1.quaternion
+    q0 = np.array(frame0.quaternion)
+    q1 = np.array(frame1.quaternion)
     properties["quaternion"] = nlerp(q0, q1, lever)
 
     return IMUFrame(**properties)
@@ -103,7 +103,7 @@ class Homography:
         return np.column_stack((self.rotation_matrix, translation))
 
 def check_correct_rot_mat(rotation_matrix) -> None:
-    if (np.abs(np.round(rotation_matrix.dot(rotation_matrix.T), 2)) == np.eye(3, 3)).all() and np.round(np.linalg.det(rotation_matrix), 2) == 1:
+    if (np.abs(np.round(rotation_matrix.dot(rotation_matrix.T), 2)) == np.eye(3, 3)).all() and abs(np.round(np.linalg.det(rotation_matrix), 2)) == 1:
         pass
     else:
         sys.exit(f'rotation matrix is no orthogonal matrix, {rotation_matrix}, det: {np.linalg.det(rotation_matrix)}, mat: {rotation_matrix.dot(rotation_matrix.T)}')
@@ -170,10 +170,10 @@ class ComplementaryFilter:
 
             # # 2. Gyroscope angular speed to quaternion state update
             # # A. Source: Quaternion kinematics for the error-state Kalman Filter, Joan Sola, November 8, 2017. ~p.49
-            gyro = np.array([frame.gx, frame.gy, frame.gz])
-            gyro_norm = norm(gyro)
+            gyro = np.array([frame.gx, frame.gy, frame.gz]).astype(np.float32)
+            gyro_norm = float(norm(gyro))
             # gyro /= gyro_norm
-            q_gyro = np.array([1, 0, 0, 0])
+            q_gyro = np.array([1, 0, 0, 0]).astype(np.float32)
             if gyro_norm > 0.0000001:
                 q_gyro = np.concatenate((np.array([cos(gyro_norm * dt * 0.5)]),
                                          gyro/gyro_norm * sin(gyro_norm * dt * 0.5)), axis=0)
@@ -181,7 +181,9 @@ class ComplementaryFilter:
                 #                                 gyro / gyro_norm * sin(gyro_norm * dt * 0.5)))  # (214)
             # q_gyro = np.concatenate((np.array([0]),
             #                                 gyro))  # (214)
-            q_gyro /= norm(q_gyro)
+            if round(norm(q_gyro), 8) != 0:
+                print('gyro', q_gyro, norm(q_gyro),  q_gyro / norm(q_gyro))
+                q_gyro /= norm(q_gyro)
 
             self.q_gyro_state = quaternion_multiply(self.q_gyro_state, q_gyro)  # (211)
 
@@ -359,7 +361,7 @@ def nlerp(v0, v1, t_):
     :return: interpolated and normalised quaternion
     '''
     if 0 <= t_ <= 1:
-        q = (1 - t_) * v0 + t_ * v1
+        q = (1 - t_) * v0.astype(np.float32) + t_ * v1.astype(np.float32)
     return q / norm(q)
 
 def slerp(v0, v1, t_=0):
