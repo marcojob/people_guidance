@@ -10,9 +10,9 @@ from typing import Tuple
 from people_guidance.modules.module import Module
 from people_guidance.utils import project_path
 
-from .utils import *
+from .config import *
 
-# Need this to get cv imshow working on Ubuntu 20.04
+#Need this to get cv imshow working on Ubuntu 20.04
 if "Linux" in platform.system():
     import gi
     gi.require_version('Gtk', '2.0')
@@ -55,7 +55,7 @@ class FeatureTrackingModule(Module):
                         
                         transformations = self.fm.getTransformations()
 
-                        visualization_img = self.visualize_matches(img, keypoints, inliers, total_nr_matches)
+                        visualization_img = self.visualize_matches(img, inliers)
                         if mp1.shape[0] > 0:
                             self.publish("feature_point_pairs",
                                         {"camera_positions" : transformations,
@@ -68,14 +68,14 @@ class FeatureTrackingModule(Module):
                                             "img": img_encoded,
                                             "timestamp": timestamp},
                                             1000)
-                    self.old_timestamp = timestamp
+                        self.old_timestamp = timestamp
 
     def visualize_matches(self, img: np.ndarray, inliers: np.ndarray) -> np.ndarray:
         for i in range(inliers.shape[2]):
             visualization_img = cv2.line(img,
                                          tuple(inliers[0,...,i]), tuple(inliers[1,...,i]),
                                          (255,0,0), 5)
-            visualization_img = cv2.circle(visualization_img, tuple(inliers[1,...,i] ,1,(0,255,0),-1))
+            visualization_img = cv2.circle(visualization_img, tuple(inliers[1,...,i]) ,1,(0,255,0),-1)
 
         return visualization_img
 
@@ -94,24 +94,25 @@ class featureMatcher:
 
         if not self.use_OF:
             matching_norm = None
-            if method=='FAST':
-                method='ORB'
-                matching_norm = cv2.NORM_L2
-            elif method=='ORB' or method=='SHI-TOMASI':
-                matching_norm = cv2.NORM_L2
-            elif method=='SIFT' or method=='SURF':
+            if method=='ORB':
                 matching_norm = cv2.NORM_HAMMING
+            elif method=='FAST' or method=='SHI-TOMASI':
+                self.logger.warn("FAST and SHI-TOMASI features are not supported for simple feature matching, switching to ORB...")
+                method='ORB'
+                matching_norm = cv2.NORM_HAMMING
+            elif method=='SIFT' or method=='SURF':
+                matching_norm = cv2.NORM_L2
 
             self.matcher = cv2.BFMatcher_create(matching_norm, crossCheck=True)
 
-        self.detector = featureDetector(max_num_features, logger, method=method)
+        self.detector = featureDetector(max_num_features, logger, method=method, of=self.use_OF)
         self.prev_img = None
-        self.prev_kp = None
+        self.prev_kps = None
         self.prev_desc = None
 
     def initialize(self, img):
         self.prev_img = img
-        self.prev_kp, self.prev_desc = self.detector.detect(img)
+        self.prev_kps, self.prev_desc = self.detector.detect(img)
         self.should_initialize = False
 
     def match(self, img):
@@ -120,10 +121,13 @@ class featureMatcher:
         else:
             mp1, mp2 = self.bruteForceMatching(img)
 
-        mask = self.calcTransformation(kp1, kp2)
+        if mp1.shape[0] == 0:
+            self.logger.info("skipping frame")
+        else:
+            mask = self.calcTransformation(mp1, mp2)
 
-        mp1 = mp1[mask.ravel().astype(bool)]
-        mp2 = mp2[mask.ravel().astype(bool)]
+            mp1 = mp1[mask.ravel().astype(bool)]
+            mp2 = mp2[mask.ravel().astype(bool)]
 
         return mp1, mp2
 
@@ -131,7 +135,7 @@ class featureMatcher:
         new_kp, new_desc = self.detector.detect(new_img)
         matches = self.matcher.match(self.prev_desc, new_desc)
 
-        old_match_points = np.float32([self.prev_kp[match.queryIdx].pt for match in matches])
+        old_match_points = np.float32([self.prev_kps[match.queryIdx].pt for match in matches])
         match_points = np.float32([new_kp[match.trainIdx].pt for match in matches])
 
         return old_match_points, match_points
@@ -141,16 +145,20 @@ class featureMatcher:
         """Feature tracking using the Kanade-Lucas-Tomasi tracker.
         """
 
+        if self.prev_kps.shape[0] < OF_MIN_NUM_FEATURES:
+            self.prev_kps, _ = self.detector.detect(self.prev_img)
+
         # Feature Correspondence with Backtracking Check
-        kp2, status, error = cv2.calcOpticalFlowPyrLK(self.prev_img, new_img, self.prev_kp, None, **lk_params)
+        kp2, status, error = cv2.calcOpticalFlowPyrLK(self.prev_img, new_img, self.prev_kps, None, **lk_params)
         kp1, status, error = cv2.calcOpticalFlowPyrLK(new_img, self.prev_img, kp2, None, **lk_params)
 
-        d = abs(self.prev_kp - kp1).reshape(-1, 2).max(-1)  # Verify the absolute difference between feature points
-        good = d < MIN_MATCHING_DIFF
+        d = abs(self.prev_kps - kp1).reshape(-1, 2).max(-1)  # Verify the absolute difference between feature points
+        good = d < OF_MIN_MATCHING_DIFF
 
         # Error Management
         if len(d) == 0:
             self.logger.warning('No point correspondance.')
+            self.should_initialize = True
         elif list(good).count(True) <= 5:  # If less than 5 good points, it uses the features obtain without the backtracking check
             self.logger.warning('Few point correspondances')
             return kp1, kp2, None
@@ -170,13 +178,11 @@ class featureMatcher:
 
         # The mean of the differences is used to determine the amount of distance between the pixels
         diff_mean = np.mean(d)
-
-        if diff_mean > DIFF_THRESHOLD:
+        if diff_mean > OF_DIFF_THRESHOLD:
             self.prev_img = new_img
-            self.prev_kp = n_kp2
+            self.prev_kps = n_kp2
             return n_kp1, n_kp2, diff_mean
         else:
-            self.should_initialize = True
             return np.array([]), np.array([]), None
 
     def calcTransformation(self, mp1, mp2):
@@ -193,7 +199,7 @@ class featureMatcher:
 
     def getTransformations(self):
         if self.nb_transform_solutions > 0:
-            transformations = np.zeros((nb_solutions, 3, 4))
+            transformations = np.zeros((self.nb_transform_solutions, 3, 4))
             for i in range(self.nb_transform_solutions):
                 transformations[i, :, 0:3] = self.rotations[i]
                 transformations[i, :, 3] = self.translations[i].ravel()
@@ -203,15 +209,16 @@ class featureMatcher:
 
 
 class featureDetector:
-    def __init__(self, max_num_features, logger, method='FAST'):
+    def __init__(self, max_num_features, logger, method='FAST', of=False):
+        self.max_num_features = max_num_features
         self.logger = logger
         self.method = method
-        self.max_num_features = max_num_features
+        self.of = of
         self.detector = None
         methods = {'FAST': cv2.FastFeatureDetector_create(threshold=25, nonmaxSuppression=True),
                    'SIFT': cv2.xfeatures2d.SIFT_create(max_num_features),
                    'SURF': cv2.xfeatures2d.SURF_create(max_num_features),
-                   'SHI-TOMASI': cv2.ORB_create(nfeatures=max_num_features),
+                   'SHI-TOMASI': None,
                    'ORB': cv2.ORB_create(nfeatures=max_num_features)}
         try:
             self.detector = methods[method]
@@ -224,7 +231,6 @@ class featureDetector:
 
         if self.method == 'SHI-TOMASI':
             keypoints = cv2.goodFeaturesToTrack(img, **shi_tomasi_params)
-            keypoints, descriptors = self.detector.compute(img, keypoints)
         elif self.method == 'ORB':
             keypoints = self.detector.detect(img, None)
             keypoints, descriptors = self.detector.compute(img, keypoints)
@@ -235,4 +241,6 @@ class featureDetector:
         
         self.logger.debug(f"Found {len(keypoints)} feautures")
 
+        if self.of and not self.method == 'SHI-TOMASI':
+            keypoints = np.array([x.pt for x in keypoints], dtype=np.float32).reshape((-1, 2))
         return (keypoints, descriptors)
