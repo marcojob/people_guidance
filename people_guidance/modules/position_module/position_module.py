@@ -8,10 +8,10 @@ from scipy.spatial.transform import Rotation
 from math import tan, atan2, cos, sin, pi, sqrt, atan, acos
 
 from ..module import Module
-from .helpers import IMUFrame, VOResult, Homography, interpolate_frames, visualize_input_data, \
-    visualize_distance_metric
+from .helpers import IMUFrame, VOResult, Homography, interpolate_frames, visualize_input_data, visualize_distance_metric
 from .helpers import degree_to_rad, MovingAverageFilter, ComplementaryFilter, Velocity
-from .helpers import rotMat_to_anlgeAxis, quat_to_rotMat, rotMat_to_ypr
+from .helpers import rotMat_to_anlgeAxis, quat_to_rotMat, rotMat_to_ypr, angleAxis_to_rotMat, quaternion_to_rotMat, \
+    angleAxis_to_quaternion, quaternion_to_angleAxis, rotMat_to_quaternion, quaternion_apply, quat_to_ypr
 from .helpers import check_correct_rot_mat, normalise_rotation
 
 
@@ -200,14 +200,35 @@ class PositionModule(Module):
         for homog in vo_result.homogs:
             k_t = 0.0
 
-            # Correction: Homography gives a result rotated from our camera coordinate frame
-            vo_to_camera = np.array([[0, 0, 1], [1, 0, 0], [0, 1, 0]]) #TODO not working ...
-            vo_rot = vo_to_camera.dot(homog[0:3, 0:3])
-            print("vo_rot", vo_rot, rotMat_to_ypr(vo_rot))
-            vo_rot = normalise_rotation(vo_rot)
-            check_correct_rot_mat(vo_rot)
-
+            # Correction: Homography gives a result rotated from our camera coordinate frame.
+            vo_to_camera = np.array([[0, 0, -1], [1, 0, 0], [0, 1, 0]])
+            # Expressing the translation vector in the camera frame
             vo_t_vec = vo_to_camera.dot(homog[0:3, 3])
+            # Expressing the rotation in the camera frame
+            vo_angle_axis = vo_to_camera.dot(rotMat_to_anlgeAxis(homog[0:3, 0:3]))
+            vo_quat = angleAxis_to_quaternion(vo_angle_axis)
+
+            # The rotation expressed as a rotation matrix lacks in performance
+            vo_rot = angleAxis_to_rotMat(vo_angle_axis)
+            vo_rot = normalise_rotation(vo_rot)
+
+            # print("000vo_rot original\n", homog[0:3, 0:3])
+            # print("angle axis", rotMat_to_anlgeAxis(homog[0:3, 0:3]))
+            # print("rotated angle axis", vo_to_camera.dot(rotMat_to_anlgeAxis(homog[0:3, 0:3])))
+            # print("vo_rot _cam\n", vo_rot, "\n angle axis new rot", rotMat_to_anlgeAxis(vo_rot))
+            # print("ypr", rotMat_to_ypr(vo_rot))
+
+            ## second way of calculating it
+            # vo_rot = angleAxis_to_rotMat(quaternion_apply(rotMat_to_quaternion(vo_to_camera), rotMat_to_anlgeAxis(homog[0:3, 0:3])))
+            # vo_rot = normalise_rotation(vo_rot)
+            #
+            # print("111vo_rot original\n", homog[0:3, 0:3])
+            # print("angle axis", rotMat_to_anlgeAxis(homog[0:3, 0:3]))
+            # print("rotated angle axis", quaternion_apply(rotMat_to_quaternion(vo_to_camera), rotMat_to_anlgeAxis(homog[0:3, 0:3])))
+            # print("vo_rot _cam\n", vo_rot, "\n angle axis new rot", rotMat_to_anlgeAxis(vo_rot))
+            # print("\n ypr", rotMat_to_ypr(vo_rot))
+
+            check_correct_rot_mat(vo_rot)
 
             # Robot dynamic script p51
             # Issues for rotation angles close to zero or pi
@@ -215,10 +236,10 @@ class PositionModule(Module):
             distance = np.linalg.norm(delta_rot) + k_t * np.linalg.norm(imu_t_vec - vo_t_vec)
 
             if distance < best_match[2]:
-                best_match = (vo_rot, vo_t_vec, distance, delta_rot)
+                best_match = (vo_quat, vo_t_vec, distance, delta_rot)
 
         imu_ypr = rotMat_to_ypr(imu_homog_matrix[..., :3])
-        vo_ypr = rotMat_to_ypr(best_match[0])
+        vo_ypr = quat_to_ypr(best_match[0])
         imu_xyz = str(imu_homog_matrix[..., 3:]).replace("\n", "")
         vo_xyz = str(best_match[1]).replace("\n", "")
         self.logger.warning(f"Prediction Offset:\n"
@@ -226,7 +247,9 @@ class PositionModule(Module):
                          f"IMU pos :{imu_xyz}\nVO pos  :{vo_xyz}")
 
         #PLOT
-        # visualize_distance_metric(best_match, best_match2, degrees, imu_angles, vo_angles)
-
-        return np.column_stack((best_match[0], best_match[1]))
+        # visualize_distance_metric(best_match, degrees, imu_angles, vo_angles)
+        self.logger.warning(f'returning {np.column_stack((quaternion_to_rotMat(best_match[0]), best_match[1]))}')
+        # TODO would be better working with quaternion
+        # return  best_match[0], best_match[1] # returning the quaternion and translation
+        return np.column_stack((quaternion_to_rotMat(best_match[0]), best_match[1]))
 
