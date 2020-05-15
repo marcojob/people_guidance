@@ -209,7 +209,7 @@ class ComplementaryFilter:
             # q_gyro = np.concatenate((np.array([0]),
             #                                 gyro))  # (214)
             if round(norm(q_gyro), 8) != 0:
-                print('gyro', q_gyro, norm(q_gyro), q_gyro / norm(q_gyro))
+                # print('gyro', q_gyro, norm(q_gyro), q_gyro / norm(q_gyro))
                 q_gyro /= norm(q_gyro)
 
             self.q_gyro_state = quaternion_multiply(self.q_gyro_state, q_gyro)  # (211)

@@ -47,7 +47,7 @@ class PositionModule(Module):
         if len(self.imu_buffer) < 100:
             imu_payload: Dict = self.get("drivers_module:accelerations")
             if imu_payload:
-                print('IMU input', imu_payload)
+                # print('IMU input', imu_payload)
                 self.imu_buffer.append(self.imu_frame_from_payload(imu_payload))
             else:
                 time.sleep(0.001)
@@ -183,7 +183,7 @@ class PositionModule(Module):
 
     def find_integration_frames(self, ts0, ts1, i0, i1) -> List[IMUFrame]:
         integration_frames: List[IMUFrame] = []
-        print('self.imu_buffer[i0]', self.imu_buffer[i0]) # TODO has quaternion elt????
+        # print('self.imu_buffer[i0]', self.imu_buffer[i0]) # TODO has quaternion elt????
         lower_frame_bound: IMUFrame = interpolate_frames(self.imu_buffer[i0], self.imu_buffer[i0 + 1], ts0)
         integration_frames.append(lower_frame_bound)
 
@@ -257,7 +257,7 @@ class PositionModule(Module):
         vo_ypr = quat_to_ypr(best_match[0])
         imu_xyz = str(imu_homog_matrix[..., 3:]).replace("\n", "")
         vo_xyz = str(best_match[1]).replace("\n", "")
-        self.logger.warning(f"Prediction Offset:\n"
+        self.logger.info(f"Prediction Offset:\n"
                          f"IMU Euler [yaw, pitch, roll] angles :\n{imu_ypr}\nVO angles :\n{vo_ypr}, (RAD)\n"
                          f"IMU pos :{imu_xyz}\nVO pos  :{vo_xyz}")
 
@@ -265,7 +265,7 @@ class PositionModule(Module):
 
         #PLOT
         # visualize_distance_metric(best_match, degrees, imu_angles, vo_angles)
-        self.logger.warning(f'returning {np.column_stack((quaternion_to_rotMat(best_match[0]), best_match[1]))}')
+        self.logger.info(f'returning {np.column_stack((quaternion_to_rotMat(best_match[0]), best_match[1]))}')
         # TODO would be better working with quaternion
         # return  best_match[0], best_match[1] # returning the quaternion and translation
         return np.column_stack((quaternion_to_rotMat(best_match[0]), best_match[1]))
