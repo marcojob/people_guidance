@@ -14,6 +14,8 @@ from people_guidance.utils import project_path
 if "Linux" in platform.system():
     import gi
     gi.require_version('Gtk', '2.0')
+    import matplotlib
+    matplotlib.use('TkAgg')
 
 
 class FeatureTrackingModule(Module):
