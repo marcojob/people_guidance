@@ -111,22 +111,19 @@ def check_correct_rot_mat(rotation_matrix) -> None:
             np.round(np.linalg.det(rotation_matrix), 2)) == 1:
         pass
     else:
-        sys.exit(
-            f'rotation matrix is no orthogonal matrix, {rotation_matrix}, det: {np.linalg.det(rotation_matrix)}, mat: {rotation_matrix.dot(rotation_matrix.T)}')
+        sys.exit(f'rotation matrix is no orthogonal matrix, {rotation_matrix}, det: {np.linalg.det(rotation_matrix)}, mat: {rotation_matrix.dot(rotation_matrix.T)}')
 
 
 def normalise_rotation(rot, error=1e-6):
-    if (np.round(rot, 3) > np.ones(3)).any() or abs(np.linalg.det(rot) - 1.0) > error:
-        # if (np.round(vo_rot, 3) <= np.ones(3)).all() and (np.round(norm(vo_rot, axis=1), 4) > np.ones((1,3))).any():
-        # re-normalize
-        # https://math.stackexchange.com/questions/3292034/normalizing-a-rotation-matrix
-        try:
-            rot = cay(skewRot(cay(rot)))
-        except np.linalg.LinAlgError:
-            # Not invertible. Skip this one.
-            print('not invertible, using iterative approach')
-            while abs(np.linalg.det(rot) - 1.0) > error:
-                rot = 3. / 2. * rot - 0.5 * rot.dot(rot.T.dot(rot))  # iterative method
+    # re-normalize
+    # https://math.stackexchange.com/questions/3292034/normalizing-a-rotation-matrix
+    try:
+        rot = cay(skewRot(cay(rot)))
+    except np.linalg.LinAlgError:
+        # Not invertible. Skip this one.
+        print('not invertible, using iterative approach')
+        while abs(np.linalg.det(rot) - 1.0) > error:
+            rot = 3. / 2. * rot - 0.5 * rot.dot(rot.T.dot(rot))  # iterative method
     return rot
 
 
@@ -142,6 +139,15 @@ class Pose:
         self.pitch = pitch
         self.yaw = yaw
 
+class pygameVisualize:
+    def __init__(self, alpha: float = 0.2):
+        self.visualize = False
+        if self.visualize:
+            self.cam = CameraPygame()
+
+    def __call__(self, quat, visualize=False, name="Quaternion displayed"):
+        if visualize and self.visualize:
+            self.cam(quat, name=name)
 
 class ComplementaryFilter:
     # https://www.mdpi.com/1424-8220/15/8/19302/htm
@@ -594,6 +600,8 @@ def quaternion_to_rotMat(q):
 
 def angleAxis_to_rotMat(angleAxis):  # bad for small angles
     th = norm(angleAxis)
+    if th < 1e-10:
+        return np.eye(1)
     n = angleAxis / th
 
     i = cos(th) * np.eye(3)

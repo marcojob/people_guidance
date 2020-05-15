@@ -8,7 +8,8 @@ from scipy.spatial.transform import Rotation
 from math import tan, atan2, cos, sin, pi, sqrt, atan, acos
 
 from ..module import Module
-from .helpers import IMUFrame, VOResult, Homography, interpolate_frames, visualize_input_data, visualize_distance_metric
+from .helpers import IMUFrame, VOResult, Homography, interpolate_frames
+from .helpers import visualize_input_data, visualize_distance_metric, pygameVisualize
 from .helpers import degree_to_rad, MovingAverageFilter, ComplementaryFilter, Velocity
 from .helpers import rotMat_to_anlgeAxis, quat_to_rotMat, rotMat_to_ypr, angleAxis_to_rotMat, quaternion_to_rotMat, \
     angleAxis_to_quaternion, quaternion_to_angleAxis, rotMat_to_quaternion, quaternion_apply, quat_to_ypr
@@ -31,6 +32,8 @@ class PositionModule(Module):
 
         self.velocity = Velocity()
 
+        self.vispg = pygameVisualize()
+
     def start(self):
         while True:
             self.get_inputs()
@@ -44,6 +47,7 @@ class PositionModule(Module):
         if len(self.imu_buffer) < 100:
             imu_payload: Dict = self.get("drivers_module:accelerations")
             if imu_payload:
+                print('IMU input', imu_payload)
                 self.imu_buffer.append(self.imu_frame_from_payload(imu_payload))
             else:
                 time.sleep(0.001)
@@ -86,7 +90,6 @@ class PositionModule(Module):
                 self.vo_buffer.pop(0)
 
     def prune_imu_buffer(self):
-
         i = 0
         # find the index i of the element that has a larger timestamp than the oldest vo_result still in the buffer.
         while i < len(self.imu_buffer) and self.imu_buffer[i].ts < self.vo_buffer[0].ts0:
@@ -180,6 +183,7 @@ class PositionModule(Module):
 
     def find_integration_frames(self, ts0, ts1, i0, i1) -> List[IMUFrame]:
         integration_frames: List[IMUFrame] = []
+        print('self.imu_buffer[i0]', self.imu_buffer[i0]) # TODO has quaternion elt????
         lower_frame_bound: IMUFrame = interpolate_frames(self.imu_buffer[i0], self.imu_buffer[i0 + 1], ts0)
         integration_frames.append(lower_frame_bound)
 
@@ -205,12 +209,22 @@ class PositionModule(Module):
             # Expressing the translation vector in the camera frame
             vo_t_vec = vo_to_camera.dot(homog[0:3, 3])
             # Expressing the rotation in the camera frame
-            vo_angle_axis = vo_to_camera.dot(rotMat_to_anlgeAxis(homog[0:3, 0:3]))
+            # normalise the input frame as it happens that the rotation matrix has elements with value above 1
+            vo_homog = normalise_rotation(homog[0:3, 0:3])
+            vo_angle_axis = vo_to_camera.dot(rotMat_to_anlgeAxis(vo_homog))
             vo_quat = angleAxis_to_quaternion(vo_angle_axis)
 
             # The rotation expressed as a rotation matrix lacks in performance
             vo_rot = angleAxis_to_rotMat(vo_angle_axis)
             vo_rot = normalise_rotation(vo_rot)
+
+            # if vo_rot.shape != (3, 3):
+            #     print('vo_to_camera', vo_to_camera)
+            #     print('homog[0:3, 0:3]\n', homog[0:3, 0:3])
+            #     print('vo_homog', vo_homog)
+            #     print('vo_t_vec', vo_t_vec)
+            #     print('vo_angle_axis', vo_angle_axis)
+            #     print('vo_rot.shape', vo_rot.shape)
 
             # print("000vo_rot original\n", homog[0:3, 0:3])
             # print("angle axis", rotMat_to_anlgeAxis(homog[0:3, 0:3]))
@@ -228,6 +242,7 @@ class PositionModule(Module):
             # print("vo_rot _cam\n", vo_rot, "\n angle axis new rot", rotMat_to_anlgeAxis(vo_rot))
             # print("\n ypr", rotMat_to_ypr(vo_rot))
 
+            # Exit if the rotation matrix is not computed as expected
             check_correct_rot_mat(vo_rot)
 
             # Robot dynamic script p51
@@ -245,6 +260,8 @@ class PositionModule(Module):
         self.logger.warning(f"Prediction Offset:\n"
                          f"IMU Euler [yaw, pitch, roll] angles :\n{imu_ypr}\nVO angles :\n{vo_ypr}, (RAD)\n"
                          f"IMU pos :{imu_xyz}\nVO pos  :{vo_xyz}")
+
+        self.vispg(best_match[0], visualize=True, name="best match found")
 
         #PLOT
         # visualize_distance_metric(best_match, degrees, imu_angles, vo_angles)
