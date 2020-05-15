@@ -9,8 +9,6 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 from scipy.linalg import norm
 
-from .cam import CameraPygame
-
 from math import atan2, sqrt, cos, sin
 from cmath import acos
 

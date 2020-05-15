@@ -24,9 +24,9 @@ class ReprojectionModule(Module):
         self.origin: np.array = np.zeros(3)
         self.forward_direction: np.array = np.array((0., 0., 1.))
 
-        self.fig, self.ax = plt.subplots(3, 3, sharex='col', sharey='row')
-        self.fig.set_figheight(15)
-        self.fig.set_figwidth(15)
+        # self.fig, self.ax = plt.subplots(3, 3, sharex='col', sharey='row')
+        # self.fig.set_figheight(15)
+        # self.fig.set_figwidth(15)
 
     def start(self):
 
@@ -100,20 +100,20 @@ class ReprojectionModule(Module):
             image = cv2.circle(img=image, center=tuple(critical_points_2d[i, 0, :]), radius=10, color=(255, 153, 255), thickness=-1)
 
         #  show both the features and the reprojected critical points
-        cv2.imshow("visu", image)
+        # cv2.imshow("visu", image)
         # cv2.imwrite(f"sandbox/plots/image_{forward_direction}_{timestamp}.png", image)
 
-        for i in range(3):
-            for j in range(3):
-                self.ax[i, j].clear()
-                xlim = 8
-                ylim = 8
-                self.ax[i, j].set_xlim(-xlim, xlim)
-                self.ax[i, j].set_ylim(-5, 5)
-                self.ax[i, j].scatter(point_vectors[:, i], point_vectors[:, j], c="b")
-                self.ax[i, j].scatter(np.zeros(100), np.linspace(-xlim, xlim, 100), c="g", s=1)
-                self.ax[i, j].scatter(np.linspace(-ylim, ylim, 100), np.zeros(100), c="g", s=1)
-                self.ax[i, j].scatter(point_vectors[idxs, i], point_vectors[idxs, j], c="r")
+        # for i in range(3):
+        #     for j in range(3):
+        #         self.ax[i, j].clear()
+        #         xlim = 8
+        #         ylim = 8
+        #         self.ax[i, j].set_xlim(-xlim, xlim)
+        #         self.ax[i, j].set_ylim(-5, 5)
+        #         self.ax[i, j].scatter(point_vectors[:, i], point_vectors[:, j], c="b")
+        #         self.ax[i, j].scatter(np.zeros(100), np.linspace(-xlim, xlim, 100), c="g", s=1)
+        #         self.ax[i, j].scatter(np.linspace(-ylim, ylim, 100), np.zeros(100), c="g", s=1)
+        #         self.ax[i, j].scatter(point_vectors[idxs, i], point_vectors[idxs, j], c="r")
 
             #plt.pause(0.001)
             #self.fig.savefig(f"sandbox/plots/plot_{forward_direction}_{timestamp}.png")
