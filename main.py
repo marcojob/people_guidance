@@ -60,7 +60,7 @@ if __name__ == '__main__':
         pipeline.add_module(PositionModule, log_level=logging.WARNING)
 
         # Handles feature tracking
-        pipeline.add_module(FeatureTrackingModule, log_level=logging.WARNING)
+        pipeline.add_module(FeatureTrackingModule, log_level=logging.CRITICAL)
 
         # Handles reprojection
         pipeline.add_module(ReprojectionModule, log_level=logging.WARNING)

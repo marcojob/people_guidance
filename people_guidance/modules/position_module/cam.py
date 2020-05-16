@@ -13,10 +13,10 @@ from pygame.locals import *
 
 class CameraPygame:
     def __init__(self):
-        self.useQuat = True  # set true for using quaternions, false for using y,p,r angles
         self.frames = 0
+        self.fps = 0
 
-    def __call__(self, q, name="") -> None:
+    def __call__(self, q, name="", useQuat = True) -> None:
         '''
         :param q: a quaternion of the imu
         :return:
@@ -24,7 +24,7 @@ class CameraPygame:
         video_flags = OPENGL | DOUBLEBUF
         pygame.init()
         screen = pygame.display.set_mode((640, 480), video_flags)
-        pygame.display.set_caption(f"PyTeapot IMU orientation visualization: {name}")
+        pygame.display.set_caption(f"PyTeapot IMU orientation visualization: {name}, imu fps: {self.fps}")
         self.resizewin(640, 480)
         self.init()
         self.frames = 0
@@ -33,14 +33,15 @@ class CameraPygame:
         event = pygame.event.poll()
         # if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
         #     break
-        if self.useQuat:
+        if useQuat:
             [w, nx, ny, nz] = q
             self.draw(w, nx, ny, nz, useQuat = True)
         else:
-            [yaw, pitch, roll] = q
+            [yaw, pitch, roll] = q # in DEGREES!!!
             self.draw(1, yaw, pitch, roll, useQuat = False)
         pygame.display.flip()
         self.frames += 1
+        self.fps = round(((self.frames * 1000) / (pygame.time.get_ticks() - self.ticks)), 1)
         # print("fps: %d" % ((frames * 1000) / (pygame.time.get_ticks() - ticks)))
 
 

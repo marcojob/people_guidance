@@ -16,6 +16,8 @@ from .config import *
 if "Linux" in platform.system():
     import gi
     gi.require_version('Gtk', '2.0')
+    import matplotlib
+    matplotlib.use('TkAgg')
 
 
 class FeatureTrackingModule(Module):
@@ -36,12 +38,12 @@ class FeatureTrackingModule(Module):
                 self.logger.info("queue was empty")
             else:
                 # extract the image data and time stamp
-                img_encoded = img_dict["data"]["data"]
+                img_rgb = img_dict["data"]["data"]
                 timestamp = img_dict["data"]["timestamp"]
 
                 self.logger.debug(f"Processing image with timestamp {timestamp} ...")
 
-                img = cv2.imdecode(np.frombuffer(img_encoded, dtype=np.int8), flags=cv2.IMREAD_GRAYSCALE)
+                img = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
 
                 if self.fm.should_initialize:
                     self.fm.initialize(img)
@@ -65,7 +67,7 @@ class FeatureTrackingModule(Module):
                                         1000)
                             self.publish("feature_point_pairs_vis",
                                             {"point_pairs": inliers,
-                                            "img": img_encoded,
+                                            "img": img_rgb,
                                             "timestamp": timestamp},
                                             1000)
                         self.old_timestamp = timestamp
