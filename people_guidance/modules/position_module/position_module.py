@@ -48,6 +48,9 @@ class PositionModule(Module):
             imu_payload: Dict = self.get("drivers_module:accelerations")
             if imu_payload:
                 # print('IMU input', imu_payload)
+                # Example data : {'data': {'accel_x': -9.694907183075, 'accel_y': -0.74337665820625, 'accel_z':
+                # 1.0803660263468748, 'gyro_x': 0.10773062972656255, 'gyro_y': 0.6856009109218748, 'gyro_z':
+                # 1.0922571271406252, 'timestamp': 173917}, 'timestamp': 131639718, 'validity': 220.00000000000003}
                 self.imu_buffer.append(self.imu_frame_from_payload(imu_payload))
             else:
                 time.sleep(0.001)
@@ -67,7 +70,7 @@ class PositionModule(Module):
         self.logger.info(f"Input frame from driver : \n{frame}")
 
         # Combine Gyro and Accelerometer data to extract the gravity and add the current rotation to *frame*
-        return self.complementary_filter(frame, alpha=0.5)
+        return self.complementary_filter(frame, alpha=0) # alpha = 0 : gyro, alpha = 1 : accel
 
 
     @staticmethod
@@ -147,11 +150,13 @@ class PositionModule(Module):
         #PLOT
         # visualize_input_data(frames)
 
-        # Rotation between the first and last frame
-        rot_first = quat_to_rotMat(frames[0].quaternion)
+        # Rotation between the first and last frame # TODO 3 IMU input x to be multiplied by -1 ?? y? how to check?
+        # print("frame[0] quat", frames[0].quaternion) # TODO 2 check how quaternions computed
+        # print("YPR DEGREES", quat_to_ypr(frames[0].quaternion)*180/pi) # seems correct, angles < 10 °
+        rot_first = quat_to_rotMat(frames[0].quaternion) # TODO 1 check where quat comes from => rot direction
         rot_last = quat_to_rotMat(frames[-1].quaternion)
         # Difference in rotation
-        pos.rotation_matrix = rot_first.T.dot(rot_last)
+        pos.rotation_matrix = rot_first.T.dot(rot_last) # TODO 0 .T or n.dot(.T) order?
         # Extraction of the angle axis from the rotation matrix
         [pos.roll, pos.pitch, pos.yaw] = rotMat_to_anlgeAxis(pos.rotation_matrix)
 
@@ -165,7 +170,7 @@ class PositionModule(Module):
             current_rot = current_rot.dot(quat_to_rotMat(frames[0].quaternion))
 
             # get the acceleration in the primary (starting) frame
-            [ax_, ay_, az_] = current_rot.T.dot([frames[i].ax, frames[i].ay, frames[i].az])
+            [ax_, ay_, az_] = current_rot.dot([frames[i].ax, frames[i].ay, frames[i].az]) # TODO: .T or not?
 
             pos.x += self.velocity.x * dt + 0.5 * ax_ * dt2
             pos.y += self.velocity.y * dt + 0.5 * ay_ * dt2

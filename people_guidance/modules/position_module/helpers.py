@@ -15,6 +15,7 @@ from math import atan2, sqrt, cos, sin
 from cmath import acos
 
 IMUFrame = collections.namedtuple("IMUFrame", ["ax", "ay", "az", "gx", "gy", "gz", "quaternion", "ts"])
+# quaternion : [w, x, y, z]
 VOResult = collections.namedtuple("VOResult", ["homogs", "pairs", "ts0", "ts1", "image"])
 
 DEGREE_TO_RAD = float(pi / 180)
@@ -156,7 +157,7 @@ class ComplementaryFilter:
         self.pose = Pose()
         self.alpha = alpha
 
-        self.visualize = False
+        self.visualize = True
         if self.visualize:
             self.cam = CameraPygame()
         self.q_gyro_state = [1, 0, 0, 0]  # Local camera frame in inertial frame init
@@ -171,7 +172,7 @@ class ComplementaryFilter:
                 gx=frame.gx,
                 gy=frame.gy,
                 gz=frame.gz,
-                quaternion=[1, 0, 0, 0],
+                quaternion=[1, 0, 0, 0], # corresponds to no rotation
                 ts=frame.ts
             )
         else:
@@ -189,8 +190,7 @@ class ComplementaryFilter:
             # r_to_acc_vector = Rotation.from_quat(q_old)
 
             # B. Quaternion estimation using paper from 2015
-            q_acc = self.q_from_acc2(frame.ax, frame.ay,
-                                     frame.az)  # Rotation q_AI : inertial frame represented in IMU frame
+            q_acc = self.q_from_acc2(frame.ax, frame.ay, frame.az)  # Rotation q_AI : inertial frame represented in IMU frame
             # r_to_acc_vector2 = Rotation.from_quat(q_acc)
             # To recreate [0, 0, -g], apply this formula:
             # quaternion_apply(quaternion_conjugate(q_acc), [frame.ax, frame.ay, frame.az])[1:]
@@ -275,12 +275,16 @@ class ComplementaryFilter:
             [yaw, pitch, roll] = np.array([gyro_yaw, gyro_pitch, gyro_roll]) * (1 - alpha) + \
                                  np.array([gyro_yaw, accel_pitch, accel_roll]) * alpha
             # 3.3 Save to quaternion and update state
-            self.q_gyro_state = ypr_to_quat(ypr=[yaw, pitch, roll])
+            self.q_gyro_state = ypr_to_quat(ypr=[yaw, pitch, roll]) # TODO 6: error here?
+
+            # print('\nyaw DEGREES', yaw*180/pi) # This yaw is correct # TODO 4 :correct
+            # print('quat compl', self.q_gyro_state ) # Correct
 
             # Pygames visualization
             if self.visualize:
-                self.cam(self.q_gyro_state, name=f"q_update, time = {frame.ts / 1000}, yaw = {yaw}")
-                # self.cam(np.array([yaw, pitch, roll]) / DEGREE_TO_RAD, name=f"q_update, time = {frame.ts/1000}, dt = {dt}", useQuat=False)
+                # self.cam(self.q_gyro_state, name=f"q_update, time = {frame.ts / 1000}, yaw = {yaw}") # TODO 5: False # TODO 8 error here?
+                # self.cam(q_gyro, name=f"q_gyro, time = {frame.ts / 1000}, yaw = {yaw}")
+                self.cam(np.array([yaw, pitch, roll]) *180/pi, useQuat=False) # TODO 5: False
                 # in case of not passing quaternion: [yaw, pitch, roll] in DEGREES
 
             # print(f"Acceleration: {[frame.ax, frame.ay, frame.az]}"
@@ -291,7 +295,8 @@ class ComplementaryFilter:
 
             # 4. Express the gravity vector in the local frame
             # To recreate [0, 0, -g], apply this formula:
-            local_gravity = quaternion_apply(self.q_gyro_state, [0, 0, -1]) * 9.81
+            local_gravity = quaternion_apply(self.q_gyro_state, [0, 0, -1]) * 9.81 # Verified, rotation correctly applied
+
             # print("local gravity", local_gravity)
             # print(f"gravity compensation: {np.array([frame.ax, frame.ay, frame.az]) - local_gravity}")
 
@@ -433,7 +438,7 @@ def quat_to_ypr(q):
     return np.array([yaw, pitch, roll])
 
 
-def ypr_to_quat(ypr):  # yaw (Z), pitch (Y), roll (X)
+def ypr_to_quat(ypr):  # yaw (Z), pitch (Y), roll (X) # Checked # TODO 7: check with other than wikipedia
     # https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles
     [yaw, pitch, roll] = ypr
     # Abbreviations for the various angular functions
@@ -452,6 +457,50 @@ def ypr_to_quat(ypr):  # yaw (Z), pitch (Y), roll (X)
     q = np.array([w, x, y, z])
 
     return q / norm(q)
+
+'''
+Matlab
+# https://github.com/bminortx/Buckshot/blob/master/matlabComponents/Matlab_functions/angle2quat.m
+
+if any(~isreal(r1) || ~isnumeric(r1))
+	    error('aero:angle2quat:isnotreal1','First input element is not a real number.');
+	end
+	
+	if any(~isreal(r2) || ~isnumeric(r2))
+	    error('aero:angle2quat:isnotreal2','Second input element is not a real number.');
+	end
+	
+	if any(~isreal(r3) || ~isnumeric(r3))
+	    error('aero:angle2quat:isnotreal3','Third input element is not a real number.');
+	end
+	
+	if (length(r1) ~= length(r2)) || (length(r1) ~= length(r3))
+	    error('aero:angle2quat:wrongdim','Rotations are not all arrays of M.');
+	end
+	
+	if nargin == 3
+	    type = 'zyx';
+	else
+	    if ischar( varargin{1} )
+	        type = varargin{1};
+	    else
+	        error('aero:angle2quat:notchar','Rotation sequence is not a string.');
+	    end
+	end
+	
+	angles = [r1(:) r2(:) r3(:)];
+	
+	cang = cos( angles/2 );
+	sang = sin( angles/2 );
+	
+	switch lower( type )
+	    case 'zyx'
+	        q = [ cang(:,1).*cang(:,2).*cang(:,3) + sang(:,1).*sang(:,2).*sang(:,3), ...
+	            cang(:,1).*cang(:,2).*sang(:,3) - sang(:,1).*sang(:,2).*cang(:,3), ...
+	            cang(:,1).*sang(:,2).*cang(:,3) + sang(:,1).*cang(:,2).*sang(:,3), ...
+	            sang(:,1).*cang(:,2).*cang(:,3) - cang(:,1).*sang(:,2).*sang(:,3)];
+
+'''
 
 
 def quat_to_rotMat(quat):
