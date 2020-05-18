@@ -175,7 +175,7 @@ class PositionModule(Module):
             self.velocity.y = (self.velocity.y + ay_ * dt)
             self.velocity.z = (self.velocity.z + az_ * dt)
 
-            #self.velocity.dampen()
+            self.velocity.dampen()
 
             self.logger.debug(f"pos calculated {pos}")
 
