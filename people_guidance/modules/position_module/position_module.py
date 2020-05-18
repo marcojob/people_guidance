@@ -175,7 +175,7 @@ class PositionModule(Module):
             self.velocity.y = (self.velocity.y + ay_ * dt)
             self.velocity.z = (self.velocity.z + az_ * dt)
 
-            self.velocity.dampen()
+            #self.velocity.dampen()
 
             self.logger.debug(f"pos calculated {pos}")
 
@@ -199,74 +199,25 @@ class PositionModule(Module):
         imu_rot = imu_homog_matrix[0:3, 0:3]
         imu_t_vec = imu_homog_matrix[0:3, 3]
 
-        best_match = (None, None, np.inf, None)
+        # Correction: Homography gives a result rotated from our camera coordinate frame.
+        vo_to_camera = np.array([[0, 0, -1], [1, 0, 0], [0, 1, 0]])
 
         for homog in vo_result.homogs:
-            k_t = 0.0
-
-            # Correction: Homography gives a result rotated from our camera coordinate frame.
-            vo_to_camera = np.array([[0, 0, -1], [1, 0, 0], [0, 1, 0]])
             # Expressing the translation vector in the camera frame
             vo_t_vec = vo_to_camera.dot(homog[0:3, 3])
+
             # Expressing the rotation in the camera frame
             # normalise the input frame as it happens that the rotation matrix has elements with value above 1
             vo_homog = normalise_rotation(homog[0:3, 0:3])
             vo_angle_axis = vo_to_camera.dot(rotMat_to_anlgeAxis(vo_homog))
             vo_quat = angleAxis_to_quaternion(vo_angle_axis)
 
-            # The rotation expressed as a rotation matrix lacks in performance
-            vo_rot = angleAxis_to_rotMat(vo_angle_axis)
-            vo_rot = normalise_rotation(vo_rot)
+            # LS scale
+            sum_vo_imu = imu_t_vec[0]*vo_t_vec[0] + imu_t_vec[1]*vo_t_vec[1] + imu_t_vec[2]*vo_t_vec[2]
+            sum_vo_2 = vo_t_vec[0]**2 + vo_t_vec[1]**2 + vo_t_vec[2]**2
+            scale = 0.5*sum_vo_imu/sum_vo_2
 
-            # if vo_rot.shape != (3, 3):
-            #     print('vo_to_camera', vo_to_camera)
-            #     print('homog[0:3, 0:3]\n', homog[0:3, 0:3])
-            #     print('vo_homog', vo_homog)
-            #     print('vo_t_vec', vo_t_vec)
-            #     print('vo_angle_axis', vo_angle_axis)
-            #     print('vo_rot.shape', vo_rot.shape)
+            # LS scale error
+            scale_error = (scale*imu_t_vec[0] - imu_t_vec[0])**2 + (scale*imu_t_vec[1] - imu_t_vec[1])**2 + (scale*imu_t_vec[2] - imu_t_vec[2])
 
-            # print("000vo_rot original\n", homog[0:3, 0:3])
-            # print("angle axis", rotMat_to_anlgeAxis(homog[0:3, 0:3]))
-            # print("rotated angle axis", vo_to_camera.dot(rotMat_to_anlgeAxis(homog[0:3, 0:3])))
-            # print("vo_rot _cam\n", vo_rot, "\n angle axis new rot", rotMat_to_anlgeAxis(vo_rot))
-            # print("ypr", rotMat_to_ypr(vo_rot))
-
-            ## second way of calculating it
-            # vo_rot = angleAxis_to_rotMat(quaternion_apply(rotMat_to_quaternion(vo_to_camera), rotMat_to_anlgeAxis(homog[0:3, 0:3])))
-            # vo_rot = normalise_rotation(vo_rot)
-            #
-            # print("111vo_rot original\n", homog[0:3, 0:3])
-            # print("angle axis", rotMat_to_anlgeAxis(homog[0:3, 0:3]))
-            # print("rotated angle axis", quaternion_apply(rotMat_to_quaternion(vo_to_camera), rotMat_to_anlgeAxis(homog[0:3, 0:3])))
-            # print("vo_rot _cam\n", vo_rot, "\n angle axis new rot", rotMat_to_anlgeAxis(vo_rot))
-            # print("\n ypr", rotMat_to_ypr(vo_rot))
-
-            # Exit if the rotation matrix is not computed as expected
-            check_correct_rot_mat(vo_rot)
-
-            # Robot dynamic script p51
-            # Issues for rotation angles close to zero or pi
-            delta_rot = rotMat_to_anlgeAxis(imu_rot.T.dot(vo_rot))
-            distance = np.linalg.norm(delta_rot) + k_t * np.linalg.norm(imu_t_vec - vo_t_vec)
-
-            if distance < best_match[2]:
-                best_match = (vo_quat, vo_t_vec, distance, delta_rot)
-
-        imu_ypr = rotMat_to_ypr(imu_homog_matrix[..., :3])
-        vo_ypr = quat_to_ypr(best_match[0])
-        imu_xyz = str(imu_homog_matrix[..., 3:]).replace("\n", "")
-        vo_xyz = str(best_match[1]).replace("\n", "")
-        self.logger.info(f"Prediction Offset:\n"
-                         f"IMU Euler [yaw, pitch, roll] angles :\n{imu_ypr}\nVO angles :\n{vo_ypr}, (RAD)\n"
-                         f"IMU pos :{imu_xyz}\nVO pos  :{vo_xyz}")
-
-        self.vispg(best_match[0], visualize=True, name="best match found")
-
-        #PLOT
-        # visualize_distance_metric(best_match, degrees, imu_angles, vo_angles)
-        self.logger.info(f'returning {np.column_stack((quaternion_to_rotMat(best_match[0]), best_match[1]))}')
-        # TODO would be better working with quaternion
-        # return  best_match[0], best_match[1] # returning the quaternion and translation
-        return np.column_stack((quaternion_to_rotMat(best_match[0]), best_match[1]))
-
+            return np.column_stack((quaternion_to_rotMat(vo_quat), scale*vo_t_vec))
