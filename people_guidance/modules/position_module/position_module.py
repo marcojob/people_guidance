@@ -19,7 +19,7 @@ from .helpers import check_correct_rot_mat, normalise_rotation
 class PositionModule(Module):
     def __init__(self, log_dir: pathlib.Path, args=None):
         super().__init__(name="position_module",
-                         outputs=[("homography", 10)],
+                         outputs=[("homography", 10), ("position_vis", 10)],
                          inputs=["drivers_module:accelerations",
                                  "feature_tracking_module:feature_point_pairs"],
                          log_dir=log_dir)
@@ -124,6 +124,9 @@ class PositionModule(Module):
                                             "timestamps": (vo_result.ts0, vo_result.ts1),
                                             "image": vo_result.image}, 100)
 
+                self.publish("position_vis", {"x": 0.0, "y": 0.0, "z": 0.0,
+                                              "roll": 0.0, "pitch": 0.0, "yaw": 0.}, 1000)
+
         for offset, idx in enumerate(prune_idxs):
             # we assume that the prune_idxs are sorted low to high
             self.vo_buffer.pop(idx - offset)
@@ -212,12 +215,30 @@ class PositionModule(Module):
             vo_angle_axis = vo_to_camera.dot(rotMat_to_anlgeAxis(vo_homog))
             vo_quat = angleAxis_to_quaternion(vo_angle_axis)
 
-            # LS scale
-            sum_vo_imu = imu_t_vec[0]*vo_t_vec[0] + imu_t_vec[1]*vo_t_vec[1] + imu_t_vec[2]*vo_t_vec[2]
-            sum_vo_2 = vo_t_vec[0]**2 + vo_t_vec[1]**2 + vo_t_vec[2]**2
-            scale = 0.5*sum_vo_imu/sum_vo_2
-
-            # LS scale error
-            scale_error = (scale*imu_t_vec[0] - imu_t_vec[0])**2 + (scale*imu_t_vec[1] - imu_t_vec[1])**2 + (scale*imu_t_vec[2] - imu_t_vec[2])
+            # Scale
+            USE_SCALE = 'relative'
+            if USE_SCALE == 'absolute':
+                scale = self.get_absolute_scale(imu_t_vec, vo_t_vec)
+            elif USE_SCALE == 'relative':
+                scale = self.get_relative_scale(vo_t_vec)
+            elif USE_SCALE == 'groundtruth':
+                scale = self.get_groundtruth_scale()
 
             return np.column_stack((quaternion_to_rotMat(vo_quat), scale*vo_t_vec))
+
+    def get_abolsute_scale(imu_t_vec, vo_t_vec):
+        # LS fit
+        sum_vo_imu = imu_t_vec[0]*vo_t_vec[0] + imu_t_vec[1]*vo_t_vec[1] + imu_t_vec[2]*vo_t_vec[2]
+        sum_vo_2 = vo_t_vec[0]**2 + vo_t_vec[1]**2 + vo_t_vec[2]**2
+        scale = 0.5*sum_vo_imu/sum_vo_2
+
+        return scale
+
+    def get_relative_scale(self, vo_t_vec):
+        scale_of_scale = 10.0
+        scale = 1.0 / np.linalg.norm(vo_t_vec)
+        return scale*scale_of_scale
+
+    def get_groundtruth_scale(self):
+        # todo: extract groundtruth from dataset
+        return 1.0
