@@ -10,9 +10,17 @@ import coloredlogs
 ROOT_DIR = pathlib.Path(__file__).parent.parent
 ROOT_LOG_DIR = ROOT_DIR / "logs"
 ROOT_DATA_DIR = ROOT_DIR / "data"
-DEFAULT_DATASET = ROOT_DATA_DIR / "outdoor_dataset_18"
+DEFAULT_DATASET = ROOT_DATA_DIR / "converted_eth_slam_large_loop_1"
 
-INTRINSIC_MATRIX = np.array([[1.29168322e+03, 0.0, 8.10433936e+02], [0.0, 1.29299333e+03, 6.15008893e+02], [0.0, 0.0, 1.0]])
+if "converted_eth_slam" in DEFAULT_DATASET.stem and (DEFAULT_DATASET / "calibration.txt").exists():
+    with open(DEFAULT_DATASET / "calibration.txt") as fp:
+        line = fp.readline().replace("\n", "").replace("\r", "")
+        fx, fy, cx, cy = (float(param) for param in line.split(" "))
+
+    INTRINSIC_MATRIX = np.array([[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]])
+else:
+    INTRINSIC_MATRIX = np.array([[1.29168322e+03, 0.0, 8.10433936e+02], [0.0, 1.29299333e+03, 6.15008893e+02], [0.0, 0.0, 1.0]])
+
 DISTORTION_COEFFS = np.array([[ 0.1952957 , -0.48124548, -0.00223218, -0.00106617,  0.2668875]])
 
 

@@ -87,7 +87,7 @@ def get_test_dataset_list():
     return text_list.split('\n')
 
 
-def download_dataset_for_conversion(dataset):
+def download_dataset_for_conversion(dataset, dataset_dir):
     training_datasets = get_training_dataset_list()
     test_datasets = get_test_dataset_list()
 
@@ -102,9 +102,8 @@ def download_dataset_for_conversion(dataset):
     if not is_training_dataset and not (dataset in test_datasets):
         raise ValueError('Dataset not found in training or test dataset list, skipping: ' + dataset)
 
-    dpath = Path(__file__).parent.resolve()
-    dpath.mkdir(exist_ok=True)
-    datasets_path = str(dpath)
+    dataset_dir.mkdir(exist_ok=True)
+    datasets_path = str(dataset_dir)
 
     if download_mono:
         download_and_unzip_file(
