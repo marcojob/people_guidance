@@ -1,4 +1,9 @@
 # ETH Slam Datasets
+
+## Warning
+The coordinate frames are not aligned with ours. Look at the [documentation](https://www.eth3d.net/slam_documentation) 
+for the datasets before using this.
+
 ## Usage
 First you have to download and convert the desired dataset (specified by dataset_name in data.py). 
 **Downloading is handled automatically.** Simply run from the people_guidance folder:
