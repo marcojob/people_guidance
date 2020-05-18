@@ -9,6 +9,9 @@ from people_guidance.modules.visual_odometry_module import VisualOdometryModule
 from people_guidance.modules.visualization_module import VisualizationModule
 from people_guidance.modules.reprojection_module import ReprojectionModule
 
+import matplotlib
+matplotlib.use('TkAgg')
+
 
 if __name__ == '__main__':
     init_logging()
@@ -48,7 +51,7 @@ if __name__ == '__main__':
         pipeline.add_module(VisualOdometryModule, log_level=logging.DEBUG)
 
         # Reprojection module
-        pipeline.add_module(ReprojectionModule, log_level=logging.DEBUG)
+        pipeline.add_module(ReprojectionModule, log_level=logging.WARNING)
 
         # If argument is specified we start visualization
         if args.visualize:

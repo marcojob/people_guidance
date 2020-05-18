@@ -24,7 +24,7 @@ DPI = 100
 
 MAX_DATA_LEN = 100
 
-PLOT_LIM = 50
+PLOT_LIM = 10
 
 KEYS = ["preview", "pos"]
 POS_KEYS = ["pos_x", "pos_y", "pos_z", "angle_x", "angle_y", "angle_z", "cloud_x", "cloud_y", "cloud_z"]
@@ -164,7 +164,7 @@ class VisualizationModule(Module):
             ax_list["pos"].set_title("pos")
             ax_list["pos"].set_xlim((-PLOT_LIM, PLOT_LIM))
             ax_list["pos"].set_ylim((-PLOT_LIM, PLOT_LIM))
-            ax_list["pos"].set_zlim((-PLOT_LIM, PLOT_LIM))
+            ax_list["pos"].set_zlim((0, PLOT_LIM))
 
             scatter_p = ax_list["pos"].scatter(
                 self.data_dict["pos_x"], self.data_dict["pos_y"], self.data_dict["pos_z"], alpha=0.01)
@@ -209,7 +209,7 @@ class VisualizationModule(Module):
             ax_list["pos"].set_title("pos")
             ax_list["pos"].set_xlim((-PLOT_LIM, PLOT_LIM))
             ax_list["pos"].set_ylim((-PLOT_LIM, PLOT_LIM))
-            ax_list["pos"].set_zlim((-PLOT_LIM, PLOT_LIM))
+            ax_list["pos"].set_zlim((0, PLOT_LIM))
 
             scatter_r = ax_list["pos"].scatter(
                 self.data_dict["cloud_x"], self.data_dict["cloud_y"], self.data_dict["cloud_z"])

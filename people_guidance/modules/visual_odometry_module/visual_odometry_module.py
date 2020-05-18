@@ -205,7 +205,7 @@ class VisualOdometry:
         E, mask = cv2.findEssentialMat(self.cur_fts, self.prev_fts, self.intrinsic_matrix, method=cv2.RANSAC, prob= 0.999, threshold=1.0)
 
         # Recover pose, meaning rotation and translation
-        _, self.cur_r, self.cur_t, mask = cv2.recoverPose(E, self.cur_fts, self.prev_fts, self.intrinsic_matrix)
+        _, self.cur_r, self.cur_t, mask = cv2.recoverPose(E, self.cur_fts, self.prev_fts, self.intrinsic_matrix, mask)
 
         # Keep track of rotations and translation
         self.t_vects.append(self.cur_r.dot(self.cur_t))
@@ -267,7 +267,7 @@ class VisualOdometry:
         if USE_RELATIVE_SCALE:
             self.scale = self.get_relative_scale()
         else:
-            self.scale = self.get_absolute_scale()
+            self.scale = self.get_absolute_scale(t)
 
         # Continue tracking of movement
         self.cur_t = self.cur_t + self.scale * self.cur_r.dot(t)  # Concatenate the translation vectors
@@ -362,6 +362,12 @@ class VisualOdometry:
 
         cloud_homo = cv2.triangulatePoints(P0, P1, point1, point2)
         cloud = cv2.convertPointsFromHomogeneous(cloud_homo.T).reshape(-1, 3)
+
+        for point in cloud:
+            if point[0] < 0:
+                point[0] *= -1
+            if point[2] < 0:
+                point[2] *= -1
         return cloud
 
     def skip_frame(self, diff):
@@ -395,10 +401,10 @@ class VisualOdometry:
                 ratios.append(np.linalg.norm(p_Xk_1 - Xk_1) / np.linalg.norm(p_Xk - Xk))
 
         # Take the median of ratios list as the final ratio
-        d_ratio = np.median(ratios)
+        d_ratio = abs(np.median(ratios))
         return d_ratio
 
-    def get_absolute_scale(self):
+    def get_absolute_scale(self, t_vis):
         ts_prev = self.last_timestamp
         ts_cur = self.new_timestamp
 
@@ -410,7 +416,10 @@ class VisualOdometry:
         self.ax_cur, self.ay_cur, self.az_cur = self.cf.integrate(ts_prev, ts_cur)
 
         # Scale
-        scale = np.sqrt((self.ax_cur - self.ax_prev)**2 + (self.ay_cur - self.ay_prev)**2 + (self.az_cur - self.az_prev)**2)
+        sum_vi_im = self.ax_cur*t_vis[0] + self.ay_cur*t_vis[1] + self.az_cur*t_vis[2]
+        sum_vi_2 = self.ax_cur**2 + self.ay_cur**2 + self.az_cur**2
+
+        scale = abs(0.5 * sum_vi_im[0] / (sum_vi_2 + 0.000001))
 
         return scale
 
