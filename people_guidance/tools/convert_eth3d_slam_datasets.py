@@ -4,10 +4,8 @@ from tqdm import tqdm
 import shutil
 import numpy as np
 
-from download_eth3d_slam_datasets import download_dataset_for_conversion
-
-ROOT_DIR = Path(__file__).parent.resolve()
-
+from .download_eth3d_slam_datasets import download_dataset_for_conversion
+from ..utils import ROOT_DATA_DIR
 
 def convert_s_to_ms(timestamp):
     return int(timestamp * 1000)
@@ -17,16 +15,15 @@ def convert_rad_to_degree(rads):
     return rads * (180 / np.pi)
 
 
-if __name__ == '__main__':
-    dataset_name = "cables_2"
+def download_and_convert_dataset(dataset_name):
 
-    dataset_dir = ROOT_DIR / dataset_name
+    dataset_dir = ROOT_DATA_DIR / dataset_name
 
     if not dataset_dir.is_dir():
         print("Downloading Dataset!")
-        download_dataset_for_conversion(dataset_name)
+        download_dataset_for_conversion(dataset_name, ROOT_DATA_DIR)
 
-    converted_dataset_dir = ROOT_DIR / f"converted_eth_slam_{dataset_name}"
+    converted_dataset_dir = ROOT_DATA_DIR / f"converted_eth_slam_{dataset_name}"
     converted_dataset_dir.mkdir(exist_ok=True)
     converted_dataset_img_dir = converted_dataset_dir / "imgs"
     converted_dataset_img_dir.mkdir(exist_ok=True)
@@ -45,7 +42,7 @@ if __name__ == '__main__':
     fname_mapping = {}
     # convert the images into jpg and save them into the converted dataset folder
     with open(str(converted_dataset_dir / "img_data.txt"), "w") as out_fp:
-        print("Converting rgb images to jpg")
+        print("Converting png images to jpg")
         for i, (timestamp, fpath) in tqdm(enumerate(rgb_paths), total=len(rgb_paths)):
             im = Image.open(dataset_dir / fpath)
             # save the filename mapping so that we can find the corresponding depth images later
@@ -69,4 +66,10 @@ if __name__ == '__main__':
     # copy the depth images
     shutil.copytree(dataset_dir / "depth", converted_dataset_dir / "depth")
     shutil.copy(dataset_dir / "depth.txt", converted_dataset_dir / "depth.txt")
+    shutil.copy(dataset_dir / "calibration.txt", converted_dataset_dir / "calibration.txt")
+    shutil.copy(dataset_dir / "groundtruth.txt", converted_dataset_dir / "groundtruth.txt")
+
+    print("Deleting raw dataset...")
+    shutil.rmtree(dataset_dir)
+    print("Finished...")
 
