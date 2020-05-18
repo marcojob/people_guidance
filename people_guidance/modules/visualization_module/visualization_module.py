@@ -21,6 +21,7 @@ PREVIEW_PLOT_HZ = 20
 
 FIGSIZE = (14,9)
 DPI = 100
+PLOT_LIM = 10
 
 MAX_DATA_LEN = 100
 
@@ -158,9 +159,9 @@ class VisualizationModule(Module):
 
         if scatter_p == None:
             ax_list["pos"].set_title("pos")
-            ax_list["pos"].set_xlim((-2, 2))
-            ax_list["pos"].set_ylim((-2, 2))
-            ax_list["pos"].set_zlim((-0, 2))
+            ax_list["pos"].set_xlim((-PLOT_LIM, PLOT_LIM))
+            ax_list["pos"].set_ylim((-PLOT_LIM, PLOT_LIM))
+            ax_list["pos"].set_zlim((-0, PLOT_LIM))
 
             scatter_p = ax_list["pos"].scatter(
                 self.data_dict["pos_x"], self.data_dict["pos_y"], self.data_dict["pos_z"], alpha=0.01)
@@ -203,9 +204,9 @@ class VisualizationModule(Module):
         global scatter_r
         if scatter_r == None:
             ax_list["pos"].set_title("pos")
-            ax_list["pos"].set_xlim((-2, 2))
-            ax_list["pos"].set_ylim((-2, 2))
-            ax_list["pos"].set_zlim((-0, 2))
+            ax_list["pos"].set_xlim((-PLOT_LIM, PLOT_LIM))
+            ax_list["pos"].set_ylim((-PLOT_LIM, PLOT_LIM))
+            ax_list["pos"].set_zlim((-0, PLOT_LIM))
 
             scatter_r = ax_list["pos"].scatter(
                 self.data_dict["3d_pos_x"], self.data_dict["3d_pos_y"], self.data_dict["3d_pos_z"])

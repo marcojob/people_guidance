@@ -10,10 +10,14 @@ from typing import Tuple
 from people_guidance.modules.module import Module
 from people_guidance.utils import project_path
 
-# Need this to get cv imshow working on Ubuntu 20.04
+from .config import *
+
+#Need this to get cv imshow working on Ubuntu 20.04
 if "Linux" in platform.system():
     import gi
     gi.require_version('Gtk', '2.0')
+    import matplotlib
+    matplotlib.use('TkAgg')
 
 
 class FeatureTrackingModule(Module):
@@ -23,33 +27,9 @@ class FeatureTrackingModule(Module):
                                                     inputs=["drivers_module:images"],
                                                     log_dir=log_dir)
 
-    def cleanup(self):
-        plt.close('all')
-
     def start(self):
-        self.old_timestamp = None
-        self.old_keypoints = None
-        self.old_descriptors = None
-
-        # maximum numbers of keypoints to keep and calculate descriptors of,
-        # reducing this number can improve computation time:
-        self.max_num_keypoints = 1000
-
-        # create each an ORB and a SURF feature descriptor and brute force matcher object
-        self.use_SURF = 0
-
-        # use essential matrix estimation
-        self.use_essential_matrix = 0
-
-        self.detector_object = None
-        self.matcher_object = None
-
-        if self.use_SURF:
-            self.detector_object = cv2.xfeatures2d.SURF_create(hessianThreshold=2000)
-            self.matcher_object = cv2.BFMatcher_create(cv2.NORM_L2, crossCheck=True)
-        else: # use ORB
-            self.detector_object = cv2.ORB_create(nfeatures=self.max_num_keypoints)
-            self.matcher_object = cv2.BFMatcher_create(cv2.NORM_HAMMING, crossCheck=True)
+        self.fm = featureMatcher(OF_MAX_NUM_FEATURES, self.logger, self.intrinsic_matrix, method=DETECTOR, use_OF=USE_OPTICAL_FLOW, use_E=USE_E)
+        self.old_timestamp = 0
 
         while True:
             img_dict = self.get("drivers_module:images")
@@ -65,120 +45,204 @@ class FeatureTrackingModule(Module):
 
                 img = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
 
-                keypoints, descriptors = self.extract_feature_descriptors(img)
-
-                # only do feature matching if there were keypoints found in the new image, discard it otherwise
-                if len(keypoints) == 0:
-                    self.logger.warn(f"Didn't find any features in image with timestamp {timestamp}, skipping...")
+                if self.fm.should_initialize:
+                    self.fm.initialize(img)
                 else:
-                    if self.old_descriptors is not None:  # skip the matching step for the first image
-                        # match the feature descriptors of the old and new image
+                    mp1, mp2 = self.fm.match(img)
+                    if mp1.shape[0] > 0:
+                        inliers = np.concatenate((mp1.transpose().reshape(1, 2, -1),
+                                                mp2.transpose().reshape(1, 2, -1)),
+                                                axis=0)
 
-                        inliers, delta_positions, total_nr_matches = self.match_features(keypoints, descriptors)
+                        
+                        transformations = self.fm.getTransformations()
 
-                        if total_nr_matches == 0:
-                            # there were 0 inliers found, print a warning
-                            self.logger.warn("Couldn't find enough matching features in the images with timestamps: " +
-                                            f"{self.old_timestamp} and {timestamp}")
-                        else:
-                            visualization_img = self.visualize_matches(img, keypoints, inliers, total_nr_matches)
-                            #visualization_img = cv2.resize(visualization_img, None, fx=0.85, fy=0.85)
-
+                        visualization_img = self.visualize_matches(img, inliers)
+                        if mp1.shape[0] > 0:
                             self.publish("feature_point_pairs",
-                                            {"camera_positions" : delta_positions,
-                                            "image": visualization_img,
-                                            "point_pairs": inliers,
-                                            "timestamp_pair": (self.old_timestamp, timestamp)},
-                                            1000)
+                                        {"camera_positions" : transformations,
+                                        "image": visualization_img,
+                                        "point_pairs": inliers,
+                                        "timestamp_pair": (self.old_timestamp, timestamp)},
+                                        1000)
                             self.publish("feature_point_pairs_vis",
                                             {"point_pairs": inliers,
                                             "img": img_rgb,
                                             "timestamp": timestamp},
                                             1000)
+                        self.old_timestamp = timestamp
 
-                    # store the date of the new image as old_img... for the next iteration
-                    # If there are no features found in the new image this step is skipped
-                    # This means that the next image will be compared witht he same old image again
-                    self.old_timestamp = timestamp
-                    self.old_keypoints = keypoints
-                    self.old_descriptors = descriptors
+    def visualize_matches(self, img: np.ndarray, inliers: np.ndarray) -> np.ndarray:
+        for i in range(inliers.shape[2]):
+            visualization_img = cv2.line(img,
+                                         tuple(inliers[0,...,i]), tuple(inliers[1,...,i]),
+                                         (255,0,0), 5)
+            visualization_img = cv2.circle(visualization_img, tuple(inliers[1,...,i]) ,1,(0,255,0),-1)
 
-    def extract_feature_descriptors(self, img: np.ndarray) -> (list, np.ndarray):
+        return visualization_img
+
+class featureMatcher:
+    def __init__(self, max_num_features, logger, K, method='FAST', use_OF=False, use_E=True,):
+        self.intrinsic_matrix = K
+        self.logger = logger
+        self.use_OF = use_OF
+        self.use_E = use_E
+
+        self.nb_transform_solutions = 0
+        self.rotations = None
+        self.translations = None
+
+        self.should_initialize = True
+
+        if not self.use_OF:
+            matching_norm = None
+            if method=='ORB':
+                matching_norm = cv2.NORM_HAMMING
+            elif method=='FAST' or method=='SHI-TOMASI':
+                self.logger.warn("FAST and SHI-TOMASI features are not supported for simple feature matching, switching to ORB...")
+                method='ORB'
+                matching_norm = cv2.NORM_HAMMING
+            elif method=='SIFT' or method=='SURF':
+                matching_norm = cv2.NORM_L2
+
+            self.matcher = cv2.BFMatcher_create(matching_norm, crossCheck=True)
+
+        self.detector = featureDetector(max_num_features, logger, method=method, of=self.use_OF)
+        self.prev_img = None
+        self.prev_kps = None
+        self.prev_desc = None
+
+    def initialize(self, img):
+        self.prev_img = img
+        self.prev_kps, self.prev_desc = self.detector.detect(img)
+        self.should_initialize = False
+
+    def match(self, img):
+        if self.use_OF:
+            mp1, mp2, diff = self.KLT_featureTracking(img)
+        else:
+            mp1, mp2 = self.bruteForceMatching(img)
+
+        if mp1.shape[0] == 0:
+            self.logger.info("skipping frame")
+        else:
+            mask = self.calcTransformation(mp1, mp2)
+
+            mp1 = mp1[mask.ravel().astype(bool)]
+            mp2 = mp2[mask.ravel().astype(bool)]
+
+        return mp1, mp2
+
+    def bruteForceMatching(self, new_img):
+        new_kp, new_desc = self.detector.detect(new_img)
+        matches = self.matcher.match(self.prev_desc, new_desc)
+
+        old_match_points = np.float32([self.prev_kps[match.queryIdx].pt for match in matches])
+        match_points = np.float32([new_kp[match.trainIdx].pt for match in matches])
+
+        return old_match_points, match_points
+
+
+    def KLT_featureTracking(self, new_img):
+        """Feature tracking using the Kanade-Lucas-Tomasi tracker.
+        """
+
+        if self.prev_kps.shape[0] < OF_MIN_NUM_FEATURES:
+            self.prev_kps, _ = self.detector.detect(self.prev_img)
+
+        # Feature Correspondence with Backtracking Check
+        kp2, status, error = cv2.calcOpticalFlowPyrLK(self.prev_img, new_img, self.prev_kps, None, **lk_params)
+        kp1, status, error = cv2.calcOpticalFlowPyrLK(new_img, self.prev_img, kp2, None, **lk_params)
+
+        d = abs(self.prev_kps - kp1).reshape(-1, 2).max(-1)  # Verify the absolute difference between feature points
+        good = d < OF_MIN_MATCHING_DIFF
+
+        # Error Management
+        if len(d) == 0:
+            self.logger.warning('No point correspondance.')
+            self.should_initialize = True
+        elif list(good).count(True) <= 5:  # If less than 5 good points, it uses the features obtain without the backtracking check
+            self.logger.warning('Few point correspondances')
+            return kp1, kp2, None
+
+        # Create new lists with the good features
+        n_kp1, n_kp2 = [], []
+        for i, good_flag in enumerate(good):
+            if good_flag:
+                n_kp1.append(kp1[i])
+                n_kp2.append(kp2[i])
+
+        # Format the features into float32 numpy arrays
+        n_kp1, n_kp2 = np.array(n_kp1, dtype=np.float32), np.array(n_kp2, dtype=np.float32)
+
+        # Verify if the point correspondence points are in the same pixel coordinates
+        d = abs(n_kp1 - n_kp2).reshape(-1, 2).max(-1)
+
+        # The mean of the differences is used to determine the amount of distance between the pixels
+        diff_mean = np.mean(d)
+        if diff_mean > OF_DIFF_THRESHOLD:
+            self.prev_img = new_img
+            self.prev_kps = n_kp2
+            return n_kp1, n_kp2, diff_mean
+        else:
+            return np.array([]), np.array([]), None
+
+    def calcTransformation(self, mp1, mp2):
+        if not self.use_E:
+            # if we found enough matches do a RANSAC search to find inliers corresponding to one homography
+            H, mask = cv2.findHomography(mp1, mp2, cv2.RANSAC, 1.0)
+            self.nb_transform_solutions, self.rotations, self.translations, _ = cv2.decomposeHomographyMat(H, self.intrinsic_matrix)
+            return mask
+        else:
+            E, mask = cv2.findEssentialMat(mp1, mp2, self.intrinsic_matrix, cv2.RANSAC, 0.999, 1.0, None)
+            _, self.rotations, self.translations, _ = cv2.recoverPose(E, mp1, mp2, self.intrinsic_matrix, mask)
+            self.nb_transform_solutions = 1
+            return mask
+
+    def getTransformations(self):
+        if self.nb_transform_solutions > 0:
+            transformations = np.zeros((self.nb_transform_solutions, 3, 4))
+            for i in range(self.nb_transform_solutions):
+                transformations[i, :, 0:3] = self.rotations[i]
+                transformations[i, :, 3] = self.translations[i].ravel()
+            return transformations
+        else:
+            return np.zeros((1,3,4))
+
+
+class featureDetector:
+    def __init__(self, max_num_features, logger, method='FAST', of=False):
+        self.max_num_features = max_num_features
+        self.logger = logger
+        self.method = method
+        self.of = of
+        self.detector = None
+        methods = {'FAST': cv2.FastFeatureDetector_create(threshold=25, nonmaxSuppression=True),
+                   'SIFT': cv2.xfeatures2d.SIFT_create(max_num_features),
+                   'SURF': cv2.xfeatures2d.SURF_create(max_num_features),
+                   'SHI-TOMASI': None,
+                   'ORB': cv2.ORB_create(nfeatures=max_num_features)}
+        try:
+            self.detector = methods[method]
+        except keyError:
+            self.logger.warn(method + "detector is not available")
+
+    def detect(self, img: np.array):
         keypoints = None
         descriptors = None
 
-        if self.use_SURF:
-            # surf detects and describes the feature in one function
-            keypoints, descriptors = self.detector_object.detectAndCompute(img, None)
+        if self.method == 'SHI-TOMASI':
+            keypoints = cv2.goodFeaturesToTrack(img, **shi_tomasi_params)
+        elif self.method == 'ORB':
+            keypoints = self.detector.detect(img, None)
+            keypoints, descriptors = self.detector.compute(img, keypoints)
+        elif self.method == 'FAST':
+            keypoints = self.detector.detect(img, None)
         else:
-            # first detect the ORB keypoints and then compute the feature descriptors of those points
-            keypoints = self.detector_object.detect(img, None)
-            keypoints, descriptors = self.detector_object.compute(img, keypoints)
+            keypoints, descriptors = self.detector.detectAndCompute(img, None)
         
         self.logger.debug(f"Found {len(keypoints)} feautures")
 
+        if self.of and not self.method == 'SHI-TOMASI':
+            keypoints = np.array([x.pt for x in keypoints], dtype=np.float32).reshape((-1, 2))
         return (keypoints, descriptors)
-
-    def match_features(self, keypoints: list, descriptors: np.ndarray) -> Tuple[np.ndarray, np.ndarray, int]:
-        matches = self.matcher_object.match(self.old_descriptors, descriptors)
-
-        if len(matches) > 10:
-            # assemble the coordinates of the matched features into a numpy matrix for each image
-            old_match_points = np.float32([self.old_keypoints[match.queryIdx].pt for match in matches])
-            match_points = np.float32([keypoints[match.trainIdx].pt for match in matches])
-
-            if not self.use_essential_matrix:
-                # if we found enough matches do a RANSAC search to find inliers corresponding to one homography
-                H, mask = cv2.findHomography(old_match_points, match_points, cv2.RANSAC, 1.0)
-                nb_solutions, H_rots, H_trans, H_norms = cv2.decomposeHomographyMat(H, self.intrinsic_matrix)
-            else:
-                E, mask = cv2.findEssentialMat(old_match_points, match_points, self.intrinsic_matrix, cv2.RANSAC, 0.999, 1.0, None)
-                ret, R, t, _ = cv2.recoverPose(E, old_match_points, match_points, self.intrinsic_matrix, mask)
-
-                # Essential matrix return only one solution
-                nb_solutions = 1
-                H_rots = np.array(R)
-                H_trans = np.array(t)
-
-            if nb_solutions > 0:
-                delta_positions = np.zeros((nb_solutions, 3, 4))
-
-                for i in range(nb_solutions):
-                    delta_positions[i, :, 0:3] = H_rots[i]
-                    delta_positions[i, :, 3] = H_trans[i].ravel()
-
-                old_match_points = old_match_points[mask.ravel().astype(bool)]
-                match_points = match_points[mask.ravel().astype(bool)]
-                # add the two matrixes together, first dimension are all the matches,
-                # second dimension is image 1 and 2, thrid dimension is x and y
-                # e.g. 4th match, 1st image, y-coordinate: matches_paired[3][0][1]
-                #      8th match, 2nd image, x-coordinate: matches_paired[7][1][0]
-                matches_paired = np.concatenate(
-                (old_match_points.transpose().reshape(1, 2, -1),
-                match_points.transpose().reshape(1, 2, -1)),
-                axis=0)
-
-                return (matches_paired, delta_positions, len(mask))
-            else:
-                self.logger.warn("Couldn't decompose homography")
-        else:
-            self.logger.warn(f"Only {len(matches)} matches found, not enough to calculate a homography")
-
-        return (np.array([]), np.array([]), 0)
-
-
-    def visualize_matches(self, img: np.ndarray, keypoints: list, inliers: np.ndarray, nb_matches: int) -> np.ndarray:
-        visualization_img = cv2.drawKeypoints(img, keypoints, None, color=(0,255,0), flags=0)
-        for i in range(inliers.shape[2]):
-            visualization_img = cv2.line(visualization_img,
-                                         tuple(inliers[0,...,i]), tuple(inliers[1,...,i]),
-                                         (255,0,0), 5)
-
-        cv2.putText(visualization_img, f"Features: {len(keypoints)}", 
-                   (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        cv2.putText(visualization_img, f"Total matches: {nb_matches}",
-                   (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-        cv2.putText(visualization_img, f"Inliers: {inliers.shape[2]}", 
-                   (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
-
-        return visualization_img
