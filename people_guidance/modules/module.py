@@ -7,7 +7,7 @@ import time
 
 from typing import Optional, Any, Dict, List, Tuple, Callable, Union
 
-from ..utils import get_logger, INTRINSIC_MATRIX
+from ..utils import get_logger, INTRINSIC_MATRIX, DISTORTION_COEFFS
 
 
 class ModuleService:
@@ -53,6 +53,8 @@ class Module:
         self.request_timeout = 1  # seconds
 
         self.intrinsic_matrix = INTRINSIC_MATRIX
+
+        self.distortion_coeffs = DISTORTION_COEFFS
 
     def subscribe(self, channel: str, queue_obj: mp.Queue):
         return self.inputs.update({channel: queue_obj})

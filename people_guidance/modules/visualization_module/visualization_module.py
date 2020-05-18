@@ -21,6 +21,7 @@ PREVIEW_PLOT_HZ = 20
 
 FIGSIZE = (14,9)
 DPI = 100
+PLOT_LIM = 10
 
 MAX_DATA_LEN = 100
 
@@ -113,11 +114,8 @@ class VisualizationModule(Module):
                 matches = features["data"]["point_pairs"]
                 preview = features["data"]["img"]
 
-                img_dec = cv2.imdecode(np.frombuffer(
-                        preview, dtype=np.int8), flags=cv2.IMREAD_COLOR)
-
                 # Draw matches onto image
-                self.data_dict["preview"] = self.draw_matches(img_dec, matches)
+                self.data_dict["preview"] = self.draw_matches(preview, matches)
 
                 try:
                     self.animate_preview()
@@ -161,9 +159,9 @@ class VisualizationModule(Module):
 
         if scatter_p == None:
             ax_list["pos"].set_title("pos")
-            ax_list["pos"].set_xlim((-2, 2))
-            ax_list["pos"].set_ylim((-2, 2))
-            ax_list["pos"].set_zlim((-0, 2))
+            ax_list["pos"].set_xlim((-PLOT_LIM, PLOT_LIM))
+            ax_list["pos"].set_ylim((-PLOT_LIM, PLOT_LIM))
+            ax_list["pos"].set_zlim((-0, PLOT_LIM))
 
             scatter_p = ax_list["pos"].scatter(
                 self.data_dict["pos_x"], self.data_dict["pos_y"], self.data_dict["pos_z"], alpha=0.01)
@@ -206,9 +204,9 @@ class VisualizationModule(Module):
         global scatter_r
         if scatter_r == None:
             ax_list["pos"].set_title("pos")
-            ax_list["pos"].set_xlim((-2, 2))
-            ax_list["pos"].set_ylim((-2, 2))
-            ax_list["pos"].set_zlim((-0, 2))
+            ax_list["pos"].set_xlim((-PLOT_LIM, PLOT_LIM))
+            ax_list["pos"].set_ylim((-PLOT_LIM, PLOT_LIM))
+            ax_list["pos"].set_zlim((-0, PLOT_LIM))
 
             scatter_r = ax_list["pos"].scatter(
                 self.data_dict["3d_pos_x"], self.data_dict["3d_pos_y"], self.data_dict["3d_pos_z"])
@@ -219,7 +217,7 @@ class VisualizationModule(Module):
             ax_list["pos"].figure.canvas.draw_idle()
 
     def draw_matches(self, img, matches):
-        RADIUS = 15
+        RADIUS = 5
         THICKNESS = 3
         if matches is not None:
             shape = matches.shape
