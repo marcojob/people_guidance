@@ -55,11 +55,3 @@ class DepthGenius:
         depth_delta = dmap1 - dmap0
         lever = (timestamp - ts0) / (ts1 - ts0)
         return dmap0 + depth_delta * lever
-
-
-if __name__ == '__main__':
-    dg = DepthGenius("cables_2", Path("converted_eth_slam_cables_2"))
-    points = np.array(((12, 13), (200, 200), (100, 13)))
-    print(points.shape)
-    true_depth = dg(points, 11873357)
-    print(true_depth)

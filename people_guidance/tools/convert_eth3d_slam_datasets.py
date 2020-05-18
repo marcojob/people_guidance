@@ -67,6 +67,7 @@ def download_and_convert_dataset(dataset_name):
     shutil.copytree(dataset_dir / "depth", converted_dataset_dir / "depth")
     shutil.copy(dataset_dir / "depth.txt", converted_dataset_dir / "depth.txt")
     shutil.copy(dataset_dir / "calibration.txt", converted_dataset_dir / "calibration.txt")
+    shutil.copy(dataset_dir / "groundtruth.txt", converted_dataset_dir / "groundtruth.txt")
 
     print("Deleting raw dataset...")
     shutil.rmtree(dataset_dir)
