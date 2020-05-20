@@ -25,12 +25,13 @@ PLOT_LIM = 20
 
 MAX_DATA_LEN = 100
 
-KEYS = ["preview", "pos1", "pos2"]
+KEYS = ["preview", "pos1", "pos2", "plot_t"]
 POS_KEYS = ["pos_x", "pos_y", "pos_z", "angle_x", "angle_y", "angle_z", "3d_pos_x", "3d_pos_y", "3d_pos_z"]
 
 ax_list = dict()
 scatter_p1 = None
 scatter_p2 = None
+plot_t = None
 scatter_1 = None
 scatter_2 = None
 preview_p = None
@@ -56,7 +57,7 @@ class VisualizationModule(Module):
     def plot_main(self):
         try:
             fig = plt.figure(figsize=FIGSIZE, dpi=DPI)
-            ax_list["preview"] = fig.add_subplot(1, 2, 1)
+            ax_list["preview"] = fig.add_subplot(2, 2, 1)
             ax_list["preview"].set_title("preview")
             ax_list["preview"].set_axis_off()
 
@@ -65,6 +66,9 @@ class VisualizationModule(Module):
 
             ax_list["pos2"] = fig.add_subplot(2, 2, 4)
             ax_list["pos2"].set_title("X-Y plane")
+
+            ax_list["plot_t"] = fig.add_subplot(2, 2, 3)
+
             plt.show()
         except Exception as e:
             print(e)
@@ -130,23 +134,42 @@ class VisualizationModule(Module):
 
 
             points_3d = self.get("reprojection_module:points3d")
-            rot_coord = R.from_matrix([[0, 0, 1], [-1, 0, 0], [0, -1, 0]])
             if points_3d:
                 self.data_dict["3d_pos_x"] = list()
                 self.data_dict["3d_pos_y"] = list()
                 self.data_dict["3d_pos_z"] = list()
                 for point in points_3d["data"]:
-                    # point_r = rot_coord.apply(point[0])
                     point_r = point[0]
                     self.data_dict["3d_pos_x"].append(point_r[0])
                     self.data_dict["3d_pos_y"].append(point_r[1])
                     self.data_dict["3d_pos_z"].append(point_r[2])
 
-                self.animate_3d_points()
+                try:
+                    self.plot_text_box()
+                except Exception as e:
+                    self.logger.warning(f"{e}")
+
                 try:
                     self.animate_3d_points()
                 except Exception as e:
                     self.logger.warning(f"{e}")
+
+    def plot_text_box(self):
+        global plot_t
+
+        text = f' Number of matches: {len(self.data_dict["3d_pos_x"])}\n' + \
+               f' Add other plot text here ...'
+
+        if plot_t == None:
+            # fake plot
+            ax_list["plot_t"].plot([0, 10], [0, 10], alpha=0)
+            ax_list["plot_t"].set_axis_off()
+
+            # real text
+            plot_t = ax_list["plot_t"].text(0, 10, text, fontsize=12)
+        else:
+            plot_t.set_text(text)
+        ax_list["plot_t"].figure.canvas.draw_idle()
 
 
     def animate_pos(self):
@@ -199,10 +222,8 @@ class VisualizationModule(Module):
     def animate_3d_points(self):
         global scatter_1
         if scatter_1 == None:
-            #ax_list["pos"].set_title("pos")
             ax_list["pos1"].set_xlim((-PLOT_LIM, PLOT_LIM))
             ax_list["pos1"].set_ylim((-PLOT_LIM, PLOT_LIM))
-            # ax_list["pos"].set_zlim((-0, PLOT_LIM))
 
             scatter_1 = ax_list["pos1"].scatter(
                 self.data_dict["3d_pos_y"], self.data_dict["3d_pos_z"], c=self.data_dict["3d_pos_x"])
@@ -217,10 +238,8 @@ class VisualizationModule(Module):
 
         global scatter_2
         if scatter_2 == None:
-            #ax_list["pos"].set_title("pos")
             ax_list["pos2"].set_xlim((-PLOT_LIM, PLOT_LIM))
             ax_list["pos2"].set_ylim((-PLOT_LIM, PLOT_LIM))
-            # ax_list["pos"].set_zlim((-0, PLOT_LIM))
 
             scatter_2 = ax_list["pos2"].scatter(
                 self.data_dict["3d_pos_x"], self.data_dict["3d_pos_y"], c=self.data_dict["3d_pos_z"])

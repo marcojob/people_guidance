@@ -62,10 +62,6 @@ class ReprojectionModule(Module):
                         point[0] *= -1.0
 
                     # Same in z direction
-                    #if point[1] < 0.0:
-                    #    point[1] *= -1.0
-
-                    # Same in y direction
                     if point[2] < 0.0:
                         point[2] *= -1.0
 
