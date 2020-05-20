@@ -12,7 +12,7 @@ from .helpers import IMUFrame, VOResult, Homography, interpolate_frames
 from .helpers import visualize_input_data, visualize_distance_metric, pygameVisualize
 from .helpers import degree_to_rad, MovingAverageFilter, ComplementaryFilter, Velocity
 from .helpers import rotMat_to_anlgeAxis, quat_to_rotMat, rotMat_to_ypr, angleAxis_to_rotMat, quaternion_to_rotMat, \
-    angleAxis_to_quaternion, quaternion_to_angleAxis, rotMat_to_quaternion, quaternion_apply, quat_to_ypr
+    angleAxis_to_quaternion, rotMat_to_quaternion, quaternion_apply, quat_to_ypr
 from .helpers import check_correct_rot_mat, normalise_rotation
 
 
@@ -57,21 +57,23 @@ class PositionModule(Module):
 
     def imu_frame_from_payload(self, payload: Dict) -> IMUFrame:
         # In Camera coordinates: X = -Z_IMU, Y = Y_IMU, Z = X_IMU (90° rotation around the Y axis)
+        n_avg = 1
         frame = IMUFrame(
-            ax=self.avg_filter("ax", -float(payload['data']['accel_z']), 10), # m/s ** 2
-            ay=self.avg_filter("ay", float(payload['data']['accel_y']), 10),
-            az=self.avg_filter("az", float(payload['data']['accel_x']), 10),
-            gx=self.avg_filter("gx", -degree_to_rad(float(payload['data']['gyro_z'])), 10), # input: °/s, output : RAD/s
-            gy=self.avg_filter("gy", degree_to_rad(float(payload['data']['gyro_y'])), 10),
-            gz=self.avg_filter("gz", degree_to_rad(float(payload['data']['gyro_x'])), 10),
+            ax=self.avg_filter("ax", -float(payload['data']['accel_z']), n_avg), # m/s ** 2
+            ay=self.avg_filter("ay", float(payload['data']['accel_y']), n_avg),
+            az=self.avg_filter("az", float(payload['data']['accel_x']), n_avg),
+            gx=self.avg_filter("gx", -degree_to_rad(float(payload['data']['gyro_z'])), n_avg), # input: °/s, output : RAD/s
+            gy=self.avg_filter("gy", degree_to_rad(float(payload['data']['gyro_y'])), n_avg),
+            gz=self.avg_filter("gz", degree_to_rad(float(payload['data']['gyro_x'])), n_avg),
             quaternion=[1, 0, 0, 0],
             ts=payload['data']['timestamp']
         )
-        self.logger.info(f"Input frame from driver : \n{frame}")
+        self.logger.info(f"Input frame from driver : \n{frame}") # TODO: Problem: gravity ist raus
 
         # Combine Gyro and Accelerometer data to extract the gravity and add the current rotation to *frame*
-        return self.complementary_filter(frame, alpha=0) # alpha = 0 : gyro, alpha = 1 : accel
-
+        imu_frame = self.complementary_filter(frame, alpha=0) # alpha = 0 : gyro, alpha = 1 : accel
+        self.logger.info(f"Frame after complementary filter : \n{imu_frame}")
+        return imu_frame
 
     @staticmethod
     def vo_result_from_payload(payload: Dict):

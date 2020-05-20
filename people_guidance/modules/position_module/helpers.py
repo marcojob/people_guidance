@@ -12,6 +12,8 @@ from scipy.linalg import norm
 from math import atan2, sqrt, cos, sin
 from cmath import acos
 
+from .cam import CameraPygame
+
 IMUFrame = collections.namedtuple("IMUFrame", ["ax", "ay", "az", "gx", "gy", "gz", "quaternion", "ts"])
 # quaternion : [w, x, y, z]
 VOResult = collections.namedtuple("VOResult", ["homogs", "pairs", "ts0", "ts1", "image"])
@@ -273,16 +275,16 @@ class ComplementaryFilter:
             [yaw, pitch, roll] = np.array([gyro_yaw, gyro_pitch, gyro_roll]) * (1 - alpha) + \
                                  np.array([gyro_yaw, accel_pitch, accel_roll]) * alpha
             # 3.3 Save to quaternion and update state
-            self.q_gyro_state = ypr_to_quat(ypr=[yaw, pitch, roll]) # TODO 6: error here?
+            self.q_gyro_state = ypr_to_quat(ypr=[yaw, pitch, roll]) # correct
 
-            # print('\nyaw DEGREES', yaw*180/pi) # This yaw is correct # TODO 4 :correct
+            # print('\nyaw DEGREES', yaw*180/pi) # This yaw is correct # correct
             # print('quat compl', self.q_gyro_state ) # Correct
 
             # Pygames visualization
             if self.visualize:
-                # self.cam(self.q_gyro_state, name=f"q_update, time = {frame.ts / 1000}, yaw = {yaw}") # TODO 5: False # TODO 8 error here?
+                # self.cam(self.q_gyro_state, name=f"q_update, time = {frame.ts / 1000}, yaw = {yaw}") # TODO 4: correct here too?
                 # self.cam(q_gyro, name=f"q_gyro, time = {frame.ts / 1000}, yaw = {yaw}")
-                self.cam(np.array([yaw, pitch, roll]) *180/pi, useQuat=False) # TODO 5: False
+                self.cam(np.array([yaw, pitch, roll]) *180/pi, useQuat=False) # correct, set the right self.visualize=True
                 # in case of not passing quaternion: [yaw, pitch, roll] in DEGREES
 
             # print(f"Acceleration: {[frame.ax, frame.ay, frame.az]}"
@@ -295,7 +297,7 @@ class ComplementaryFilter:
             # To recreate [0, 0, -g], apply this formula:
             local_gravity = quaternion_apply(self.q_gyro_state, [0, 0, -1]) * 9.81 # Verified, rotation correctly applied
 
-            # print("local gravity", local_gravity)
+            print("local gravity", local_gravity)
             # print(f"gravity compensation: {np.array([frame.ax, frame.ay, frame.az]) - local_gravity}")
 
             # Update before returning
@@ -599,13 +601,13 @@ def angleAxis_to_quaternion(angleAxis):
     else:
         sys.exit(f"angle axis input shape {angleAxis.shape} instead of (3,)")
 
-def quaternion_to_angleAxis(q):
-    if q.shape == (4,):
-        q = q / norm(q)
-        # # Rotation library, NOT working properly
-        return rotMat_to_anlgeAxis(quaternion_to_rotMat(q))
-    else:
-        sys.exit(f"angle axis input shape {q.shape} instead of (4,)")
+# def quaternion_to_angleAxis(q):
+#     if q.shape == (4,):
+#         q = q / norm(q)
+#         # # Rotation library, NOT working properly
+#         return rotMat_to_anlgeAxis(quaternion_to_rotMat(q))
+#     else:
+#         sys.exit(f"angle axis input shape {q.shape} instead of (4,)")
 
 def quaternion_to_rotMat(q):
     # http://www.euclideanspace.com/maths/geometry/rotations/conversions/quaternionToMatrix/index.htm
