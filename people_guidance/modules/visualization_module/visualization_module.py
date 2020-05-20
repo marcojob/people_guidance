@@ -21,7 +21,7 @@ PREVIEW_PLOT_HZ = 20
 
 FIGSIZE = (15,12)
 DPI = 100
-PLOT_LIM = 20
+PLOT_LIM = 50.0
 
 MAX_DATA_LEN = 100
 
@@ -51,6 +51,8 @@ class VisualizationModule(Module):
 
         data_thread = threading.Thread(target=self.data_main)
         data_thread.start()
+
+        self.len_points_3d = 0
 
         self.plot_main()
 
@@ -135,14 +137,17 @@ class VisualizationModule(Module):
 
             points_3d = self.get("reprojection_module:points3d")
             if points_3d:
+                self.len_points_3d = points_3d["data"].shape[0]
                 self.data_dict["3d_pos_x"] = list()
                 self.data_dict["3d_pos_y"] = list()
                 self.data_dict["3d_pos_z"] = list()
                 for point in points_3d["data"]:
-                    point_r = point[0]
-                    self.data_dict["3d_pos_x"].append(point_r[0])
-                    self.data_dict["3d_pos_y"].append(point_r[1])
-                    self.data_dict["3d_pos_z"].append(point_r[2])
+                    # Only consider point in the view of the plot
+                    x, y, z = point[0]
+                    if not (x < -PLOT_LIM or x > PLOT_LIM or y < -PLOT_LIM or y > PLOT_LIM or z < 0 or z > PLOT_LIM):
+                        self.data_dict["3d_pos_x"].append(x)
+                        self.data_dict["3d_pos_y"].append(y)
+                        self.data_dict["3d_pos_z"].append(z)
 
                 try:
                     self.plot_text_box()
@@ -157,8 +162,8 @@ class VisualizationModule(Module):
     def plot_text_box(self):
         global plot_t
 
-        text = f' Number of matches: {len(self.data_dict["3d_pos_x"])}\n' + \
-               f' Add other plot text here ...'
+        text = f' Number of matches: {self.len_points_3d}\n' + \
+               f' Number of matches in FoV: {len(self.data_dict["3d_pos_x"])}'
 
         if plot_t == None:
             # fake plot
