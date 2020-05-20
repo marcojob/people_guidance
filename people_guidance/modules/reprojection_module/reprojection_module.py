@@ -117,8 +117,8 @@ class ReprojectionModule(Module):
         critical_points_2d = self.project3dto2d(homography, critical_points_3d)
 
         #  plot the critical points
-        for i in range(critical_points_2d.shape[0]):
-            image = cv2.circle(img=image, center=tuple(critical_points_2d[i, 0, :]), radius=10, color=(255, 153, 255), thickness=-1)
+        #for i in range(critical_points_2d.shape[0]):
+        #    image = cv2.circle(img=image, center=tuple(critical_points_2d[i, 0, :]), radius=10, color=(255, 153, 255), thickness=-1)
 
         #  show both the features and the reprojected critical points
         # cv2.imshow("visu", image)

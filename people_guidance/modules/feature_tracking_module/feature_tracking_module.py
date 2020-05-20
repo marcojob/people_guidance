@@ -6,6 +6,7 @@ import platform
 from time import sleep
 from scipy.spatial.transform import Rotation
 from typing import Tuple
+from collections import namedtuple
 
 from people_guidance.modules.module import Module
 from people_guidance.utils import project_path
@@ -31,6 +32,9 @@ class FeatureTrackingModule(Module):
         self.fm = featureMatcher(OF_MAX_NUM_FEATURES, self.logger, self.intrinsic_matrix, method=DETECTOR, use_OF=USE_OPTICAL_FLOW, use_E=USE_E)
         self.old_timestamp = 0
 
+        # Create a contrast limited adaptive histogram equalization filter
+        clahe = cv2.createCLAHE(clipLimit=5.0)
+
         while True:
             img_dict = self.get("drivers_module:images")
 
@@ -45,6 +49,13 @@ class FeatureTrackingModule(Module):
 
                 img = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
 
+                # Apply clahe
+                if USE_CLAHE:
+                    img = clahe.apply(img)
+
+                # Gaussian filter
+                # img = cv2.blur(img,(5,5))
+
                 if self.fm.should_initialize:
                     self.fm.initialize(img)
                 else:
@@ -54,7 +65,6 @@ class FeatureTrackingModule(Module):
                                                 mp2.transpose().reshape(1, 2, -1)),
                                                 axis=0)
 
-                        
                         transformations = self.fm.getTransformations()
 
                         visualization_img = self.visualize_matches(img, inliers)
@@ -71,6 +81,8 @@ class FeatureTrackingModule(Module):
                                             "timestamp": timestamp},
                                             1000)
                         self.old_timestamp = timestamp
+
+                        self.fm.prev_kps = self.fm.cur_kps
 
     def visualize_matches(self, img: np.ndarray, inliers: np.ndarray) -> np.ndarray:
         for i in range(inliers.shape[2]):
@@ -108,30 +120,58 @@ class featureMatcher:
             self.matcher = cv2.BFMatcher_create(matching_norm, crossCheck=True)
 
         self.detector = featureDetector(max_num_features, logger, method=method, of=self.use_OF)
+
         self.prev_img = None
+        self.cur_img = None
+
         self.prev_kps = None
+        self.cur_kps = None
+
         self.prev_desc = None
 
     def initialize(self, img):
-        self.prev_img = img
+        self.cur_img = img # Will be set to prev img in next step
         self.prev_kps, self.prev_desc = self.detector.detect(img)
         self.should_initialize = False
 
     def match(self, img):
+        # Track images
+        self.prev_img = self.cur_img
+        self.cur_img = img
+
+        if self.prev_kps.shape[0] < OF_MIN_NUM_FEATURES:
+            self.prev_kps, _ = self.detector.detect(self.prev_img)
+            self.cur_kps, _ = self.detector.detect(self.cur_img)
+
+        # Use either OF or brute force matching
         if self.use_OF:
-            mp1, mp2, diff = self.KLT_featureTracking(img)
+            # mp1, mp2, diff = self.KLT_featureTracking(img)
+            self.prev_kps, self.cur_kps, diff = self.KLT_featureTracking(img)
         else:
-            mp1, mp2 = self.bruteForceMatching(img)
+            self.prev_kps, self.cur_kps = self.bruteForceMatching(img)
+            diff = OF_DIFF_THRESHOLD
 
-        if mp1.shape[0] == 0:
-            self.logger.info("skipping frame")
+        # If difference is small we skip the frame (not much movement)
+        self.do_frame_skip = self.skip_frame(diff)
+        if self.do_frame_skip:
+                self.logger.info("skipping frame")
+                if self.prev_kps.shape[0] < OF_MIN_NUM_FEATURES:
+                    self.cur_kps, _ = self.detector.detect(self.prev_img)
+
+                    # Update kps
+                    self.prev_kps = self.cur_kps
+
+                    # Return points
+                    return np.array([]), np.array([])
+        if self.prev_kps.shape[0] > 0:
+            mask = self.calcTransformation(self.prev_kps, self.cur_kps)
         else:
-            mask = self.calcTransformation(mp1, mp2)
+            mask = np.array([])
 
-            mp1 = mp1[mask.ravel().astype(bool)]
-            mp2 = mp2[mask.ravel().astype(bool)]
+        self.prev_kps = self.prev_kps[mask.ravel().astype(bool)]
+        self.cur_kps = self.cur_kps[mask.ravel().astype(bool)]
 
-        return mp1, mp2
+        return self.prev_kps, self.cur_kps
 
     def bruteForceMatching(self, new_img):
         new_kp, new_desc = self.detector.detect(new_img)
@@ -146,13 +186,9 @@ class featureMatcher:
     def KLT_featureTracking(self, new_img):
         """Feature tracking using the Kanade-Lucas-Tomasi tracker.
         """
-
-        if self.prev_kps.shape[0] < OF_MIN_NUM_FEATURES:
-            self.prev_kps, _ = self.detector.detect(self.prev_img)
-
         # Feature Correspondence with Backtracking Check
-        kp2, status, error = cv2.calcOpticalFlowPyrLK(self.prev_img, new_img, self.prev_kps, None, **lk_params)
-        kp1, status, error = cv2.calcOpticalFlowPyrLK(new_img, self.prev_img, kp2, None, **lk_params)
+        kp2, status, error = cv2.calcOpticalFlowPyrLK(self.prev_img, self.cur_img, self.prev_kps, None, **lk_params)
+        kp1, status, error = cv2.calcOpticalFlowPyrLK(self.cur_img, self.prev_img, kp2, None, **lk_params)
 
         d = abs(self.prev_kps - kp1).reshape(-1, 2).max(-1)  # Verify the absolute difference between feature points
         good = d < OF_MIN_MATCHING_DIFF
@@ -163,7 +199,7 @@ class featureMatcher:
             self.should_initialize = True
         elif list(good).count(True) <= 5:  # If less than 5 good points, it uses the features obtain without the backtracking check
             self.logger.warning('Few point correspondances')
-            return kp1, kp2, None
+            return kp1, kp2, OF_DIFF_THRESHOLD
 
         # Create new lists with the good features
         n_kp1, n_kp2 = [], []
@@ -180,12 +216,9 @@ class featureMatcher:
 
         # The mean of the differences is used to determine the amount of distance between the pixels
         diff_mean = np.mean(d)
-        if diff_mean > OF_DIFF_THRESHOLD:
-            self.prev_img = new_img
-            self.prev_kps = n_kp2
-            return n_kp1, n_kp2, diff_mean
-        else:
-            return np.array([]), np.array([]), None
+
+        return n_kp1, n_kp2, diff_mean
+
 
     def calcTransformation(self, mp1, mp2):
         if not self.use_E:
@@ -209,6 +242,16 @@ class featureMatcher:
         else:
             return np.zeros((1,3,4))
 
+    def skip_frame(self, diff):
+        """ Skip a frame if the difference is smaller than a certain value.
+            Small difference means the frame almost did not change.
+        """
+        if diff == 0.0:
+            # 0.0 diff is an error, don't skip
+            return False
+        else:
+            return diff < OF_DIFF_THRESHOLD
+
 
 class featureDetector:
     def __init__(self, max_num_features, logger, method='FAST', of=False):
@@ -218,8 +261,10 @@ class featureDetector:
         self.of = of
         self.detector = None
 
+        self.regular_grid_max_pts = None
+
         if self.method == 'FAST':
-            self.detector = cv2.FastFeatureDetector_create(threshold=25, nonmaxSuppression=True)
+            self.detector = cv2.FastFeatureDetector_create(threshold=FAST_THRESHOLD, nonmaxSuppression=True)
         elif self.method == 'ORB':
             self.detector = cv2.ORB_create(nfeatures=max_num_features)
         elif self.method == 'SIFT':
@@ -228,6 +273,8 @@ class featureDetector:
             self.detector = cv2.xfeatures2d.SURF_create(max_num_features)
         elif self.method == 'SHI-TOMASI':
             self.detector = None
+        elif self.method == 'REGULAR_GRID':
+            self.regular_grid_max_pts = max_num_features
         else:
             self.logger.warn(method + "detector is not available")
 
@@ -242,11 +289,41 @@ class featureDetector:
             keypoints, descriptors = self.detector.compute(img, keypoints)
         elif self.method == 'FAST':
             keypoints = self.detector.detect(img, None)
+        elif self.method == 'REGULAR_GRID':
+            keypoints = self.regular_grid_detector(img)
         else:
             keypoints, descriptors = self.detector.detectAndCompute(img, None)
-        
+
+
         self.logger.debug(f"Found {len(keypoints)} feautures")
 
         if self.of and not self.method == 'SHI-TOMASI':
             keypoints = np.array([x.pt for x in keypoints], dtype=np.float32).reshape((-1, 2))
         return (keypoints, descriptors)
+
+    def regular_grid_detector(self, img):
+        """
+        Very basic method of just sampling point from a regular grid
+        """
+        # Fix at 1000
+        self.regular_grid_max_pts = 1000
+
+        features = list()
+        height = float(img.shape[0])
+        width = float(img.shape[1])
+        k = height/width
+
+        n_col = int(np.sqrt(self.regular_grid_max_pts/k))
+        n_rows = int(n_col*k)
+
+        h_cols = int(width/n_col)
+        h_rows = int(height/n_rows)
+
+        Kp = namedtuple("Kp", "pt")
+
+        for c in range(n_col):
+            for r in range(n_rows):
+                features.append(Kp(pt=(c*h_cols, r*h_rows)))
+
+        return features
+
