@@ -6,6 +6,7 @@ import platform
 from time import sleep
 from scipy.spatial.transform import Rotation
 from typing import Tuple
+from collections import namedtuple
 
 from people_guidance.modules.module import Module
 from people_guidance.utils import project_path
@@ -49,7 +50,11 @@ class FeatureTrackingModule(Module):
                 img = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
 
                 # Apply clahe
-                img = clahe.apply(img)
+                if USE_CLAHE:
+                    img = clahe.apply(img)
+
+                # Gaussian filter
+                # img = cv2.blur(img,(5,5))
 
                 if self.fm.should_initialize:
                     self.fm.initialize(img)
@@ -134,6 +139,10 @@ class featureMatcher:
         self.prev_img = self.cur_img
         self.cur_img = img
 
+        if self.prev_kps.shape[0] < OF_MIN_NUM_FEATURES:
+            self.prev_kps, _ = self.detector.detect(self.prev_img)
+            self.cur_kps, _ = self.detector.detect(self.cur_img)
+
         # Use either OF or brute force matching
         if self.use_OF:
             # mp1, mp2, diff = self.KLT_featureTracking(img)
@@ -177,10 +186,6 @@ class featureMatcher:
     def KLT_featureTracking(self, new_img):
         """Feature tracking using the Kanade-Lucas-Tomasi tracker.
         """
-        if self.prev_kps.shape[0] < OF_MIN_NUM_FEATURES:
-            self.prev_kps, _ = self.detector.detect(self.prev_img)
-            self.cur_kps, _ = self.detector.detect(self.cur_img)
-
         # Feature Correspondence with Backtracking Check
         kp2, status, error = cv2.calcOpticalFlowPyrLK(self.prev_img, self.cur_img, self.prev_kps, None, **lk_params)
         kp1, status, error = cv2.calcOpticalFlowPyrLK(self.cur_img, self.prev_img, kp2, None, **lk_params)
@@ -256,8 +261,10 @@ class featureDetector:
         self.of = of
         self.detector = None
 
+        self.regular_grid_max_pts = None
+
         if self.method == 'FAST':
-            self.detector = cv2.FastFeatureDetector_create(threshold=100, nonmaxSuppression=True)
+            self.detector = cv2.FastFeatureDetector_create(threshold=FAST_THRESHOLD, nonmaxSuppression=True)
         elif self.method == 'ORB':
             self.detector = cv2.ORB_create(nfeatures=max_num_features)
         elif self.method == 'SIFT':
@@ -266,6 +273,8 @@ class featureDetector:
             self.detector = cv2.xfeatures2d.SURF_create(max_num_features)
         elif self.method == 'SHI-TOMASI':
             self.detector = None
+        elif self.method == 'REGULAR_GRID':
+            self.regular_grid_max_pts = max_num_features
         else:
             self.logger.warn(method + "detector is not available")
 
@@ -280,11 +289,41 @@ class featureDetector:
             keypoints, descriptors = self.detector.compute(img, keypoints)
         elif self.method == 'FAST':
             keypoints = self.detector.detect(img, None)
+        elif self.method == 'REGULAR_GRID':
+            keypoints = self.regular_grid_detector(img)
         else:
             keypoints, descriptors = self.detector.detectAndCompute(img, None)
-        
+
+
         self.logger.debug(f"Found {len(keypoints)} feautures")
 
         if self.of and not self.method == 'SHI-TOMASI':
             keypoints = np.array([x.pt for x in keypoints], dtype=np.float32).reshape((-1, 2))
         return (keypoints, descriptors)
+
+    def regular_grid_detector(self, img):
+        """
+        Very basic method of just sampling point from a regular grid
+        """
+        # Fix at 1000
+        self.regular_grid_max_pts = 1000
+
+        features = list()
+        height = float(img.shape[0])
+        width = float(img.shape[1])
+        k = height/width
+
+        n_col = int(np.sqrt(self.regular_grid_max_pts/k))
+        n_rows = int(n_col*k)
+
+        h_cols = int(width/n_col)
+        h_rows = int(height/n_rows)
+
+        Kp = namedtuple("Kp", "pt")
+
+        for c in range(n_col):
+            for r in range(n_rows):
+                features.append(Kp(pt=(c*h_cols, r*h_rows)))
+
+        return features
+

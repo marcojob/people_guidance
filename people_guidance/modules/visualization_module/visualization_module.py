@@ -225,11 +225,11 @@ class VisualizationModule(Module):
             ax_list["preview"].set_title("preview")
             ax_list["preview"].set_axis_off()
 
-            preview_p = ax_list["preview"].imshow(self.data_dict["preview"])
+            preview_p = ax_list["preview"].imshow(self.data_dict["preview"][...,::-1])
 
             ax_list["preview"].figure.canvas.draw_idle()
         else:
-            preview_p.set_data(self.data_dict["preview"])
+            preview_p.set_data(self.data_dict["preview"][...,::-1])
             ax_list["preview"].figure.canvas.draw_idle()
 
     def animate_3d_points(self):
