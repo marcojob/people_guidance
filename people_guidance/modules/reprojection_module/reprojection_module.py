@@ -2,6 +2,7 @@ import pathlib
 from typing import Optional
 
 import cv2
+import copy
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -44,6 +45,26 @@ class ReprojectionModule(Module):
 
                 points_homo = cv2.triangulatePoints(self.origin_pm, offset_pm, point_pairs[0, ...], point_pairs[1, ...])
                 points3d = cv2.convertPointsFromHomogeneous(points_homo.T)
+
+                # Ensure that signs of points are correct
+                for point in points3d:
+                    # Matrix to vector
+                    point_temp = copy.deepcopy(point[0])
+                    point = point[0]
+
+                    # Change coordinate system
+                    point[0] =  point_temp[0]
+                    point[1] =  point_temp[1]
+                    point[2] =  point_temp[2]
+
+                    # We only expect points in positive x direction
+                    if point[0] < 0.0:
+                        point[0] *= -1.0
+
+                    # Same in z direction
+                    if point[2] < 0.0:
+                        point[2] *= -1.0
+
                 self.publish("points3d", data=points3d, validity=100, timestamp=self.get_time_ms())
 
                 points2d = self.project3dto2d(homography, points3d)
@@ -52,7 +73,8 @@ class ReprojectionModule(Module):
                 if cv2.waitKey(0) == ord('a'):
                     print("continue")
                 """
-                cv2.waitKey(1)
+                # cv2.waitKey(1)
+
                 collision_probability = self.update_collision_probability(points3d, timestamps[1], image, homography)
 
                 uncertainty = self.average_filter("uncertainty", self.update_uncertainty(points3d.shape[0], timestamps[1]))
@@ -62,7 +84,10 @@ class ReprojectionModule(Module):
     def project3dto2d(self, homography: np.array, points3d: np.array):
         rot_vec = cv2.Rodrigues(homography[:, :3])[0]
         trans_vec = homography[:, 3:]
-        points2d = cv2.projectPoints(points3d, rot_vec, trans_vec, self.intrinsic_matrix, distCoeffs=None)[0]
+        try:
+            points2d = cv2.projectPoints(points3d, rot_vec, trans_vec, self.intrinsic_matrix, distCoeffs=None)[0]
+        except Exception as e:
+            points2d = np.array([])
         return points2d
 
     @staticmethod
