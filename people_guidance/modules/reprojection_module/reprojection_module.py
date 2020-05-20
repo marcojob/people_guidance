@@ -38,7 +38,6 @@ class ReprojectionModule(Module):
                 image = homog_payload["data"]["image"]
 
                 offset_pm = np.matmul(self.intrinsic_matrix, homography)
-                #print(offset_pm)
 
                 points_homo = cv2.triangulatePoints(self.origin_pm, offset_pm, point_pairs[0, ...], point_pairs[1, ...])
                 points3d = cv2.convertPointsFromHomogeneous(points_homo.T)
@@ -65,9 +64,6 @@ class ReprojectionModule(Module):
                 self.publish("points3d", data=points3d, validity=100, timestamp=self.get_time_ms())
 
                 points2d = self.project3dto2d(homography, points3d)
-
-                #print("repro")
-                #print(homography)
 
                 """
                 if cv2.waitKey(0) == ord('a'):
