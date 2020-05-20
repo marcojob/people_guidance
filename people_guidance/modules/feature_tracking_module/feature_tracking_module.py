@@ -217,14 +217,18 @@ class featureDetector:
         self.method = method
         self.of = of
         self.detector = None
-        methods = {'FAST': cv2.FastFeatureDetector_create(threshold=25, nonmaxSuppression=True),
-                   'SIFT': cv2.xfeatures2d.SIFT_create(max_num_features),
-                   'SURF': cv2.xfeatures2d.SURF_create(max_num_features),
-                   'SHI-TOMASI': None,
-                   'ORB': cv2.ORB_create(nfeatures=max_num_features)}
-        try:
-            self.detector = methods[method]
-        except keyError:
+
+        if self.method == 'FAST':
+            self.detector = cv2.FastFeatureDetector_create(threshold=25, nonmaxSuppression=True)
+        elif self.method == 'ORB':
+            self.detector = cv2.ORB_create(nfeatures=max_num_features)
+        elif self.method == 'SIFT':
+            self.detector = cv2.xfeatures2d.SIFT_create(max_num_features)
+        elif self.method == 'SURF':
+            self.detector = cv2.xfeatures2d.SURF_create(max_num_features)
+        elif self.method == 'SHI-TOMASI':
+            self.detector = None
+        else:
             self.logger.warn(method + "detector is not available")
 
     def detect(self, img: np.array):
