@@ -1,6 +1,6 @@
 import cv2
 
-DETECTOR = 'FAST' # Can be either FAST, SIFT, SURF, SHI-TOMASI, ORB
+DETECTOR = 'SURF' # Can be either FAST, SIFT, SURF, SHI-TOMASI, ORB
 USE_OPTICAL_FLOW = True
 USE_E = True
 
@@ -13,4 +13,4 @@ shi_tomasi_params = dict(maxCorners=500, qualityLevel=0.3, minDistance=7, blockS
 OF_MIN_MATCHING_DIFF = 1  # Minimum difference in the KLT point correspondence
 OF_MIN_NUM_FEATURES = 1000 # If features fall below this threshold we detect new ones
 OF_MAX_NUM_FEATURES = 5000 # Maximum number of features
-OF_DIFF_THRESHOLD = 0.5
+OF_DIFF_THRESHOLD = 1

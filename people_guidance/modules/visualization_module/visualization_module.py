@@ -53,6 +53,8 @@ class VisualizationModule(Module):
         data_thread.start()
 
         self.len_points_3d = 0
+        self.last_timestamp = 0
+        self.preview_delta_ts = 0
 
         self.plot_main()
 
@@ -125,9 +127,14 @@ class VisualizationModule(Module):
             if features:
                 matches = features["data"]["point_pairs"]
                 preview = features["data"]["img"]
+                timestamp = features["data"]["timestamp"]
 
                 # Draw matches onto image
                 self.data_dict["preview"] = self.draw_matches(preview, matches)
+
+                # Track image timestamps
+                self.preview_delta_ts = timestamp - self.last_timestamp
+                self.last_timestamp = timestamp
 
                 try:
                     self.animate_preview()
@@ -162,8 +169,9 @@ class VisualizationModule(Module):
     def plot_text_box(self):
         global plot_t
 
-        text = f' Number of matches: {self.len_points_3d}\n' + \
-               f' Number of matches in FoV: {len(self.data_dict["3d_pos_x"])}'
+        text = f' Number of matches []: {self.len_points_3d}\n' + \
+               f' Number of matches in FoV []: {len(self.data_dict["3d_pos_x"])}\n' + \
+               f' Time between frames [ms]: {self.preview_delta_ts}'
 
         if plot_t == None:
             # fake plot
