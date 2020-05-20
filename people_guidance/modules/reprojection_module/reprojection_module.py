@@ -20,14 +20,10 @@ class ReprojectionModule(Module):
         self.average_filter = MovingAverageFilter()
         self.use_alignment = False
 
-        self.last_update_ts: Optional[float] = None
-        self.origin_pm: np.array = np.matmul(self.intrinsic_matrix, np.eye(3, 4))
-        self.origin: np.array = np.zeros(3)
-        self.forward_direction: np.array = np.array((0., 0., 1.))
-
-        # self.fig, self.ax = plt.subplots(3, 3, sharex='col', sharey='row')
-        # self.fig.set_figheight(15)
-        # self.fig.set_figwidth(15)
+        self.last_update_ts = None
+        self.origin_pm = np.matmul(self.intrinsic_matrix, np.eye(3, 4))
+        self.origin = np.zeros(3)
+        self.forward_direction = np.array((0., 0., 1.))
 
     def start(self):
 
@@ -53,9 +49,9 @@ class ReprojectionModule(Module):
                     point = point[0]
 
                     # Change coordinate system
-                    point[0] =  point_temp[0]
-                    point[1] =  point_temp[1]
-                    point[2] =  point_temp[2]
+                    point[0] =  point_temp[2]
+                    point[1] = -point_temp[0]
+                    point[2] = -point_temp[1]
 
                     # We only expect points in positive x direction
                     if point[0] < 0.0:

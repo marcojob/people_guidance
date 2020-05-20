@@ -224,7 +224,8 @@ class PositionModule(Module):
             elif USE_SCALE == 'groundtruth':
                 scale = self.get_groundtruth_scale()
 
-            return np.column_stack((quaternion_to_rotMat(vo_quat), scale*vo_t_vec))
+            ret_homog = np.column_stack((quaternion_to_rotMat(vo_quat), scale*vo_t_vec))
+            return ret_homog
 
     def get_abolsute_scale(imu_t_vec, vo_t_vec):
         # LS fit
@@ -235,7 +236,7 @@ class PositionModule(Module):
         return scale
 
     def get_relative_scale(self, vo_t_vec):
-        scale_of_scale = 10.0
+        scale_of_scale = 0.1
         scale = 1.0 / np.linalg.norm(vo_t_vec)
         return scale*scale_of_scale
 

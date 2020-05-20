@@ -203,8 +203,8 @@ class featureMatcher:
         if self.nb_transform_solutions > 0:
             transformations = np.zeros((self.nb_transform_solutions, 3, 4))
             for i in range(self.nb_transform_solutions):
-                transformations[i, :, 0:3] = self.rotations[i]
-                transformations[i, :, 3] = self.translations[i].ravel()
+                transformations[i, :, 0:3] = self.rotations
+                transformations[i, :, 3] = self.translations.ravel()
             return transformations
         else:
             return np.zeros((1,3,4))
