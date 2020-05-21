@@ -1,5 +1,7 @@
 import cv2
 import numpy as np
+from math import floor, ceil
+from random import shuffle
 
 from .config import *
 
@@ -58,6 +60,50 @@ class Matcher():
         else:
             return np.zeros((1,3,4))
 
+    def binMatches(self, mp1, mp2):
+        num_matches = mp1.shape[0]
+        if num_matches < BIN_MAX_NUM_FEATURES:
+            return mp1, mp2
+
+        img_h = self.prev_img.shape[0]
+        img_w = self.prev_img.shape[1]
+        bin_width = ceil(img_w/H_BINS)
+        bin_heigth = ceil(img_h/V_BINS)
+        bins = []
+        bin_num_matches = []
+        for i in range(H_BINS*V_BINS):
+            bins.append([])
+            bin_num_matches.append(0)
+
+        for i in range(num_matches):
+            y = floor(mp1[i, 0] / bin_heigth)
+            x = floor(mp1[i, 1] / bin_width)
+            bins[x*V_BINS+y].append(i)
+            bin_num_matches[x*V_BINS+y] += 1
+
+        for bin_ in bins:
+            shuffle(bin_)
+
+        i = 0
+        num_matches = 0
+        new_mp1 = []
+        new_mp2 = []
+        while num_matches < BIN_MAX_NUM_FEATURES:
+            if len(bins[i]) > 0:
+                index = bins[i].pop()
+                new_mp1.append(mp1[index])
+                new_mp2.append(mp2[index])
+                num_matches += 1
+
+            i += 1
+            if i >= len(bins):
+                i = 0
+
+        new_mp1 = np.array(new_mp1)
+        new_mp2 = np.array(new_mp2)
+
+        return new_mp1, new_mp2
+
 class bruteForceMatcher(Matcher):
     def __init__(self, max_num_features, logger, K, method='FAST', use_E=True):
         super().__init__(max_num_features, logger, K, method, use_E)
@@ -78,7 +124,8 @@ class bruteForceMatcher(Matcher):
         self.curr_img = img
         prev_match_pts, curr_match_pts = self.bruteForceMatching()
 
-        if self.prev_kps.shape[0] > 0:
+        prev_match_pts, curr_match_pts = self.binMatches(prev_match_pts, curr_match_pts)
+        if prev_match_pts.shape[0] > 0:
             mask = self.calcTransformation(prev_match_pts, curr_match_pts)
         else:
             mask = np.array([])
@@ -114,18 +161,18 @@ class opticalFlowMatcher(Matcher):
                 self.logger.info("skipping frame")
                 return np.array([]), np.array([])
 
-        if self.prev_kps.shape[0] > 0:
-            mask = self.calcTransformation(self.prev_kps, self.curr_kps)
+        prev_mpts, curr_mpts = self.binMatches(self.prev_kps, self.curr_kps)
+        if prev_mpts.shape[0] > 0:
+            mask = self.calcTransformation(prev_mpts, curr_mpts)
         else:
             mask = np.array([])
 
-        self.prev_kps = self.prev_kps[mask.ravel().astype(bool)]
-        self.curr_kps = self.curr_kps[mask.ravel().astype(bool)]
+        prev_mpts = prev_mpts[mask.ravel().astype(bool)]
+        curr_mpts = curr_mpts[mask.ravel().astype(bool)]
 
-        prev_match_points = self.prev_kps
         self.step()
 
-        return prev_match_points, self.curr_kps
+        return prev_mpts, curr_mpts
 
     def KLT_featureTracking(self):
         """Feature tracking using the Kanade-Lucas-Tomasi tracker.

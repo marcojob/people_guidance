@@ -1,7 +1,7 @@
 import cv2
 
-DETECTOR = 'SIFT' # Can be either FAST, SIFT, SURF, SHI-TOMASI, ORB, REGULAR_GRID
-USE_OPTICAL_FLOW = False
+DETECTOR = 'FAST' # Can be either FAST, SIFT, SURF, SHI-TOMASI, ORB, REGULAR_GRID
+USE_OPTICAL_FLOW = True
 USE_E = True
 USE_CLAHE = False
 
@@ -16,3 +16,7 @@ OF_MIN_NUM_FEATURES = 100 # If features fall below this threshold we detect new 
 OF_MAX_NUM_FEATURES = 1000 # Maximum number of features
 OF_DIFF_THRESHOLD = 1
 FAST_THRESHOLD = 40
+
+BIN_MAX_NUM_FEATURES = 500
+H_BINS = 5
+V_BINS = 6
