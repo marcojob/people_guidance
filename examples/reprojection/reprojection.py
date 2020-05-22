@@ -35,6 +35,8 @@ def main(img_pair):
     # Copy images
     img1_rgb = img1.copy()
     img2_rgb = img2.copy()
+    #img1_rgb = cv2.undistort(img1_rgb, INTRINSIC_MATRIX, DISTORTION_COEFFS)
+    #img2_rgb = cv2.undistort(img2_rgb, INTRINSIC_MATRIX, DISTORTION_COEFFS)
 
     # Grayscale imgs
     img1, img2 = grayscale_imgs(img1, img2)
@@ -151,12 +153,11 @@ def plot_3d(points3d, img_vis):
     DPI = 100
     PLOT_LIM = 0.5
     fig = plt.figure(figsize=FIGSIZE, dpi=DPI)
-    preview = plt.figure(figsize=FIGSIZE, dpi=DPI)
 
-    p1 = fig.add_subplot(1, 3, 1)
-    p2 = fig.add_subplot(1, 3, 2)
-    p3 = fig.add_subplot(1, 3, 3, projection='3d')
-    p4 = preview.add_subplot(1, 1, 1)
+    p4 = fig.add_subplot(2, 1, 1)
+    p1 = fig.add_subplot(2, 3, 4)
+    p2 = fig.add_subplot(2, 3, 5)
+    p3 = fig.add_subplot(2, 3, 6, projection='3d')
 
     x = list()
     y = list()
@@ -166,7 +167,6 @@ def plot_3d(points3d, img_vis):
         x.append(points3d[i][0][2])
         y.append(-points3d[i][0][0])
         z.append(-points3d[i][0][1])
-
         d.append(np.sqrt(points3d[i][0][0]**2 + points3d[i][0][1]**2 + points3d[i][0][2]**2))
 
     p1.scatter(y, z, c=x)
@@ -221,7 +221,7 @@ def KLT_featureTracking(prev_img, cur_img, prev_fts):
 
 
 if __name__ == '__main__':
-    img_id = 179
+    img_id = 185
     incr = 1
     img_pair = [f"img_{img_id:04d}.jpg", f"img_{img_id+incr:04d}.jpg"]
     main(img_pair)
