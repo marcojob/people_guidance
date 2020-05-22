@@ -9,13 +9,14 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 from scipy.linalg import norm
 
+from .cam import CameraPygame
+
 from math import atan2, sqrt, cos, sin
 from cmath import acos
 
 from .cam import CameraPygame
 
 IMUFrame = collections.namedtuple("IMUFrame", ["ax", "ay", "az", "gx", "gy", "gz", "quaternion", "ts"])
-# quaternion : [w, x, y, z]
 VOResult = collections.namedtuple("VOResult", ["homogs", "pairs", "ts0", "ts1", "image"])
 
 DEGREE_TO_RAD = float(pi / 180)
@@ -53,7 +54,7 @@ class Velocity:
         self.y: float = y
         self.z: float = z
 
-    def dampen(self, mu=0.95):
+    def dampen(self, mu=1.):
         self.x *= mu
         self.y *= mu
         self.z *= mu
@@ -157,9 +158,10 @@ class ComplementaryFilter:
         self.pose = Pose()
         self.alpha = alpha
 
-        self.visualize = True
+        self.visualize = False
         if self.visualize:
             self.cam = CameraPygame()
+
         self.q_gyro_state = [1, 0, 0, 0]  # Local camera frame in inertial frame init
 
     def __call__(self, frame: IMUFrame, alpha=0.5) -> IMUFrame:
@@ -172,7 +174,7 @@ class ComplementaryFilter:
                 gx=frame.gx,
                 gy=frame.gy,
                 gz=frame.gz,
-                quaternion=[1, 0, 0, 0], # corresponds to no rotation
+                quaternion=[1, 0, 0, 0],
                 ts=frame.ts
             )
         else:
@@ -190,26 +192,20 @@ class ComplementaryFilter:
             # r_to_acc_vector = Rotation.from_quat(q_old)
 
             # B. Quaternion estimation using paper from 2015
-            q_acc = self.q_from_acc2(frame.ax, frame.ay, frame.az)  # Rotation q_AI : inertial frame represented in IMU frame
-            # r_to_acc_vector2 = Rotation.from_quat(q_acc)
-            # To recreate [0, 0, -g], apply this formula:
-            # quaternion_apply(quaternion_conjugate(q_acc), [frame.ax, frame.ay, frame.az])[1:]
+            q_acc = quaternion_conjugate(self.q_from_acc2(frame.ax, frame.ay, frame.az))
+            # Rotation q_AI : inertial frame represented in IMU frame, therefore, need to conjugate => q_IA
+            # To recreate [0, 0, -g], apply this formula: R_IA * g_IA
+            # quaternion_apply(quaternion_conjugate(self.q_from_acc2(frame.ax, frame.ay, frame.az)), [frame.ax, frame.ay, frame.az])
 
             # # 2. Gyroscope angular speed to quaternion state update
             # # A. Source: Quaternion kinematics for the error-state Kalman Filter, Joan Sola, November 8, 2017. ~p.49
             gyro = np.array([frame.gx, frame.gy, frame.gz]).astype(np.float32)
             gyro_norm = float(norm(gyro))
-            # gyro /= gyro_norm
             q_gyro = np.array([1, 0, 0, 0]).astype(np.float32)
             if gyro_norm > 0.0000001:
                 q_gyro = np.concatenate((np.array([cos(gyro_norm * dt * 0.5)]),
                                          gyro / gyro_norm * sin(gyro_norm * dt * 0.5)), axis=0)
-                # q_gyro = np.concatenate((np.array([cos(gyro_norm * dt * 0.5)]),
-                #                                 gyro / gyro_norm * sin(gyro_norm * dt * 0.5)))  # (214)
-            # q_gyro = np.concatenate((np.array([0]),
-            #                                 gyro))  # (214)
             if round(norm(q_gyro), 8) != 0:
-                # print('gyro', q_gyro, norm(q_gyro), q_gyro / norm(q_gyro))
                 q_gyro /= norm(q_gyro)
 
             self.q_gyro_state = quaternion_multiply(self.q_gyro_state, q_gyro)  # (211)
@@ -275,7 +271,20 @@ class ComplementaryFilter:
             [yaw, pitch, roll] = np.array([gyro_yaw, gyro_pitch, gyro_roll]) * (1 - alpha) + \
                                  np.array([gyro_yaw, accel_pitch, accel_roll]) * alpha
             # 3.3 Save to quaternion and update state
-            self.q_gyro_state = ypr_to_quat(ypr=[yaw, pitch, roll]) # correct
+            self.q_gyro_state = ypr_to_quat(ypr=[yaw, pitch, roll]) # kinda correct, TODO 6 need to find better interpolation
+
+            # # C. Directly interpolating the angle axis
+            # # 3.1 get the angles
+            # [gyro_roll, gyro_pitch, gyro_yaw] = quaternion_to_angleAxis(self.q_gyro_state)
+            # [accel_roll, accel_pitch, accel_yaw] = quaternion_to_angleAxis(q_acc)
+            # # 3.2 complementary filter considering that the gyro yaw is correct
+            # # RADIAN
+            # [roll, pitch, yaw] = np.array([gyro_roll, gyro_pitch, gyro_yaw]) * (1 - alpha) + \
+            #                      np.array([gyro_roll, accel_pitch, accel_yaw]) * alpha
+            # # 3.3 Save to quaternion and update state
+            # self.q_gyro_state = angleAxis_to_quaternion(np.array([roll, pitch, yaw]))  # kinda correct, TODO 7 check quality
+            # # 3.4 debug
+            # [yaw, pitch, roll] = quat_to_ypr(self.q_gyro_state)
 
             # print('\nyaw DEGREES', yaw*180/pi) # This yaw is correct # correct
             # print('quat compl', self.q_gyro_state ) # Correct
@@ -284,7 +293,7 @@ class ComplementaryFilter:
             if self.visualize:
                 # self.cam(self.q_gyro_state, name=f"q_update, time = {frame.ts / 1000}, yaw = {yaw}") # TODO 4: correct here too?
                 # self.cam(q_gyro, name=f"q_gyro, time = {frame.ts / 1000}, yaw = {yaw}")
-                self.cam(np.array([yaw, pitch, roll]) *180/pi, useQuat=False) # correct, set the right self.visualize=True
+                self.cam(np.array([yaw, pitch, roll]) *180/pi, name=f"time = {frame.ts / 1000}", useQuat=False) # correct, set the right self.visualize=True
                 # in case of not passing quaternion: [yaw, pitch, roll] in DEGREES
 
             # print(f"Acceleration: {[frame.ax, frame.ay, frame.az]}"
@@ -295,10 +304,12 @@ class ComplementaryFilter:
 
             # 4. Express the gravity vector in the local frame
             # To recreate [0, 0, -g], apply this formula:
-            local_gravity = quaternion_apply(self.q_gyro_state, [0, 0, -1]) * 9.81 # Verified, rotation correctly applied
 
-            print("local gravity", local_gravity)
-            # print(f"gravity compensation: {np.array([frame.ax, frame.ay, frame.az]) - local_gravity}")
+            local_gravity = quaternion_apply(quaternion_conjugate(self.q_gyro_state), [0, 0, -1]) * 9.81 # TODO 5 ?? conjugate or not
+            # print("state rot", self.q_gyro_state)
+            # print(f"accel: {[frame.ax, frame.ay, frame.az]}")
+            # print("local gravity", local_gravity) # correct
+            # print(f"accel compensated: {np.array([frame.ax, frame.ay, frame.az]) - local_gravity}")
 
             # Update before returning
             self.last_frame = frame
@@ -359,7 +370,8 @@ class ComplementaryFilter:
         :param ax: acceleration x
         :param ay: acceleration y
         :param az: acceleration z
-        :return: list forming the quaternion
+        :return: list forming the quaternion, ROTATION q_AI
+        => need to conjugate to get the rotation q_IA. V_I = R_IA * V_A
         '''
         # input: acceleration vector
         # output: q0_meas, q1_meas, q2_meas, q3_meas
@@ -438,7 +450,7 @@ def quat_to_ypr(q):
     return np.array([yaw, pitch, roll])
 
 
-def ypr_to_quat(ypr):  # yaw (Z), pitch (Y), roll (X) # Checked # TODO 7: check with other than wikipedia
+def ypr_to_quat(ypr):  # yaw (Z), pitch (Y), roll (X)
     # https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles
     [yaw, pitch, roll] = ypr
     # Abbreviations for the various angular functions
@@ -458,89 +470,45 @@ def ypr_to_quat(ypr):  # yaw (Z), pitch (Y), roll (X) # Checked # TODO 7: check 
 
     return q / norm(q)
 
-'''
-Matlab
-# https://github.com/bminortx/Buckshot/blob/master/matlabComponents/Matlab_functions/angle2quat.m
 
-if any(~isreal(r1) || ~isnumeric(r1))
-	    error('aero:angle2quat:isnotreal1','First input element is not a real number.');
-	end
-	
-	if any(~isreal(r2) || ~isnumeric(r2))
-	    error('aero:angle2quat:isnotreal2','Second input element is not a real number.');
-	end
-	
-	if any(~isreal(r3) || ~isnumeric(r3))
-	    error('aero:angle2quat:isnotreal3','Third input element is not a real number.');
-	end
-	
-	if (length(r1) ~= length(r2)) || (length(r1) ~= length(r3))
-	    error('aero:angle2quat:wrongdim','Rotations are not all arrays of M.');
-	end
-	
-	if nargin == 3
-	    type = 'zyx';
-	else
-	    if ischar( varargin{1} )
-	        type = varargin{1};
-	    else
-	        error('aero:angle2quat:notchar','Rotation sequence is not a string.');
-	    end
-	end
-	
-	angles = [r1(:) r2(:) r3(:)];
-	
-	cang = cos( angles/2 );
-	sang = sin( angles/2 );
-	
-	switch lower( type )
-	    case 'zyx'
-	        q = [ cang(:,1).*cang(:,2).*cang(:,3) + sang(:,1).*sang(:,2).*sang(:,3), ...
-	            cang(:,1).*cang(:,2).*sang(:,3) - sang(:,1).*sang(:,2).*cang(:,3), ...
-	            cang(:,1).*sang(:,2).*cang(:,3) + sang(:,1).*cang(:,2).*sang(:,3), ...
-	            sang(:,1).*cang(:,2).*cang(:,3) - cang(:,1).*sang(:,2).*sang(:,3)];
-
-'''
-
-
-def quat_to_rotMat(quat):
-    '''
-    :param q: np array representing the quaternion [w, x, y, z]
-    :return: the rotation matrix
-    '''
-    x = quat[0]
-    y = quat[1]
-    z = quat[2]
-    w = quat[3]
-
-    x2 = x * x
-    y2 = y * y
-    z2 = z * z
-    w2 = w * w
-
-    xy = x * y
-    zw = z * w
-    xz = x * z
-    yw = y * w
-    yz = y * z
-    xw = x * w
-
-    matrix = np.empty((3, 3))
-
-    matrix[0, 0] = x2 - y2 - z2 + w2
-    matrix[1, 0] = 2 * (xy + zw)
-    matrix[2, 0] = 2 * (xz - yw)
-
-    matrix[0, 1] = 2 * (xy - zw)
-    matrix[1, 1] = - x2 + y2 - z2 + w2
-    matrix[2, 1] = 2 * (yz + xw)
-
-    matrix[0, 2] = 2 * (xz + yw)
-    matrix[1, 2] = 2 * (yz - xw)
-    matrix[2, 2] = - x2 - y2 + z2 + w2
-
-    check_correct_rot_mat(matrix)
-    return matrix
+# def quat_to_rotMat(quat): # wrong
+#     '''
+#     :param q: np array representing the quaternion [w, x, y, z]
+#     :return: the rotation matrix
+#     '''
+#     x = quat[0]
+#     y = quat[1]
+#     z = quat[2]
+#     w = quat[3]
+#
+#     x2 = x * x
+#     y2 = y * y
+#     z2 = z * z
+#     w2 = w * w
+#
+#     xy = x * y
+#     zw = z * w
+#     xz = x * z
+#     yw = y * w
+#     yz = y * z
+#     xw = x * w
+#
+#     matrix = np.empty((3, 3))
+#
+#     matrix[0, 0] = x2 - y2 - z2 + w2
+#     matrix[1, 0] = 2 * (xy + zw)
+#     matrix[2, 0] = 2 * (xz - yw)
+#
+#     matrix[0, 1] = 2 * (xy - zw)
+#     matrix[1, 1] = - x2 + y2 - z2 + w2
+#     matrix[2, 1] = 2 * (yz + xw)
+#
+#     matrix[0, 2] = 2 * (xz + yw)
+#     matrix[1, 2] = 2 * (yz - xw)
+#     matrix[2, 2] = - x2 - y2 + z2 + w2
+#
+#     check_correct_rot_mat(matrix)
+#     return matrix
 
 
 def rotMat_to_quaternion(C):
@@ -601,15 +569,33 @@ def angleAxis_to_quaternion(angleAxis):
     else:
         sys.exit(f"angle axis input shape {angleAxis.shape} instead of (3,)")
 
-# def quaternion_to_angleAxis(q):
-#     if q.shape == (4,):
-#         q = q / norm(q)
-#         # # Rotation library, NOT working properly
-#         return rotMat_to_anlgeAxis(quaternion_to_rotMat(q))
-#     else:
-#         sys.exit(f"angle axis input shape {q.shape} instead of (4,)")
+def quaternion_to_angleAxis(q): # working???? TODO
+    # return rotMat_to_anlgeAxis(quaternion_to_rotMat(q))
+    # # Rotation library, NOT working properly
 
-def quaternion_to_rotMat(q):
+    if q.shape == (4,):
+        q = q / norm(q)
+
+        # http://www.euclideanspace.com/maths/geometry/rotations/conversions/quaternionToAngle/
+        q /= norm(q)  # if w>1 acos and sqrt will produce errors, this cant happen if quaternion is normalised
+        w, x, y, z = q[0], q[1], q[2], q[3]
+        angle = 2 * acos(w).real
+        s = sqrt(1 - w * w) # assuming quaternion normalised then w is less than 1, so term always positive.
+        if (s < 0.001):  # test to avoid divide by zero, s is always positive due to sqrt
+            # if s close to zero then direction of axis not important
+            x = x  # if it is important that axis is normalised then replace with x=1; y=z=0;
+            y = y
+            z = z
+            return np.array([x, y, z]) * angle
+        else:
+            x = x / s  # normalise axis
+            y = y / s
+            z = z / s
+            return np.array([x, y, z]) * angle
+    else:
+        sys.exit(f"angle axis input shape {q.shape} instead of (4,)")
+
+def quaternion_to_rotMat(q): # correct
     # http://www.euclideanspace.com/maths/geometry/rotations/conversions/quaternionToMatrix/index.htm
     w = q[0]
     x = q[1]

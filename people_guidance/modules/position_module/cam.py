@@ -16,7 +16,7 @@ class CameraPygame:
         self.frames = 0
         self.fps = 0
 
-    def __call__(self, q, useQuat, name="") -> None:
+    def __call__(self, q, name="", useQuat = True) -> None:
         '''
         :param q: a quaternion of the imu
         :return:
@@ -86,7 +86,6 @@ class CameraPygame:
             yaw = nx
             pitch = ny
             roll = nz
-            print('yaw cam', yaw)
             self.drawText((-2.6, -1.8, 2), "Yaw: %f, Pitch: %f, Roll: %f" % (yaw, pitch, roll), 16)
             glRotatef(-roll, 0.00, 0.00, 1.00)
             glRotatef(pitch, 1.00, 0.00, 0.00)

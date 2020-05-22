@@ -62,6 +62,7 @@ if __name__ == '__main__':
         # Handles feature tracking
         pipeline.add_module(FeatureTrackingModule, log_level=logging.WARNING)
 
+
         # Handles reprojection
         pipeline.add_module(ReprojectionModule, log_level=logging.WARNING)
 
