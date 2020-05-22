@@ -66,8 +66,6 @@ class DriversModule(Module):
             self.set_accel_range()
             self.set_gyro_range()
 
-        # TODO: handle calibration case
-
         # Get hardware configuration mode
         self.setup_hardware_configuration()
 
