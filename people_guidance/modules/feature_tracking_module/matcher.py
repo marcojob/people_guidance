@@ -6,7 +6,7 @@ from random import shuffle
 from .config import *
 
 class Matcher():
-    def __init__(self, max_num_features, logger, K, method='FAST', use_E=True):
+    def __init__(self, max_num_features, logger, K, method='FAST', use_H=True, use_E=True):
         self.curr_img = None
         self.curr_kps = None
         self.curr_desc = None
@@ -17,6 +17,7 @@ class Matcher():
         self.logger = logger
         self.intrinsic_matrix = K
         self.method = method
+        self.use_H = use_H
         self.use_E = use_E
         self.nb_transform_solutions = 0
         self.rotations = np.empty((0,3,4))
@@ -39,16 +40,32 @@ class Matcher():
         raise NotImplementedError
 
     def calcTransformation(self, mp1, mp2):
-        if not self.use_E:
+        if self.use_H:
             # if we found enough matches do a RANSAC search to find inliers corresponding to one homography
             H, mask = cv2.findHomography(mp1, mp2, cv2.RANSAC, 1.0)
-            self.nb_transform_solutions, self.rotations, self.translations, _ = cv2.decomposeHomographyMat(H, self.intrinsic_matrix)
-            return mask
-        else:
+            if not self.use_E:
+                self.nb_transform_solutions, self.rotations, self.translations, _ = cv2.decomposeHomographyMat(H, self.intrinsic_matrix)
+                return mask
+            else:
+                mask_H = mask.ravel().astype(bool)
+                mp1 = mp1[mask_H]
+                mp2 = mp2[mask_H]
+        if self.use_E:
             E, mask = cv2.findEssentialMat(mp1, mp2, self.intrinsic_matrix, cv2.RANSAC, 0.999, 1.0, None)
             _, self.rotations, self.translations, _ = cv2.recoverPose(E, mp1, mp2, self.intrinsic_matrix, mask)
             self.nb_transform_solutions = 1
-            return mask
+
+            if not self.use_H:
+                return mask
+            else:
+                i = 0
+                j = 0
+                while i < mask_H.shape[0]:
+                    if mask_H[i]:
+                        mask_H[i] = mask[j]
+                        j += 1
+                    i += 1
+                return mask_H
 
     def getTransformations(self):
         if self.nb_transform_solutions > 0:

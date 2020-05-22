@@ -33,9 +33,9 @@ class FeatureTrackingModule(Module):
     def start(self):
         self.fm = None
         if USE_OPTICAL_FLOW:
-            self.fm = opticalFlowMatcher(OF_MAX_NUM_FEATURES, self.logger, self.intrinsic_matrix, method=DETECTOR, use_E=USE_E)
+            self.fm = opticalFlowMatcher(OF_MAX_NUM_FEATURES, self.logger, self.intrinsic_matrix, method=DETECTOR, use_H=USE_H, use_E=USE_E)
         else:
-            self.fm = bruteForceMatcher(OF_MAX_NUM_FEATURES, self.logger, self.intrinsic_matrix, method=DETECTOR, use_E=USE_E)
+            self.fm = bruteForceMatcher(OF_MAX_NUM_FEATURES, self.logger, self.intrinsic_matrix, method=DETECTOR, use_H=USE_H, use_E=USE_E)
         
         self.old_timestamp = 0
 

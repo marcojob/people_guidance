@@ -2,6 +2,7 @@ import cv2
 
 DETECTOR = 'FAST' # Can be either FAST, SIFT, SURF, SHI-TOMASI, ORB, REGULAR_GRID
 USE_OPTICAL_FLOW = True
+USE_H = True
 USE_E = True
 USE_CLAHE = False
 
