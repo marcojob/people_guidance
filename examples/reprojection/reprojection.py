@@ -11,6 +11,7 @@ DEFAULT_DATASET = Path("../../data/outdoor_dataset_08")
 RESIZED_IMAGE = (820, 616)
 FAST_THRESHOLD = 40
 INTRINSIC_MATRIX = np.array([[1.29168322e+03, 0.0, 8.10433936e+02], [0.0, 1.29299333e+03, 6.15008893e+02], [0.0, 0.0, 1.0]])
+DISTORTION_COEFFS = np.array([[ 0.1952957 , -0.48124548, -0.00223218, -0.00106617,  0.2668875]])
 lk_params = dict(winSize=(21, 21), maxLevel=3, criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01))
 shi_tomasi_params = dict(maxCorners=500, qualityLevel=0.3, minDistance=7, blockSize=7)
 
@@ -44,8 +45,12 @@ def main(img_pair):
 
     #Detect keypoints
     detector = get_detector()
-
     prev_kps = detect_keypoints(method, detector, img1)
+
+    # Undistort points
+    prev_kps = cv2.undistortPoints(prev_kps, INTRINSIC_MATRIX, DISTORTION_COEFFS, R=None, P=INTRINSIC_MATRIX).reshape(-1, 2)
+
+    # Lukas Kanade optical flow
     prev_kps, cur_kps, diff = KLT_featureTracking(img1, img2, prev_kps)
 
     # Fit essential matrix
@@ -53,23 +58,27 @@ def main(img_pair):
         E, mask = cv2.findEssentialMat(prev_kps, cur_kps, INTRINSIC_MATRIX, cv2.RANSAC, 0.999, 1, None)
         _, rot, tran, _ = cv2.recoverPose(E, prev_kps, cur_kps, INTRINSIC_MATRIX, mask)
     else:
+        # Assume planar motion model
         H, mask = cv2.findHomography(prev_kps, cur_kps, cv2.RANSAC, 1.0)
+
+        # Find points that belong to that model
         prev_kps_hom = prev_kps[mask.ravel().astype(bool)]
         cur_kps_hom = cur_kps[mask.ravel().astype(bool)]
+
+        # Find essential matrix of this model
         E, mask = cv2.findEssentialMat(prev_kps_hom, cur_kps_hom, INTRINSIC_MATRIX, cv2.RANSAC, 0.999, 1, mask)
+
+        # Recover pose
         _, rot, tran, _ = cv2.recoverPose(E, prev_kps_hom, cur_kps_hom, INTRINSIC_MATRIX, mask)
 
     # Stack to homography
     homography = np.hstack((rot, tran))
 
-    # Apply mask
-    #prev_kps = prev_kps[mask.ravel().astype(bool)]
-    #cur_kps = cur_kps[mask.ravel().astype(bool)]
-
-    # Triangulate points
+    # Projection matrices
     P0 = np.dot(INTRINSIC_MATRIX, np.eye(3, 4))
     P1 = np.dot(INTRINSIC_MATRIX, homography)
 
+    # Triangulate with all the keypoints
     points3d = cv2.triangulatePoints(P0, P1, np.transpose(prev_kps), np.transpose(cur_kps))
     points3d = cv2.convertPointsFromHomogeneous(points3d.T)
 
@@ -79,8 +88,6 @@ def main(img_pair):
 
     # Stack images
     img_vis = np.hstack((img1_rgb, img2_rgb))
-    #cv2.imshow("img", img_vis)
-    #cv2.waitKey(1)
 
     plot_3d(points3d, img_vis)
 
@@ -154,10 +161,13 @@ def plot_3d(points3d, img_vis):
     x = list()
     y = list()
     z = list()
+    d = list()
     for i in range(points3d.shape[0]):
         x.append(points3d[i][0][2])
         y.append(-points3d[i][0][0])
         z.append(-points3d[i][0][1])
+
+        d.append(np.sqrt(points3d[i][0][0]**2 + points3d[i][0][1]**2 + points3d[i][0][2]**2))
 
     p1.scatter(y, z, c=x)
     p1.set_title("front")
@@ -165,7 +175,7 @@ def plot_3d(points3d, img_vis):
     p2.scatter(x, y, c=z)
     p2.set_title("top")
 
-    p3.scatter(x, y, z)
+    p3.scatter(x, y, z, c=x)
 
     p4.imshow(img_vis[...,::-1])
 
@@ -211,7 +221,7 @@ def KLT_featureTracking(prev_img, cur_img, prev_fts):
 
 
 if __name__ == '__main__':
-    img_id = 178
+    img_id = 179
     incr = 1
     img_pair = [f"img_{img_id:04d}.jpg", f"img_{img_id+incr:04d}.jpg"]
     main(img_pair)
