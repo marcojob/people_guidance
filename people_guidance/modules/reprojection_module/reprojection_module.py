@@ -2,6 +2,7 @@ import pathlib
 from typing import Optional
 
 import cv2
+import copy
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -19,14 +20,10 @@ class ReprojectionModule(Module):
         self.average_filter = MovingAverageFilter()
         self.use_alignment = False
 
-        self.last_update_ts: Optional[float] = None
-        self.origin_pm: np.array = np.matmul(self.intrinsic_matrix, np.eye(3, 4))
-        self.origin: np.array = np.zeros(3)
-        self.forward_direction: np.array = np.array((0., 0., 1.))
-
-        # self.fig, self.ax = plt.subplots(3, 3, sharex='col', sharey='row')
-        # self.fig.set_figheight(15)
-        # self.fig.set_figwidth(15)
+        self.last_update_ts = None
+        self.origin_pm = np.matmul(self.intrinsic_matrix, np.eye(3, 4))
+        self.origin = np.zeros(3)
+        self.forward_direction = np.array((0., 0., 1.))
 
     def start(self):
 
@@ -44,6 +41,26 @@ class ReprojectionModule(Module):
 
                 points_homo = cv2.triangulatePoints(self.origin_pm, offset_pm, point_pairs[0, ...], point_pairs[1, ...])
                 points3d = cv2.convertPointsFromHomogeneous(points_homo.T)
+
+                # Ensure that signs of points are correct
+                for point in points3d:
+                    # Matrix to vector
+                    point_temp = copy.deepcopy(point[0])
+                    point = point[0]
+
+                    # Change coordinate system
+                    point[0] =  point_temp[2]
+                    point[1] = -point_temp[0]
+                    point[2] = -point_temp[1]
+
+                    # We only expect points in positive x direction
+                    if point[0] < 0.0:
+                        point[0] *= -1.0
+
+                    # Same in z direction
+                    if point[2] < 0.0:
+                        point[2] *= -1.0
+
                 self.publish("points3d", data=points3d, validity=100, timestamp=self.get_time_ms())
 
                 points2d = self.project3dto2d(homography, points3d)
@@ -52,7 +69,8 @@ class ReprojectionModule(Module):
                 if cv2.waitKey(0) == ord('a'):
                     print("continue")
                 """
-                cv2.waitKey(1)
+                # cv2.waitKey(1)
+
                 collision_probability = self.update_collision_probability(points3d, timestamps[1], image, homography)
 
                 uncertainty = self.average_filter("uncertainty", self.update_uncertainty(points3d.shape[0], timestamps[1]))
@@ -62,7 +80,10 @@ class ReprojectionModule(Module):
     def project3dto2d(self, homography: np.array, points3d: np.array):
         rot_vec = cv2.Rodrigues(homography[:, :3])[0]
         trans_vec = homography[:, 3:]
-        points2d = cv2.projectPoints(points3d, rot_vec, trans_vec, self.intrinsic_matrix, distCoeffs=None)[0]
+        try:
+            points2d = cv2.projectPoints(points3d, rot_vec, trans_vec, self.intrinsic_matrix, distCoeffs=None)[0]
+        except Exception as e:
+            points2d = np.array([])
         return points2d
 
     @staticmethod
@@ -96,8 +117,8 @@ class ReprojectionModule(Module):
         critical_points_2d = self.project3dto2d(homography, critical_points_3d)
 
         #  plot the critical points
-        for i in range(critical_points_2d.shape[0]):
-            image = cv2.circle(img=image, center=tuple(critical_points_2d[i, 0, :]), radius=10, color=(255, 153, 255), thickness=-1)
+        #for i in range(critical_points_2d.shape[0]):
+        #    image = cv2.circle(img=image, center=tuple(critical_points_2d[i, 0, :]), radius=10, color=(255, 153, 255), thickness=-1)
 
         #  show both the features and the reprojected critical points
         # cv2.imshow("visu", image)

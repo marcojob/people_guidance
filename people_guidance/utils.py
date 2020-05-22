@@ -10,7 +10,10 @@ import coloredlogs
 ROOT_DIR = pathlib.Path(__file__).parent.parent
 ROOT_LOG_DIR = ROOT_DIR / "logs"
 ROOT_DATA_DIR = ROOT_DIR / "data"
-DEFAULT_DATASET = ROOT_DATA_DIR / "converted_eth_slam_large_loop_1"
+# DEFAULT_DATASET = ROOT_DATA_DIR / "converted_eth_slam_large_loop_1"
+DEFAULT_DATASET = ROOT_DATA_DIR / "indoor_dataset_6"
+# DEFAULT_DATASET = ROOT_DATA_DIR / "outdoor_dataset_18"
+
 
 if "converted_eth_slam" in DEFAULT_DATASET.stem and (DEFAULT_DATASET / "calibration.txt").exists():
     with open(DEFAULT_DATASET / "calibration.txt") as fp:
