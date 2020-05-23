@@ -5,6 +5,7 @@ import numpy as np
 from pathlib import Path
 
 DEFAULT_DATASET = Path("../../data/indoor_dataset_7")
+RESIZED_IMAGE = (820, 616)
 
 # Defining the dimensions of checkerboard
 CHECKERBOARD = (9,6)
@@ -29,6 +30,7 @@ def process_image(img_filename):
         img_data_file = fp.read()
 
     img = cv2.imdecode(np.frombuffer(img_data_file, dtype=np.int8), flags=cv2.IMREAD_COLOR)
+    img = cv2.resize(img, RESIZED_IMAGE)
     gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
 
     # Find the chess board corners
@@ -66,6 +68,5 @@ if __name__ == '__main__':
             process_image(file)
             print(f"Progress: {cnt} / {len(img_list)}\r", end='')
 
-    img_shape = (1640, 1232)
-    ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, img_shape,None,None)
-    print(mtx)
+    ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, RESIZED_IMAGE, None, None)
+    print(mtx, dist)
