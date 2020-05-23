@@ -122,8 +122,8 @@ class Matcher():
         return new_mp1, new_mp2
 
 class bruteForceMatcher(Matcher):
-    def __init__(self, max_num_features, logger, K, method='FAST', use_E=True):
-        super().__init__(max_num_features, logger, K, method, use_E)
+    def __init__(self, max_num_features, logger, K, method='FAST', use_H=True, use_E=True):
+        super().__init__(max_num_features, logger, K, method, use_H, use_E)
         
         matching_norm = None
         if self.method=='ORB':
