@@ -56,22 +56,26 @@ class VisualizationModule(Module):
         self.last_timestamp = 0
         self.preview_delta_ts = 0
 
+        self.cbar_1 = None
+        self.cbar_2 = None
+        self.fig = None
+
         self.plot_main()
 
     def plot_main(self):
         try:
-            fig = plt.figure(figsize=FIGSIZE, dpi=DPI)
-            ax_list["preview"] = fig.add_subplot(2, 2, 1)
+            self.fig = plt.figure(figsize=FIGSIZE, dpi=DPI)
+            ax_list["preview"] = self.fig.add_subplot(2, 2, 1)
             ax_list["preview"].set_title("preview")
             ax_list["preview"].set_axis_off()
 
-            ax_list["pos1"] = fig.add_subplot(2, 2, 2)
+            ax_list["pos1"] = self.fig.add_subplot(2, 2, 2)
             ax_list["pos1"].set_title("Y-Z plane")
 
-            ax_list["pos2"] = fig.add_subplot(2, 2, 4)
+            ax_list["pos2"] = self.fig.add_subplot(2, 2, 4)
             ax_list["pos2"].set_title("X-Y plane")
 
-            ax_list["plot_t"] = fig.add_subplot(2, 2, 3)
+            ax_list["plot_t"] = self.fig.add_subplot(2, 2, 3)
 
             plt.show()
         except Exception as e:
@@ -148,6 +152,7 @@ class VisualizationModule(Module):
                 self.data_dict["3d_pos_x"] = list()
                 self.data_dict["3d_pos_y"] = list()
                 self.data_dict["3d_pos_z"] = list()
+                self.data_dict["3d_dist"] = list()
                 for point in points_3d["data"]:
                     # Only consider point in the view of the plot
                     x, y, z = point[0]
@@ -155,12 +160,14 @@ class VisualizationModule(Module):
                         self.data_dict["3d_pos_x"].append(x)
                         self.data_dict["3d_pos_y"].append(y)
                         self.data_dict["3d_pos_z"].append(z)
+                        self.data_dict["3d_dist"].append(np.sqrt(x**2 + y**2 + z**2))
 
                 try:
                     self.plot_text_box()
                 except Exception as e:
                     self.logger.warning(f"{e}")
 
+                self.animate_3d_points()
                 try:
                     self.animate_3d_points()
                 except Exception as e:
@@ -233,53 +240,62 @@ class VisualizationModule(Module):
             ax_list["preview"].figure.canvas.draw_idle()
 
     def animate_3d_points(self):
-        global scatter_1
+        global scatter_1, ax_list
+        x = self.data_dict["3d_pos_x"]
+        y = self.data_dict["3d_pos_y"]
+        z = self.data_dict["3d_pos_z"]
+        d = self.data_dict["3d_dist"]
+
         if scatter_1 == None:
             ax_list["pos1"].set_xlim((-PLOT_LIM, PLOT_LIM))
             ax_list["pos1"].set_ylim((-PLOT_LIM, PLOT_LIM))
 
-            scatter_1 = ax_list["pos1"].scatter(
-                self.data_dict["3d_pos_y"], self.data_dict["3d_pos_z"], c=self.data_dict["3d_pos_x"])
+            scatter_1 = ax_list["pos1"].scatter(y, z, c=d, vmin=np.min(d), vmax=np.max(d))
+
+            self.cbar_1 = self.fig.colorbar(scatter_1, ax=ax_list["pos1"])
 
         else:
-            data_1 = np.array(self.data_dict["3d_pos_y"])
-            data_2 = np.array(self.data_dict["3d_pos_z"])
+            data_1 = np.array(y)
+            data_2 = np.array(z)
             data = np.transpose(np.vstack((data_1, data_2)))
-
             scatter_1.set_offsets(data)
-            scatter_1.set_array(np.array(self.data_dict["3d_pos_x"]))
+
+            scatter_1.set_array(np.array(d))
+            self.cbar_1.mappable.set_clim(np.min(d), np.max(d))
 
         global scatter_2
         if scatter_2 == None:
             ax_list["pos2"].set_xlim((-PLOT_LIM, PLOT_LIM))
             ax_list["pos2"].set_ylim((-PLOT_LIM, PLOT_LIM))
 
-            scatter_2 = ax_list["pos2"].scatter(
-                self.data_dict["3d_pos_x"], self.data_dict["3d_pos_y"], c=self.data_dict["3d_pos_z"])
+            scatter_2 = ax_list["pos2"].scatter(x, y, c=d, vmin=np.min(d), vmax=np.max(d))
+
+            self.cbar_2 = self.fig.colorbar(scatter_2, ax=ax_list["pos2"])
 
         else:
-            data_1 = np.array(self.data_dict["3d_pos_x"])
-            data_2 = np.array(self.data_dict["3d_pos_y"])
+            data_1 = np.array(x)
+            data_2 = np.array(y)
             data = np.transpose(np.vstack((data_1, data_2)))
-
             scatter_2.set_offsets(data)
-            scatter_2.set_array(np.array(self.data_dict["3d_pos_z"]))
+
+            scatter_2.set_array(np.array(d))
+            self.cbar_2.mappable.set_clim(np.min(d), np.max(d))
 
         ax_list["pos1"].figure.canvas.draw_idle()
         ax_list["pos2"].figure.canvas.draw_idle()
 
     def draw_matches(self, img, matches):
         RADIUS = 5
-        THICKNESS = 3
+        THICKNESS = 1
         if matches is not None:
             shape = matches.shape
             for m in range(shape[2]):
                 end_point = (matches[0][0][m], matches[0][1][m])
                 start_point = (matches[1][0][m], matches[1][1][m])
-                img = cv2.circle(img, start_point, RADIUS,
-                                 (255, 0, 0), THICKNESS)
-                img = cv2.circle(img, end_point, RADIUS,
-                                 (0, 0, 255), THICKNESS)
+                #img = cv2.circle(img, start_point, RADIUS,
+                #                 (255, 0, 0), THICKNESS)
+                #img = cv2.circle(img, end_point, RADIUS,
+                #                 (0, 0, 255), THICKNESS)
                 img = cv2.arrowedLine(
                     img, start_point, end_point, (0, 255, 0), THICKNESS)
         return img

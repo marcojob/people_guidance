@@ -61,7 +61,8 @@ class FeatureTrackingModule(Module):
                     img = clahe.apply(img)
 
                 # Gaussian filter
-                # img = cv2.blur(img,(5,5))
+                if USE_GAUSSIAN:
+                    img = cv2.blur(img,(5,5))
 
                 if self.fm.should_initialize:
                     self.fm.initialize(img)
