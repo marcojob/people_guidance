@@ -308,7 +308,7 @@ def frame_selector(len_kps, img_id_1, img_id_2):
 if __name__ == '__main__':
     TIME_BASED = True
     SAVE_FOLDER = "/home/marco/Downloads/vis"
-    SAVE = True
+    SAVE = False
 
     incr = 1
     img_id_1 = 200
