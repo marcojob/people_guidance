@@ -19,26 +19,19 @@ shi_tomasi_params = dict(maxCorners=500, qualityLevel=0.3, minDistance=7, blockS
 
 # Config
 method = 'FAST'
-max_num_features = 5000
 USE_ONLY_E = True
 USE_RECOVER_POSE = True
+MIN_NUM_FEATURES = 1000
+MAX_NUM_FEATURES = 3000
+MAX_FRAME_DELTA = 10
 
 fig = None
 p1, p2, p3, p4 = None, None, None, None
 cbar1, cbar2, cbar3 = None, None, None
 
-def main(img_pair):
-    img_data = list()
-    for i in img_pair:
-        img_file_path = DEFAULT_DATASET / "imgs" / i
+img_window = list()
 
-        with open(img_file_path, 'rb') as fp:
-            img_data.append(fp.read())
-
-    # Preprocess image
-    img1 = cv2.imdecode(np.frombuffer(img_data[0], dtype=np.int8), flags=cv2.IMREAD_COLOR)
-    img2 = cv2.imdecode(np.frombuffer(img_data[1], dtype=np.int8), flags=cv2.IMREAD_COLOR)
-
+def main(img1, img2):
     # Copy images
     img1_rgb = img1.copy()
     img2_rgb = img2.copy()
@@ -285,8 +278,6 @@ def get_homography(E, prev_kps, cur_kps):
     return candidates[idx], masks[idx]
 
 def frame_selector(len_kps, img_id_1, img_id_2):
-    MIN_FEATURES = 1000
-    MAX_FEATURES = 5000
     if len_kps < MIN_FEATURES:
         img_id_2 += 1
 
@@ -304,6 +295,44 @@ def frame_selector(len_kps, img_id_1, img_id_2):
 
     return img_id_1, img_id_2
 
+def adaptive_step(len_prev_kps, curr_img, prev_img, new_img):
+        """
+        Control which images we consider currently
+        """
+        global img_window
+
+        # Keep track of the img window
+        img_window.append(curr_img)
+
+        # Current length of the window
+        len_window = len(img_window)
+
+        if len_prev_kps < MIN_NUM_FEATURES and len_window < MAX_FRAME_DELTA:
+            # We did not observe enough features,
+            # keep the prev img the same img
+            prev_img = prev_img
+
+        elif len_prev_kps > MAX_NUM_FEATURES and len(img_window) > 1:
+            # We observed too many features, make
+            # window smaller again
+            img_window.pop(0)
+            prev_img = img_window.pop(0)
+
+        else:
+            # We observed enough features, advance normally
+            prev_img = img_window.pop(0)
+
+        print(len(img_window), len_prev_kps)
+
+        return curr_img, prev_img
+
+def load_img(id):
+    img_file_path = DEFAULT_DATASET / "imgs" / f"img_{id:04d}.jpg"
+    with open(img_file_path, 'rb') as fp:
+            img_data = fp.read()
+    img = cv2.imdecode(np.frombuffer(img_data, dtype=np.int8), flags=cv2.IMREAD_COLOR)
+    return img
+
 
 if __name__ == '__main__':
     TIME_BASED = True
@@ -314,14 +343,19 @@ if __name__ == '__main__':
     img_id_1 = 200
     img_id_2 = img_id_1 + incr
     img_pair = [f"img_{img_id_1:04d}.jpg", f"img_{img_id_2:04d}.jpg"]
-    main(img_pair)
     counter = 0
     len_kps = 0
 
+    prev_img = load_img(img_id_1)
+    curr_img = load_img(img_id_2)
+    img_cnt = img_id_1
+
     while True:
         if TIME_BASED:
-            #sleep(0.25)
-            img_id_1, img_id_2 = frame_selector(len_kps, img_id_1, img_id_2)
+            img_cnt += 1
+            new_img = load_img(img_cnt)
+            curr_img, prev_img = adaptive_step(len_kps, curr_img, prev_img, new_img)
+            curr_img = new_img
         else:
             s = input("")
             if s == ".":
@@ -330,7 +364,7 @@ if __name__ == '__main__':
                 img_id -= incr
 
         img_pair = [f"img_{img_id_1:04d}.jpg", f"img_{img_id_2:04d}.jpg"]
-        len_kps = main(img_pair)
+        len_kps = main(prev_img, curr_img)
 
 
 
