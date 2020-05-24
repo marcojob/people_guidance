@@ -36,6 +36,8 @@ scatter_1 = None
 scatter_2 = None
 preview_p = None
 
+lock = threading.Lock()
+
 
 class VisualizationModule(Module):
     def __init__(self, log_dir: pathlib.Path, args=None):
@@ -60,7 +62,26 @@ class VisualizationModule(Module):
         self.cbar_2 = None
         self.fig = None
 
+        self.save_flag = False
+
+        if self.args.save_visualization:
+            save_thread = threading.Thread(target=self.save_main, args=(self.args.save_visualization, ))
+            save_thread.start()
+
         self.plot_main()
+
+    def save_main(self, folder):
+        save_path = Path(folder)
+        save_cnt = 0
+        while True:
+            if self.save_flag:
+                with lock:
+                    save_cnt += 1
+                    file = save_path / f"img_{save_cnt:04d}.jpg"
+                    plt.savefig(file)
+                self.save_flag = False
+            else:
+                sleep(0.01)
 
     def plot_main(self):
         try:
@@ -142,9 +163,11 @@ class VisualizationModule(Module):
                 self.last_timestamp = timestamp
 
                 try:
-                    self.animate_preview()
+                    with lock:
+                        self.animate_preview()
                 except Exception as e:
                     self.logger.warning(f"{e}")
+                    print(e)
 
 
             points_3d = self.get("reprojection_module:points3d")
@@ -178,14 +201,14 @@ class VisualizationModule(Module):
         global plot_t
         index = [i for i in range(len(self.data_dict["crit"]))]
 
-        if plot_t == None:
-            plot_t = ax_list["plot_t"].scatter(index, self.data_dict["crit"])
+        if plot_t == None and len(self.data_dict["crit"]) > 0:
+            plot_t = ax_list["plot_t"].scatter(index, self.data_dict["crit"], c=255)
         else:
-            plt.cla()
+            ax_list["plot_t"].clear()
             plot_t = ax_list["plot_t"].scatter(index, self.data_dict["crit"])
 
         ax_list["plot_t"].set_title("Collision likelihood")
-        ax_list["plot_t"].figure.canvas.draw_idle()
+        #ax_list["plot_t"].figure.canvas.draw_idle()
 
 
     def animate_pos(self):
@@ -225,10 +248,14 @@ class VisualizationModule(Module):
 
             preview_p = ax_list["preview"].imshow(self.data_dict["preview"][...,::-1])
 
-            ax_list["preview"].figure.canvas.draw_idle()
+            #ax_list["preview"].figure.canvas.draw_idle()
         else:
             preview_p.set_data(self.data_dict["preview"][...,::-1])
-            ax_list["preview"].figure.canvas.draw_idle()
+            #ax_list["preview"].figure.canvas.draw_idle()
+
+        self.fig.canvas.draw_idle()
+
+        self.save_flag = True
 
     def animate_3d_points(self):
         global scatter_1, ax_list
@@ -257,7 +284,7 @@ class VisualizationModule(Module):
 
         ax_list["pos1"].invert_xaxis()
 
-        ax_list["pos1"].figure.canvas.draw_idle()
+        #ax_list["pos1"].figure.canvas.draw_idle()
 
 
         global scatter_2
@@ -281,7 +308,7 @@ class VisualizationModule(Module):
             ax_list["pos2"].update_datalim(scatter_2.get_datalim(ax_list["pos2"].transData))
             ax_list["pos2"].autoscale_view()
 
-        ax_list["pos2"].figure.canvas.draw_idle()
+        #ax_list["pos2"].figure.canvas.draw_idle()
 
     def draw_matches(self, img, matches):
         RADIUS = 5

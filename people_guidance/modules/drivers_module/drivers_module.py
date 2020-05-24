@@ -172,35 +172,31 @@ class DriversModule(Module):
                     # Read from the file that keeps track of timestamps
                     img_str = self.img_data.readline()
 
-                    # No more imgs, exit
-                    if not img_str:
-                        self.logger.warning("Replay file empty, exiting")
-                        raise SystemExit("Replay file empty: Exited with code 0")
+                    if img_str:
+                        out = re.search(r'([0-9]*): ([0-9]*)', img_str)
+                        if out:
+                            self.img_timestamp = int(out.group(2))
 
-                    out = re.search(r'([0-9]*): ([0-9]*)', img_str)
-                    if out:
-                        self.img_timestamp = int(out.group(2))
+                            if not self.img_first_timestamp:
+                                self.img_first_timestamp = self.img_timestamp
 
-                        if not self.img_first_timestamp:
-                            self.img_first_timestamp = self.img_timestamp
+                            # Read the image corresponding to the counter and timestamp
+                            img_filename = f"img_{int(out.group(1)):04d}.jpg"
+                            img_file_path = self.files_dir / 'imgs' / img_filename
 
-                        # Read the image corresponding to the counter and timestamp
-                        img_filename = f"img_{int(out.group(1)):04d}.jpg"
-                        img_file_path = self.files_dir / 'imgs' / img_filename
+                            with open(img_file_path, 'rb') as fp:
+                                img_data_file = fp.read()
 
-                        with open(img_file_path, 'rb') as fp:
-                            img_data_file = fp.read()
+                            # Decode image
+                            self.img = cv2.imdecode(np.frombuffer(img_data_file, dtype=np.int8), flags=cv2.IMREAD_COLOR)
 
-                        # Decode image
-                        self.img = cv2.imdecode(np.frombuffer(img_data_file, dtype=np.int8), flags=cv2.IMREAD_COLOR)
+                            # Undistort image
+                            if UNDISTORT_IMAGE:
+                                self.img = cv2.undistort(self.img, self.intrinsic_matrix, self.distortion_coeffs)
 
-                        # Undistort image
-                        if UNDISTORT_IMAGE:
-                            self.img = cv2.undistort(self.img, self.intrinsic_matrix, self.distortion_coeffs)
-
-                        # Resize image
-                        if RESIZE_IMAGE:
-                            self.img = cv2.resize(self.img, RESIZED_IMAGE)
+                            # Resize image
+                            if RESIZE_IMAGE:
+                                self.img = cv2.resize(self.img, RESIZED_IMAGE)
 
 
                 # If the relative time is correct, we publish the data
