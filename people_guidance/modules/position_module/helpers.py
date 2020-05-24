@@ -147,9 +147,9 @@ class pygameVisualize:
         if self.visualize:
             self.cam = CameraPygame()
 
-    def __call__(self, quat, visualize=False, name="Quaternion displayed"):
+    def __call__(self, quat, visualize=False, name="Quaternion displayed", rmv_yaw=False):
         if visualize and self.visualize:
-            self.cam(quat, name=name)
+            self.cam(quat, name=name, rmv_yaw=rmv_yaw)
 
 class ComplementaryFilter:
     # https://www.mdpi.com/1424-8220/15/8/19302/htm
@@ -195,7 +195,9 @@ class ComplementaryFilter:
             q_acc = quaternion_conjugate(self.q_from_acc2(frame.ax, frame.ay, frame.az))
             # Rotation q_AI : inertial frame represented in IMU frame, therefore, need to conjugate => q_IA
             # To recreate [0, 0, -g], apply this formula: R_IA * g_IA
-            # quaternion_apply(quaternion_conjugate(self.q_from_acc2(frame.ax, frame.ay, frame.az)), [frame.ax, frame.ay, frame.az])
+            # print("quat recreate",
+            #       quaternion_apply(quaternion_conjugate(self.q_from_acc2(frame.ax, frame.ay, frame.az)), [frame.ax, frame.ay, frame.az])
+            #       )
 
             # # 2. Gyroscope angular speed to quaternion state update
             # # A. Source: Quaternion kinematics for the error-state Kalman Filter, Joan Sola, November 8, 2017. ~p.49
@@ -268,8 +270,11 @@ class ComplementaryFilter:
             [accel_yaw, accel_pitch, accel_roll] = quat_to_ypr(q_acc)
             # 3.2 complementary filter considering that the gyro yaw is correct
             # RADIAN
-            [yaw, pitch, roll] = np.array([gyro_yaw, gyro_pitch, gyro_roll]) * (1 - alpha) + \
-                                 np.array([gyro_yaw, accel_pitch, accel_roll]) * alpha
+            if alpha == 1.:
+                [yaw, pitch, roll] = np.array([accel_yaw, accel_pitch, accel_roll])
+            else:
+                [yaw, pitch, roll] = np.array([gyro_yaw, gyro_pitch, gyro_roll]) * (1 - alpha) + \
+                                     np.array([gyro_yaw, accel_pitch, accel_roll]) * alpha
             # 3.3 Save to quaternion and update state
             self.q_gyro_state = ypr_to_quat(ypr=[yaw, pitch, roll]) # kinda correct, TODO 6 need to find better interpolation
 

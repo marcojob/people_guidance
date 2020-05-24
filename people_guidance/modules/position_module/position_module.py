@@ -32,7 +32,7 @@ class PositionModule(Module):
 
         self.velocity = Velocity()
 
-        self.visualize = 3 # 1: imu compl output, 2: Interpolate function output, 3: integrated rot, 10: best match
+        self.visualize = 1 # 0 : none, 1: imu compl output, 2: Interpolate function output, 3: integrated rot, 10: best match
         if not self.visualize==0:
             self.vispg = pygameVisualize()
 
@@ -81,7 +81,7 @@ class PositionModule(Module):
 
         self.logger.debug(f"Frame after complementary filter : \n{imu_frame}")
         if self.visualize == 1:
-            self.vispg(imu_frame.quaternion, visualize=True, name="imu quat") # amazing
+            self.vispg(imu_frame.quaternion, visualize=True, name="IMU rotation, alpha = 0.1") # amazing
 
         return imu_frame # correct output
 

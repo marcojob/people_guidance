@@ -1,8 +1,8 @@
 import collections
 from pathlib import Path
+import numpy as np
 
-
-IMUFrame = collections.namedtuple("IMUFrame", ["ax", "ay", "az", "gx", "gy", "gz", "ts"])
+IMUFrame = collections.namedtuple("IMUFrame", ["ax", "ay", "az", "gx", "gy", "gz", "quaternion", "ts"])
 
 
 class SimpleIMUDatalaoder:
@@ -38,5 +38,6 @@ class SimpleIMUDatalaoder:
             frame_kwargs[self.elem_name_map[label]] = val
 
         frame_kwargs["ts"] = ts
+        frame_kwargs["quaternion"] = np.array([1, 0, 0, 0])
 
         return IMUFrame(**frame_kwargs)

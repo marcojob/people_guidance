@@ -67,7 +67,10 @@ class FeatureTrackingModule(Module):
 
                         transformations = self.fm.getTransformations()
 
-                        visualization_img = self.visualize_matches(img, inliers)
+                        visualization_img = self.visualize_matches(img_rgb, inliers)
+                        cv2.imshow("vis", img_rgb)
+                        cv2.waitKey(1)
+
                         if mp1.shape[0] > 0:
                             self.publish("feature_point_pairs",
                                         {"camera_positions" : transformations,

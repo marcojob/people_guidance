@@ -16,7 +16,7 @@ class CameraPygame:
         self.frames = 0
         self.fps = 0
 
-    def __call__(self, q, name="", useQuat = True) -> None:
+    def __call__(self, q, name="", useQuat=True, rmv_yaw=False) -> None:
         '''
         :param q: a quaternion of the imu
         :return:
@@ -24,7 +24,7 @@ class CameraPygame:
         video_flags = OPENGL | DOUBLEBUF
         pygame.init()
         screen = pygame.display.set_mode((640, 480), video_flags)
-        pygame.display.set_caption(f"PyTeapot IMU orientation visualization: {name}, imu fps: {self.fps}")
+        pygame.display.set_caption(f"PyTeapot IMU orientation visualization: {name}") #, imu fps: {self.fps}
         self.resizewin(640, 480)
         self.init()
         self.frames = 0
@@ -35,15 +35,14 @@ class CameraPygame:
         #     break
         if useQuat:
             [w, nx, ny, nz] = q
-            self.draw(w, nx, ny, nz, useQuat = True)
+            self.draw(w, nx, ny, nz, useQuat=True, rmv_yaw=rmv_yaw)
         else:
-            [yaw, pitch, roll] = q # in DEGREES!!!
-            self.draw(1, yaw, pitch, roll, useQuat = False)
+            [yaw, pitch, roll] = q  # in DEGREES!!!
+            self.draw(1, yaw, pitch, roll, useQuat=False, rmv_yaw=rmv_yaw)
         pygame.display.flip()
         self.frames += 1
         self.fps = round(((self.frames * 1000) / (pygame.time.get_ticks() - self.ticks)), 1)
         # print("fps: %d" % ((frames * 1000) / (pygame.time.get_ticks() - ticks)))
-
 
     def resizewin(self, width, height):
         """
@@ -58,7 +57,6 @@ class CameraPygame:
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
 
-
     def init(self):
         glShadeModel(GL_SMOOTH)
         glClearColor(0.0, 0.0, 0.0, 0.0)
@@ -67,25 +65,30 @@ class CameraPygame:
         glDepthFunc(GL_LEQUAL)
         glHint(GL_PERSPECTIVE_CORRECTION_HINT, GL_NICEST)
 
-
-
-    def draw(self, w, nx, ny, nz, useQuat = True):
+    def draw(self, w, nx, ny, nz, useQuat=True, rmv_yaw=False):
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         glLoadIdentity()
         glTranslatef(0, 0.0, -7.0)
 
-        self.drawText((-2.6, 1.8, 2), "PyTeapot", 18)
-        self.drawText((-2.6, 1.6, 2), "Module to visualize quaternion or Euler angles data", 16)
-        self.drawText((-2.6, -2, 2), "Press Escape to exit.", 16)
+        # self.drawText((-2.6, 1.8, 2), "PyTeapot", 18)
+        self.drawText((-2.6, 1.8, 2), "Module to visualize quaternion", 18)
+        # self.drawText((-2.6, -2, 2), "Press Escape to exit.", 16)
 
         if (useQuat):
             [yaw, pitch, roll] = self.quat_to_ypr([w, nx, ny, nz])
+            if rmv_yaw:
+                yaw = 0
             self.drawText((-2.6, -1.8, 2), "Yaw: %f, Pitch: %f, Roll: %f" % (yaw, pitch, roll), 16)
-            glRotatef(2 * math.acos(w) * 180.00 / math.pi, -1 * nx, nz, ny)
+            # glRotatef(2 * math.acos(w) * 180.00 / math.pi, -1 * nx, nz, ny)
+            glRotatef(-roll, 0.00, 0.00, 1.00)
+            glRotatef(pitch, 1.00, 0.00, 0.00)
+            glRotatef(yaw, 0.00, 1.00, 0.00)
         else:
             yaw = nx
             pitch = ny
             roll = nz
+            if rmv_yaw:
+                yaw = 0
             self.drawText((-2.6, -1.8, 2), "Yaw: %f, Pitch: %f, Roll: %f" % (yaw, pitch, roll), 16)
             glRotatef(-roll, 0.00, 0.00, 1.00)
             glRotatef(pitch, 1.00, 0.00, 0.00)
@@ -129,14 +132,12 @@ class CameraPygame:
         glVertex3f(1.0, -0.2, -1.0)
         glEnd()
 
-
     def drawText(self, position, textString, size):
         font = pygame.font.SysFont("Courier", size, True)
         textSurface = font.render(textString, True, (255, 255, 255, 255), (0, 0, 0, 255))
         textData = pygame.image.tostring(textSurface, "RGBA", True)
         glRasterPos3d(*position)
         glDrawPixels(textSurface.get_width(), textSurface.get_height(), GL_RGBA, GL_UNSIGNED_BYTE, textData)
-
 
     def quat_to_ypr(self, q):
         yaw = math.atan2(2.0 * (q[1] * q[2] + q[0] * q[3]), q[0] * q[0] + q[1] * q[1] - q[2] * q[2] - q[3] * q[3])
