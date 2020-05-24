@@ -36,7 +36,6 @@ class ReprojectionModule(Module):
                 image = homog_payload["data"]["image"]
 
                 P1 = np.dot(self.intrinsic_matrix, homography)
-                print(homography)
 
                 points_homo = cv2.triangulatePoints(self.P0, P1, np.transpose(point_pairs[0]), np.transpose(point_pairs[1]))
                 points3d = cv2.convertPointsFromHomogeneous(points_homo.T)
