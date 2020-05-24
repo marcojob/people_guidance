@@ -6,7 +6,6 @@ import platform
 from time import sleep
 from scipy.spatial.transform import Rotation
 from typing import Tuple
-from collections import namedtuple
 
 from people_guidance.modules.module import Module
 from people_guidance.utils import project_path
@@ -33,10 +32,10 @@ class FeatureTrackingModule(Module):
     def start(self):
         self.fm = None
         if USE_OPTICAL_FLOW:
-            self.fm = opticalFlowMatcher(OF_MAX_NUM_FEATURES, self.logger, self.intrinsic_matrix, method=DETECTOR, use_H=USE_H, use_E=USE_E)
+            self.fm = opticalFlowMatcher(OF_MAX_NUM_FEATURES, self.logger, self.intrinsic_matrix, self.distortion_coeffs, method=DETECTOR, use_H=USE_H, use_E=USE_E)
         else:
             self.fm = bruteForceMatcher(OF_MAX_NUM_FEATURES, self.logger, self.intrinsic_matrix, method=DETECTOR, use_H=USE_H, use_E=USE_E)
-        
+
         self.old_timestamp = 0
 
         # Create a contrast limited adaptive histogram equalization filter
@@ -75,11 +74,10 @@ class FeatureTrackingModule(Module):
 
                         transformations = self.fm.getTransformations()
 
-                        visualization_img = self.visualize_matches(img, inliers)
                         if mp1.shape[0] > 0:
                             self.publish("feature_point_pairs",
                                         {"camera_positions" : transformations,
-                                        "image": visualization_img,
+                                        "image": img_rgb,
                                         "point_pairs": inliers,
                                         "timestamp_pair": (self.old_timestamp, timestamp)},
                                         1000)
@@ -89,12 +87,3 @@ class FeatureTrackingModule(Module):
                                             "timestamp": timestamp},
                                             1000)
                         self.old_timestamp = timestamp
-
-    def visualize_matches(self, img: np.ndarray, inliers: np.ndarray) -> np.ndarray:
-        for i in range(inliers.shape[2]):
-            visualization_img = cv2.line(img,
-                                         tuple(inliers[0,...,i]), tuple(inliers[1,...,i]),
-                                         (255,0,0), 5)
-            visualization_img = cv2.circle(visualization_img, tuple(inliers[1,...,i]) ,1,(0,255,0),-1)
-
-        return visualization_img
