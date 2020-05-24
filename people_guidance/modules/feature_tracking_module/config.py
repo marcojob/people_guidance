@@ -15,7 +15,7 @@ shi_tomasi_params = dict(maxCorners=500, qualityLevel=0.3, minDistance=7, blockS
 
 OF_MIN_MATCHING_DIFF = 1  # Minimum difference in the KLT point correspondence
 OF_MIN_NUM_FEATURES = 100 # If features fall below this threshold we detect new ones
-OF_MAX_NUM_FEATURES = 500 # Maximum number of features
+OF_MAX_NUM_FEATURES = 1000 # Maximum number of features
 MAX_FRAME_DELTA = 10 # Maximum frame difference
 OF_DIFF_THRESHOLD = 1
 FAST_THRESHOLD = 30

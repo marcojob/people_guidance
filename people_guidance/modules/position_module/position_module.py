@@ -225,10 +225,12 @@ class PositionModule(Module):
                 scale = self.get_groundtruth_scale()
 
             #ret_homog = np.column_stack((quaternion_to_rotMat(vo_quat), scale*vo_t_vec))
-            ret_homog = vo_result.homogs.reshape(3,4)
+            vo_tran = homog[0:3, 3]
+            vo_rot = homog[0:3, 0:3]
+            ret_homog = np.hstack((vo_rot, scale*vo_tran.reshape(3,1)))
             return ret_homog
 
-    def get_abolsute_scale(imu_t_vec, vo_t_vec):
+    def get_absolute_scale(self, imu_t_vec, vo_t_vec):
         # LS fit
         sum_vo_imu = imu_t_vec[0]*vo_t_vec[0] + imu_t_vec[1]*vo_t_vec[1] + imu_t_vec[2]*vo_t_vec[2]
         sum_vo_2 = vo_t_vec[0]**2 + vo_t_vec[1]**2 + vo_t_vec[2]**2
@@ -237,10 +239,10 @@ class PositionModule(Module):
         return scale
 
     def get_relative_scale(self, vo_t_vec):
-        scale_of_scale = 0.1
         scale = 1.0 / np.linalg.norm(vo_t_vec)
-        # return scale*scale_of_scale
-        return 1.0
+        scale *= 0.1
+
+        return scale
 
     def get_groundtruth_scale(self):
         # todo: extract groundtruth from dataset

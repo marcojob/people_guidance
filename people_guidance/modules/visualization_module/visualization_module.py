@@ -70,10 +70,10 @@ class VisualizationModule(Module):
             ax_list["preview"].set_axis_off()
 
             ax_list["pos1"] = self.fig.add_subplot(2, 2, 2)
-            ax_list["pos1"].set_title("Y-Z plane")
+            ax_list["pos1"].set_title("Front view point cloud")
 
             ax_list["pos2"] = self.fig.add_subplot(2, 2, 4)
-            ax_list["pos2"].set_title("X-Y plane")
+            ax_list["pos2"].set_title("Top view point cloud")
 
             ax_list["plot_t"] = self.fig.add_subplot(2, 2, 3)
 
@@ -257,6 +257,8 @@ class VisualizationModule(Module):
             ax_list["pos1"].ignore_existing_data_limits = True
             ax_list["pos1"].update_datalim(scatter_1.get_datalim(ax_list["pos1"].transData))
             ax_list["pos1"].autoscale_view()
+
+        ax_list["pos1"].invert_xaxis()
 
         ax_list["pos1"].figure.canvas.draw_idle()
 
