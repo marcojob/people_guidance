@@ -14,7 +14,7 @@ class ReprojectionModule(Module):
     def __init__(self, log_dir: pathlib.Path, args=None):
         super(ReprojectionModule, self).__init__(name="reprojection_module",
                                                  inputs=["position_module:homography"],
-                                                 outputs=[("points3d", 10)],
+                                                 outputs=[("points3d", 10), ("criticality", 100)],
                                                  log_dir=log_dir)
 
         self.average_filter = MovingAverageFilter()
@@ -51,9 +51,10 @@ class ReprojectionModule(Module):
                     point[1] = -point_temp[0]
                     point[2] = -point_temp[1]
 
-                self.publish("points3d", data=points3d, validity=-1, timestamp=self.get_time_ms())
-
                 collision_probability = self.update_collision_probability(points3d, timestamps[1], image, homography)
+
+                self.publish("points3d", data={"cloud": points3d, "crit": collision_probability}, validity=-1, timestamp=self.get_time_ms())
+
                 uncertainty = self.average_filter("uncertainty", self.update_uncertainty(points3d.shape[0], timestamps[1]))
 
                 self.last_update_ts = timestamps[1]
@@ -101,8 +102,8 @@ class ReprojectionModule(Module):
 
         # plt.scatter(timestamp, smooth_mean_distance, c="b")
         # plt.scatter(timestamp, smooth_critical_alignment , c="g")
-        plt.scatter(timestamp, smooth_probability, c="r")
-        plt.pause(0.001)
+        #plt.scatter(timestamp, smooth_probability, c="r")
+        #plt.pause(0.001)
 
         return smooth_probability
 

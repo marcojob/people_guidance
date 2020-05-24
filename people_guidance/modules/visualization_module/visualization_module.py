@@ -26,7 +26,7 @@ PLOT_LIM = 50.0
 MAX_DATA_LEN = 100
 
 KEYS = ["preview", "pos1", "pos2", "plot_t"]
-POS_KEYS = ["pos_x", "pos_y", "pos_z", "angle_x", "angle_y", "angle_z", "3d_pos_x", "3d_pos_y", "3d_pos_z"]
+POS_KEYS = ["pos_x", "pos_y", "pos_z", "angle_x", "angle_y", "angle_z", "3d_pos_x", "3d_pos_y", "3d_pos_z", "crit"]
 
 ax_list = dict()
 scatter_p1 = None
@@ -149,18 +149,20 @@ class VisualizationModule(Module):
 
             points_3d = self.get("reprojection_module:points3d")
             if points_3d:
-                self.len_points_3d = points_3d["data"].shape[0]
+                self.len_points_3d = points_3d["data"]["cloud"].shape[0]
                 self.data_dict["3d_pos_x"] = list()
                 self.data_dict["3d_pos_y"] = list()
                 self.data_dict["3d_pos_z"] = list()
                 self.data_dict["3d_dist"] = list()
-                for point in points_3d["data"]:
+                for point in points_3d["data"]["cloud"]:
                     x, y, z = point[0]
 
                     self.data_dict["3d_pos_x"].append(x)
                     self.data_dict["3d_pos_y"].append(y)
                     self.data_dict["3d_pos_z"].append(z)
                     self.data_dict["3d_dist"].append(np.sqrt(x**2 + y**2 + z**2))
+
+                self.data_dict["crit"].append(points_3d["data"]["crit"])
 
                 try:
                     self.plot_text_box()
@@ -174,20 +176,15 @@ class VisualizationModule(Module):
 
     def plot_text_box(self):
         global plot_t
-
-        text = f' Number of matches []: {self.len_points_3d}\n' + \
-               f' Number of matches in FoV []: {len(self.data_dict["3d_pos_x"])}\n' + \
-               f' Time between frames [ms]: {self.preview_delta_ts}'
+        index = [i for i in range(len(self.data_dict["crit"]))]
 
         if plot_t == None:
-            # fake plot
-            ax_list["plot_t"].plot([0, 10], [0, 10], alpha=0)
-            ax_list["plot_t"].set_axis_off()
-
-            # real text
-            plot_t = ax_list["plot_t"].text(0, 10, text, fontsize=12)
+            plot_t = ax_list["plot_t"].scatter(index, self.data_dict["crit"])
         else:
-            plot_t.set_text(text)
+            plt.cla()
+            plot_t = ax_list["plot_t"].scatter(index, self.data_dict["crit"])
+
+        ax_list["plot_t"].set_title("Collision likelihood")
         ax_list["plot_t"].figure.canvas.draw_idle()
 
 
@@ -223,7 +220,7 @@ class VisualizationModule(Module):
     def animate_preview(self):
         global preview_p
         if preview_p == None:
-            ax_list["preview"].set_title("preview")
+            ax_list["preview"].set_title("Camera view")
             ax_list["preview"].set_axis_off()
 
             preview_p = ax_list["preview"].imshow(self.data_dict["preview"][...,::-1])
