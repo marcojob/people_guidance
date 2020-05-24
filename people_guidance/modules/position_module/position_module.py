@@ -19,7 +19,7 @@ from .helpers import check_correct_rot_mat, normalise_rotation
 class PositionModule(Module):
     def __init__(self, log_dir: pathlib.Path, args=None):
         super().__init__(name="position_module",
-                         outputs=[("homography", 10), ("position_vis", 10)],
+                         outputs=[("homography", 1000), ("position_vis", 10)],
                          inputs=["drivers_module:accelerations",
                                  "feature_tracking_module:feature_point_pairs"],
                          log_dir=log_dir)
@@ -122,7 +122,7 @@ class PositionModule(Module):
 
                 self.publish("homography", {"homography": homog, "point_pairs": vo_result.pairs,
                                             "timestamps": (vo_result.ts0, vo_result.ts1),
-                                            "image": vo_result.image}, 100)
+                                            "image": vo_result.image}, -1)
 
                 self.publish("position_vis", {"x": 0.0, "y": 0.0, "z": 0.0,
                                               "roll": 0.0, "pitch": 0.0, "yaw": 0.}, 1000)

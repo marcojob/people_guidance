@@ -25,7 +25,7 @@ if "Linux" in platform.system():
 class FeatureTrackingModule(Module):
 
     def __init__(self, log_dir: pathlib.Path, args=None):
-        super(FeatureTrackingModule, self).__init__(name="feature_tracking_module", outputs=[("feature_point_pairs", 10), ("feature_point_pairs_vis", 10)],
+        super(FeatureTrackingModule, self).__init__(name="feature_tracking_module", outputs=[("feature_point_pairs", 1000), ("feature_point_pairs_vis", 1000)],
                                                     inputs=["drivers_module:images"],
                                                     log_dir=log_dir)
 
@@ -78,10 +78,10 @@ class FeatureTrackingModule(Module):
                                         "image": img_rgb,
                                         "point_pairs": inliers,
                                         "timestamp_pair": (self.old_timestamp, timestamp)},
-                                        1000)
+                                        -1)
                             self.publish("feature_point_pairs_vis",
                                             {"point_pairs": inliers,
                                             "img": img_rgb,
                                             "timestamp": timestamp},
-                                            1000)
+                                            -1)
                         self.old_timestamp = timestamp

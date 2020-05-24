@@ -14,7 +14,7 @@ class ReprojectionModule(Module):
     def __init__(self, log_dir: pathlib.Path, args=None):
         super(ReprojectionModule, self).__init__(name="reprojection_module",
                                                  inputs=["position_module:homography"],
-                                                 outputs=[("points3d", 10), ("criticality", 100)],
+                                                 outputs=[("points3d", 1000), ("criticality", 1000)],
                                                  log_dir=log_dir)
 
         self.average_filter = MovingAverageFilter()
@@ -88,16 +88,19 @@ class ReprojectionModule(Module):
         smooth_mean_distance = self.average_filter("mean_distance", distances.mean(), 20)
 
         # get the indices of the 10th percentile smallest distances
-        n = int(0.1 * distances.shape[0])
-        idxs = np.argpartition(distances, n)[:n]
-        critical_points_3d = point_vectors[idxs, :]
+        n = int(0.05 * distances.shape[0])
+        if n > 5:
+            idxs = np.argpartition(distances, n)[:n]
+            critical_points_3d = point_vectors[idxs, :]
 
-        alignment_vectors = np.cross(critical_points_3d, self.forward_direction)
-        alignment = np.linalg.norm(alignment_vectors, axis=1, keepdims=False)
+            alignment_vectors = np.cross(critical_points_3d, self.forward_direction)
+            alignment = np.linalg.norm(alignment_vectors, axis=1, keepdims=False)
 
-        smooth_critical_alignment = self.average_filter("critical_alignments", np.arctan(alignment.mean()) * 2 / np.pi, 20)
+            smooth_critical_alignment = self.average_filter("critical_alignments", np.arctan(alignment.mean()) * 2 / np.pi, 20)
 
-        probability = (np.arctan(1 / distances) * 2 / np.pi).mean()
+            probability = (np.arctan(1 / distances) * 2 / np.pi).mean()
+        else:
+            probability = 0.0
         smooth_probability = self.average_filter("probability", probability, 50)
 
         # plt.scatter(timestamp, smooth_mean_distance, c="b")
@@ -105,7 +108,7 @@ class ReprojectionModule(Module):
         #plt.scatter(timestamp, smooth_probability, c="r")
         #plt.pause(0.001)
 
-        return smooth_probability
+        return 2.0*smooth_probability
 
     def update_uncertainty(self, n_features: int, timestamp: float):
         # compares the expected number of features and the actual number of features.

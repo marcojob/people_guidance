@@ -86,6 +86,7 @@ class VisualizationModule(Module):
     def plot_main(self):
         try:
             self.fig = plt.figure(figsize=FIGSIZE, dpi=DPI)
+
             ax_list["preview"] = self.fig.add_subplot(2, 2, 1)
             ax_list["preview"].set_title("preview")
             ax_list["preview"].set_axis_off()
@@ -97,6 +98,7 @@ class VisualizationModule(Module):
             ax_list["pos2"].set_title("Top view point cloud")
 
             ax_list["plot_t"] = self.fig.add_subplot(2, 2, 3)
+            ax_list["plot_t"].set_title("Collision likelihood")
 
             plt.show()
         except Exception as e:
@@ -187,8 +189,10 @@ class VisualizationModule(Module):
 
                 self.data_dict["crit"].append(points_3d["data"]["crit"])
 
+                self.plot_text_box()
                 try:
-                    self.plot_text_box()
+                    pass
+                    #self.plot_text_box()
                 except Exception as e:
                     self.logger.warning(f"{e}")
 
@@ -198,16 +202,20 @@ class VisualizationModule(Module):
                     self.logger.warning(f"{e}")
 
     def plot_text_box(self):
-        global plot_t
-        index = [i for i in range(len(self.data_dict["crit"]))]
+        global plot_t, ax_list
+        if "plot_t" in ax_list.keys():
+            index = [i for i in range(len(self.data_dict["crit"]))]
 
-        if plot_t == None and len(self.data_dict["crit"]) > 0:
-            plot_t = ax_list["plot_t"].scatter(index, self.data_dict["crit"], c=255)
-        else:
-            ax_list["plot_t"].clear()
-            plot_t = ax_list["plot_t"].scatter(index, self.data_dict["crit"])
+            if plot_t == None and len(self.data_dict["crit"]) > 0:
+                plot_t = ax_list["plot_t"].scatter(index, self.data_dict["crit"])
+            else:
+                ax_list["plot_t"].clear()
+                plot_t = ax_list["plot_t"].scatter(index, self.data_dict["crit"])
 
-        ax_list["plot_t"].set_title("Collision likelihood")
+            ax_list["plot_t"].set_ylim(0.0, 1.0)
+            ax_list["plot_t"].set_title("Collision likelihood")
+
+
         #ax_list["plot_t"].figure.canvas.draw_idle()
 
 
@@ -289,15 +297,15 @@ class VisualizationModule(Module):
 
         global scatter_2
         if scatter_2 == None:
-            scatter_2 = ax_list["pos2"].scatter(x, y, c=d, vmin=np.min(d), vmax=np.max(d))
+            scatter_2 = ax_list["pos2"].scatter(y, x, c=d, vmin=np.min(d), vmax=np.max(d))
 
             self.cbar_2 = self.fig.colorbar(scatter_2, ax=ax_list["pos2"])
 
             ax_list["pos2"].autoscale()
 
         else:
-            data_1 = np.array(x)
-            data_2 = np.array(y)
+            data_1 = np.array(y)
+            data_2 = np.array(x)
             data = np.transpose(np.vstack((data_1, data_2)))
             scatter_2.set_offsets(data)
 
@@ -318,8 +326,8 @@ class VisualizationModule(Module):
         if matches is not None:
             shape = prev.shape
             for m in range(shape[0]):
-                end_point = (cur[m][0], cur[m][1])
-                start_point = (prev[m][0], prev[m][1])
+                end_point = (prev[m][0], prev[m][1])
+                start_point = (cur[m][0], cur[m][1])
                 img = cv2.arrowedLine(
-                    img, start_point, end_point, (0, 255, 0), THICKNESS)
+                    img, start_point, end_point, (255, 0, 0), THICKNESS)
         return img
