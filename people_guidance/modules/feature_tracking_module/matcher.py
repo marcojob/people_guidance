@@ -84,7 +84,7 @@ class Matcher():
                 mp2 = mp2[mask_H]
         if self.use_E:
             E, mask = cv2.findEssentialMat(mp1, mp2, self.intrinsic_matrix, cv2.RANSAC, 0.99, 1.0, None)
-            _, self.rotations, self.translations, mask_cheirality = cv2.recoverPose(E, mp1, mp2, self.intrinsic_matrix, None)
+            _, self.rotations, self.translations, mask_cheirality = cv2.recoverPose(E, mp1, mp2, self.intrinsic_matrix, mask)
             self.nb_transform_solutions = 1
 
             if not self.use_H:

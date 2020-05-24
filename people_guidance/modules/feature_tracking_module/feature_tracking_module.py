@@ -68,9 +68,7 @@ class FeatureTrackingModule(Module):
                 else:
                     mp1, mp2 = self.fm.match(img)
                     if mp1.shape[0] > 0:
-                        inliers = np.concatenate((mp1.transpose().reshape(1, 2, -1),
-                                                mp2.transpose().reshape(1, 2, -1)),
-                                                axis=0)
+                        inliers = (mp1, mp2)
 
                         transformations = self.fm.getTransformations()
 

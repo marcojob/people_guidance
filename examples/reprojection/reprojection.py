@@ -85,6 +85,9 @@ def main(img1, img2):
         # Projection matrices
         P0 = np.dot(INTRINSIC_MATRIX, np.eye(3, 4))
         P1 = np.dot(INTRINSIC_MATRIX, homography)
+
+        print(homography)
+
     else:
         homography = get_homography(E, prev_kps, cur_kps)
 

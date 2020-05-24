@@ -122,7 +122,8 @@ class VisualizationModule(Module):
                     self.data_dict["angle_z"].append(pos_vis["data"]["yaw"])
 
                     try:
-                        self.animate_pos()
+                        #self.animate_pos()
+                        pass
                     except Exception as e:
                         self.logger.debug(f"{e}")
 
@@ -154,20 +155,18 @@ class VisualizationModule(Module):
                 self.data_dict["3d_pos_z"] = list()
                 self.data_dict["3d_dist"] = list()
                 for point in points_3d["data"]:
-                    # Only consider point in the view of the plot
                     x, y, z = point[0]
-                    if not (x < -PLOT_LIM or x > PLOT_LIM or y < -PLOT_LIM or y > PLOT_LIM or z < 0 or z > PLOT_LIM):
-                        self.data_dict["3d_pos_x"].append(x)
-                        self.data_dict["3d_pos_y"].append(y)
-                        self.data_dict["3d_pos_z"].append(z)
-                        self.data_dict["3d_dist"].append(np.sqrt(x**2 + y**2 + z**2))
+
+                    self.data_dict["3d_pos_x"].append(x)
+                    self.data_dict["3d_pos_y"].append(y)
+                    self.data_dict["3d_pos_z"].append(z)
+                    self.data_dict["3d_dist"].append(np.sqrt(x**2 + y**2 + z**2))
 
                 try:
                     self.plot_text_box()
                 except Exception as e:
                     self.logger.warning(f"{e}")
 
-                self.animate_3d_points()
                 try:
                     self.animate_3d_points()
                 except Exception as e:
@@ -209,22 +208,17 @@ class VisualizationModule(Module):
         sc_z = 0.5
 
         if scatter_p1 == None:
-            ax_list["pos1"].set_xlim((-PLOT_LIM, PLOT_LIM))
-            ax_list["pos1"].set_ylim((-PLOT_LIM, PLOT_LIM))
-
             scatter_p1 = ax_list["pos1"].scatter(
                 self.data_dict["pos_y"], self.data_dict["pos_z"])
-
-        if scatter_p2 == None:
-            ax_list["pos2"].set_xlim((-PLOT_LIM, PLOT_LIM))
-            ax_list["pos2"].set_ylim((-PLOT_LIM, PLOT_LIM))
-
-            scatter_p2 = ax_list["pos2"].scatter(
-                self.data_dict["pos_x"], self.data_dict["pos_y"])
-
         else:
             scatter_p1.set_offsets(self.data_dict["pos_y"], self.data_dict["pos_z"])
-            scatter_p1.set_offsets(self.data_dict["pos_x"], self.data_dict["pos_y"])
+
+        if scatter_p2 == None:
+            scatter_p2 = ax_list["pos2"].scatter(
+                self.data_dict["pos_x"], self.data_dict["pos_y"])
+        else:
+            scatter_p2.set_offsets(self.data_dict["pos_x"], self.data_dict["pos_y"])
+
 
     def animate_preview(self):
         global preview_p
@@ -247,9 +241,6 @@ class VisualizationModule(Module):
         d = self.data_dict["3d_dist"]
 
         if scatter_1 == None:
-            ax_list["pos1"].set_xlim((-PLOT_LIM, PLOT_LIM))
-            ax_list["pos1"].set_ylim((-PLOT_LIM, PLOT_LIM))
-
             scatter_1 = ax_list["pos1"].scatter(y, z, c=d, vmin=np.min(d), vmax=np.max(d))
 
             self.cbar_1 = self.fig.colorbar(scatter_1, ax=ax_list["pos1"])
@@ -263,14 +254,20 @@ class VisualizationModule(Module):
             scatter_1.set_array(np.array(d))
             self.cbar_1.mappable.set_clim(np.min(d), np.max(d))
 
+            ax_list["pos1"].ignore_existing_data_limits = True
+            ax_list["pos1"].update_datalim(scatter_1.get_datalim(ax_list["pos1"].transData))
+            ax_list["pos1"].autoscale_view()
+
+        ax_list["pos1"].figure.canvas.draw_idle()
+
+
         global scatter_2
         if scatter_2 == None:
-            ax_list["pos2"].set_xlim((-PLOT_LIM, PLOT_LIM))
-            ax_list["pos2"].set_ylim((-PLOT_LIM, PLOT_LIM))
-
             scatter_2 = ax_list["pos2"].scatter(x, y, c=d, vmin=np.min(d), vmax=np.max(d))
 
             self.cbar_2 = self.fig.colorbar(scatter_2, ax=ax_list["pos2"])
+
+            ax_list["pos2"].autoscale()
 
         else:
             data_1 = np.array(x)
@@ -281,21 +278,22 @@ class VisualizationModule(Module):
             scatter_2.set_array(np.array(d))
             self.cbar_2.mappable.set_clim(np.min(d), np.max(d))
 
-        ax_list["pos1"].figure.canvas.draw_idle()
+            ax_list["pos2"].ignore_existing_data_limits = True
+            ax_list["pos2"].update_datalim(scatter_2.get_datalim(ax_list["pos2"].transData))
+            ax_list["pos2"].autoscale_view()
+
         ax_list["pos2"].figure.canvas.draw_idle()
 
     def draw_matches(self, img, matches):
         RADIUS = 5
         THICKNESS = 1
+        prev = matches[0]
+        cur = matches[1]
         if matches is not None:
-            shape = matches.shape
-            for m in range(shape[2]):
-                end_point = (matches[0][0][m], matches[0][1][m])
-                start_point = (matches[1][0][m], matches[1][1][m])
-                #img = cv2.circle(img, start_point, RADIUS,
-                #                 (255, 0, 0), THICKNESS)
-                #img = cv2.circle(img, end_point, RADIUS,
-                #                 (0, 0, 255), THICKNESS)
+            shape = prev.shape
+            for m in range(shape[0]):
+                end_point = (cur[m][0], cur[m][1])
+                start_point = (prev[m][0], prev[m][1])
                 img = cv2.arrowedLine(
                     img, start_point, end_point, (0, 255, 0), THICKNESS)
         return img

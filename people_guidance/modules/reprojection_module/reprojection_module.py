@@ -21,13 +21,11 @@ class ReprojectionModule(Module):
         self.use_alignment = False
 
         self.last_update_ts = None
-        self.origin_pm = np.matmul(self.intrinsic_matrix, np.eye(3, 4))
-        self.origin = np.zeros(3)
+        self.P0 = np.dot(self.intrinsic_matrix, np.eye(3, 4))
+
         self.forward_direction = np.array((0., 0., 1.))
 
     def start(self):
-
-
         criticality_smooth = 0.0
         while True:
             homog_payload = self.get("position_module:homography")
@@ -37,9 +35,10 @@ class ReprojectionModule(Module):
                 timestamps = homog_payload["data"]["timestamps"]
                 image = homog_payload["data"]["image"]
 
-                offset_pm = np.matmul(self.intrinsic_matrix, homography)
+                P1 = np.dot(self.intrinsic_matrix, homography)
+                print(homography)
 
-                points_homo = cv2.triangulatePoints(self.origin_pm, offset_pm, point_pairs[0, ...], point_pairs[1, ...])
+                points_homo = cv2.triangulatePoints(self.P0, P1, np.transpose(point_pairs[0]), np.transpose(point_pairs[1]))
                 points3d = cv2.convertPointsFromHomogeneous(points_homo.T)
 
                 # Ensure that signs of points are correct
@@ -53,15 +52,7 @@ class ReprojectionModule(Module):
                     point[1] = -point_temp[0]
                     point[2] = -point_temp[1]
 
-                    # We only expect points in positive x direction
-                    if point[0] < 0.0:
-                        point[0] *= -1.0
-
-                    # Same in z direction
-                    if point[2] < 0.0:
-                        point[2] *= -1.0
-
-                self.publish("points3d", data=points3d, validity=100, timestamp=self.get_time_ms())
+                self.publish("points3d", data=points3d, validity=-1, timestamp=self.get_time_ms())
 
                 points2d = self.project3dto2d(homography, points3d)
 
