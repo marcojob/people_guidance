@@ -63,8 +63,6 @@ class Matcher():
             # We observed enough features, advance normally
             self.prev_img = self.img_window.pop(0)
 
-        print(len(self.img_window), len_prev_kps)
-
         #self.prev_kps = self.curr_kps
         #self.prev_desc = self.curr_desc
 
