@@ -14,20 +14,18 @@ class ReprojectionModule(Module):
     def __init__(self, log_dir: pathlib.Path, args=None):
         super(ReprojectionModule, self).__init__(name="reprojection_module",
                                                  inputs=["position_module:homography"],
-                                                 outputs=[("points3d", 10)],
+                                                 outputs=[("points3d", 1000), ("criticality", 1000)],
                                                  log_dir=log_dir)
 
         self.average_filter = MovingAverageFilter()
         self.use_alignment = False
 
         self.last_update_ts = None
-        self.origin_pm = np.matmul(self.intrinsic_matrix, np.eye(3, 4))
-        self.origin = np.zeros(3)
-        self.forward_direction = np.array((0., 0., 1.))
+        self.P0 = np.dot(self.intrinsic_matrix, np.eye(3, 4))
+
+        self.forward_direction = np.array((1., 0., 0.))
 
     def start(self):
-
-
         criticality_smooth = 0.0
         while True:
             homog_payload = self.get("position_module:homography")
@@ -37,9 +35,9 @@ class ReprojectionModule(Module):
                 timestamps = homog_payload["data"]["timestamps"]
                 image = homog_payload["data"]["image"]
 
-                offset_pm = np.matmul(self.intrinsic_matrix, homography)
+                P1 = np.dot(self.intrinsic_matrix, homography)
 
-                points_homo = cv2.triangulatePoints(self.origin_pm, offset_pm, point_pairs[0, ...], point_pairs[1, ...])
+                points_homo = cv2.triangulatePoints(self.P0, P1, np.transpose(point_pairs[0]), np.transpose(point_pairs[1]))
                 points3d = cv2.convertPointsFromHomogeneous(points_homo.T)
 
                 # Ensure that signs of points are correct
@@ -53,25 +51,9 @@ class ReprojectionModule(Module):
                     point[1] = -point_temp[0]
                     point[2] = -point_temp[1]
 
-                    # We only expect points in positive x direction
-                    if point[0] < 0.0:
-                        point[0] *= -1.0
-
-                    # Same in z direction
-                    if point[2] < 0.0:
-                        point[2] *= -1.0
-
-                self.publish("points3d", data=points3d, validity=100, timestamp=self.get_time_ms())
-
-                points2d = self.project3dto2d(homography, points3d)
-
-                """
-                if cv2.waitKey(0) == ord('a'):
-                    print("continue")
-                """
-                # cv2.waitKey(1)
-
                 collision_probability = self.update_collision_probability(points3d, timestamps[1], image, homography)
+
+                self.publish("points3d", data={"cloud": points3d, "crit": collision_probability}, validity=-1, timestamp=self.get_time_ms())
 
                 uncertainty = self.average_filter("uncertainty", self.update_uncertainty(points3d.shape[0], timestamps[1]))
 
@@ -103,68 +85,30 @@ class ReprojectionModule(Module):
 
         distances = np.linalg.norm(point_vectors, axis=1, keepdims=False)
 
-        alignment_vectors = np.cross(point_vectors, self.forward_direction)
-        alignment = np.linalg.norm(alignment_vectors, axis=1, keepdims=False)
-
-        if self.use_alignment:
-            distances *= alignment
+        smooth_mean_distance = self.average_filter("mean_distance", distances.mean(), 20)
 
         # get the indices of the 10th percentile smallest distances
-        n = int(0.1 * distances.shape[0])
-        idxs = np.argpartition(distances, n)[:n]
-        critical_points_3d = point_vectors[idxs, :]
+        n = int(0.05 * distances.shape[0])
+        if n > 5:
+            idxs = np.argpartition(distances, n)[:n]
+            critical_points_3d = point_vectors[idxs, :]
 
-        critical_points_2d = self.project3dto2d(homography, critical_points_3d)
+            alignment_vectors = np.cross(critical_points_3d, self.forward_direction)
+            alignment = np.linalg.norm(alignment_vectors, axis=1, keepdims=False)
 
-        #  plot the critical points
-        #for i in range(critical_points_2d.shape[0]):
-        #    image = cv2.circle(img=image, center=tuple(critical_points_2d[i, 0, :]), radius=10, color=(255, 153, 255), thickness=-1)
+            smooth_critical_alignment = self.average_filter("critical_alignments", np.arctan(alignment.mean()) * 2 / np.pi, 20)
 
-        #  show both the features and the reprojected critical points
-        # cv2.imshow("visu", image)
-        # cv2.imwrite(f"sandbox/plots/image_{forward_direction}_{timestamp}.png", image)
+            probability = (np.arctan(1 / distances) * 2 / np.pi).mean()
+        else:
+            probability = 0.0
+        smooth_probability = self.average_filter("probability", probability, 50)
 
-        # for i in range(3):
-        #     for j in range(3):
-        #         self.ax[i, j].clear()
-        #         xlim = 8
-        #         ylim = 8
-        #         self.ax[i, j].set_xlim(-xlim, xlim)
-        #         self.ax[i, j].set_ylim(-5, 5)
-        #         self.ax[i, j].scatter(point_vectors[:, i], point_vectors[:, j], c="b")
-        #         self.ax[i, j].scatter(np.zeros(100), np.linspace(-xlim, xlim, 100), c="g", s=1)
-        #         self.ax[i, j].scatter(np.linspace(-ylim, ylim, 100), np.zeros(100), c="g", s=1)
-        #         self.ax[i, j].scatter(point_vectors[idxs, i], point_vectors[idxs, j], c="r")
+        # plt.scatter(timestamp, smooth_mean_distance, c="b")
+        # plt.scatter(timestamp, smooth_critical_alignment , c="g")
+        #plt.scatter(timestamp, smooth_probability, c="r")
+        #plt.pause(0.001)
 
-            #plt.pause(0.001)
-            #self.fig.savefig(f"sandbox/plots/plot_{forward_direction}_{timestamp}.png")
-        """
-        image = self.project3dto2d()
-        
-        cv2.imshow("visu", image)
-        cv2.imwrite(f"sandbox/plots/{timestamp}_image.png", image)
-
-        
-        point_vectors = np.subtract(points3d, user_pos)
-        point_vectors = point_vectors.reshape((point_vectors.shape[0], 3))
-
-        #  how far away are the points from the user?
-        distances = np.linalg.norm(points3d, axis=1, keepdims=False)
-        distances.sort()
-        #  how close are the points to the trajectory of the user?
-        alignment = np.dot(normalize(point_vectors), normalize(user_trajectory))
-        # weigh the distance and alignment to obtain an estimate of how likely a collision is.
-        uncertainty = 1 / points3d.shape[0]
-        criticality = (1 / distances)  # * abs(alignment)
-        criticality_smooth = 0.8 * criticality_smooth + 0.2 * criticality.mean()
-
-        plt.scatter(timestamps[0], criticality_smooth, c="r")
-        plt.scatter(timestamps[0], uncertainty, c="g")
-        plt.pause(0.001)
-
-        self.logger.info(f"Reconstructed points \n{criticality.shape}")
-        """
-        return 0.0
+        return 2.0*smooth_probability
 
     def update_uncertainty(self, n_features: int, timestamp: float):
         # compares the expected number of features and the actual number of features.

@@ -26,7 +26,7 @@ PLOT_LIM = 50.0
 MAX_DATA_LEN = 100
 
 KEYS = ["preview", "pos1", "pos2", "plot_t"]
-POS_KEYS = ["pos_x", "pos_y", "pos_z", "angle_x", "angle_y", "angle_z", "3d_pos_x", "3d_pos_y", "3d_pos_z"]
+POS_KEYS = ["pos_x", "pos_y", "pos_z", "angle_x", "angle_y", "angle_z", "3d_pos_x", "3d_pos_y", "3d_pos_z", "crit"]
 
 ax_list = dict()
 scatter_p1 = None
@@ -35,6 +35,8 @@ plot_t = None
 scatter_1 = None
 scatter_2 = None
 preview_p = None
+
+lock = threading.Lock()
 
 
 class VisualizationModule(Module):
@@ -56,22 +58,47 @@ class VisualizationModule(Module):
         self.last_timestamp = 0
         self.preview_delta_ts = 0
 
+        self.cbar_1 = None
+        self.cbar_2 = None
+        self.fig = None
+
+        self.save_flag = False
+
+        if self.args.save_visualization:
+            save_thread = threading.Thread(target=self.save_main, args=(self.args.save_visualization, ))
+            save_thread.start()
+
         self.plot_main()
+
+    def save_main(self, folder):
+        save_path = Path(folder)
+        save_cnt = 0
+        while True:
+            if self.save_flag:
+                with lock:
+                    save_cnt += 1
+                    file = save_path / f"img_{save_cnt:04d}.jpg"
+                    plt.savefig(file)
+                self.save_flag = False
+            else:
+                sleep(0.01)
 
     def plot_main(self):
         try:
-            fig = plt.figure(figsize=FIGSIZE, dpi=DPI)
-            ax_list["preview"] = fig.add_subplot(2, 2, 1)
+            self.fig = plt.figure(figsize=FIGSIZE, dpi=DPI)
+
+            ax_list["preview"] = self.fig.add_subplot(2, 2, 1)
             ax_list["preview"].set_title("preview")
             ax_list["preview"].set_axis_off()
 
-            ax_list["pos1"] = fig.add_subplot(2, 2, 2)
-            ax_list["pos1"].set_title("Y-Z plane")
+            ax_list["pos1"] = self.fig.add_subplot(2, 2, 2)
+            ax_list["pos1"].set_title("Front view point cloud")
 
-            ax_list["pos2"] = fig.add_subplot(2, 2, 4)
-            ax_list["pos2"].set_title("X-Y plane")
+            ax_list["pos2"] = self.fig.add_subplot(2, 2, 4)
+            ax_list["pos2"].set_title("Top view point cloud")
 
-            ax_list["plot_t"] = fig.add_subplot(2, 2, 3)
+            ax_list["plot_t"] = self.fig.add_subplot(2, 2, 3)
+            ax_list["plot_t"].set_title("Collision likelihood")
 
             plt.show()
         except Exception as e:
@@ -118,7 +145,8 @@ class VisualizationModule(Module):
                     self.data_dict["angle_z"].append(pos_vis["data"]["yaw"])
 
                     try:
-                        self.animate_pos()
+                        #self.animate_pos()
+                        pass
                     except Exception as e:
                         self.logger.debug(f"{e}")
 
@@ -137,27 +165,34 @@ class VisualizationModule(Module):
                 self.last_timestamp = timestamp
 
                 try:
-                    self.animate_preview()
+                    with lock:
+                        self.animate_preview()
                 except Exception as e:
                     self.logger.warning(f"{e}")
+                    print(e)
 
 
             points_3d = self.get("reprojection_module:points3d")
             if points_3d:
-                self.len_points_3d = points_3d["data"].shape[0]
+                self.len_points_3d = points_3d["data"]["cloud"].shape[0]
                 self.data_dict["3d_pos_x"] = list()
                 self.data_dict["3d_pos_y"] = list()
                 self.data_dict["3d_pos_z"] = list()
-                for point in points_3d["data"]:
-                    # Only consider point in the view of the plot
+                self.data_dict["3d_dist"] = list()
+                for point in points_3d["data"]["cloud"]:
                     x, y, z = point[0]
-                    if not (x < -PLOT_LIM or x > PLOT_LIM or y < -PLOT_LIM or y > PLOT_LIM or z < 0 or z > PLOT_LIM):
-                        self.data_dict["3d_pos_x"].append(x)
-                        self.data_dict["3d_pos_y"].append(y)
-                        self.data_dict["3d_pos_z"].append(z)
 
+                    self.data_dict["3d_pos_x"].append(x)
+                    self.data_dict["3d_pos_y"].append(y)
+                    self.data_dict["3d_pos_z"].append(z)
+                    self.data_dict["3d_dist"].append(np.sqrt(x**2 + y**2 + z**2))
+
+                self.data_dict["crit"].append(points_3d["data"]["crit"])
+
+                self.plot_text_box()
                 try:
-                    self.plot_text_box()
+                    pass
+                    #self.plot_text_box()
                 except Exception as e:
                     self.logger.warning(f"{e}")
 
@@ -167,22 +202,21 @@ class VisualizationModule(Module):
                     self.logger.warning(f"{e}")
 
     def plot_text_box(self):
-        global plot_t
+        global plot_t, ax_list
+        if "plot_t" in ax_list.keys():
+            index = [i for i in range(len(self.data_dict["crit"]))]
 
-        text = f' Number of matches []: {self.len_points_3d}\n' + \
-               f' Number of matches in FoV []: {len(self.data_dict["3d_pos_x"])}\n' + \
-               f' Time between frames [ms]: {self.preview_delta_ts}'
+            if plot_t == None and len(self.data_dict["crit"]) > 0:
+                plot_t = ax_list["plot_t"].scatter(index, self.data_dict["crit"])
+            else:
+                ax_list["plot_t"].clear()
+                plot_t = ax_list["plot_t"].scatter(index, self.data_dict["crit"])
 
-        if plot_t == None:
-            # fake plot
-            ax_list["plot_t"].plot([0, 10], [0, 10], alpha=0)
-            ax_list["plot_t"].set_axis_off()
+            ax_list["plot_t"].set_ylim(0.0, 1.0)
+            ax_list["plot_t"].set_title("Collision likelihood")
 
-            # real text
-            plot_t = ax_list["plot_t"].text(0, 10, text, fontsize=12)
-        else:
-            plot_t.set_text(text)
-        ax_list["plot_t"].figure.canvas.draw_idle()
+
+        #ax_list["plot_t"].figure.canvas.draw_idle()
 
 
     def animate_pos(self):
@@ -202,84 +236,98 @@ class VisualizationModule(Module):
         sc_z = 0.5
 
         if scatter_p1 == None:
-            ax_list["pos1"].set_xlim((-PLOT_LIM, PLOT_LIM))
-            ax_list["pos1"].set_ylim((-PLOT_LIM, PLOT_LIM))
-
             scatter_p1 = ax_list["pos1"].scatter(
                 self.data_dict["pos_y"], self.data_dict["pos_z"])
-
-        if scatter_p2 == None:
-            ax_list["pos2"].set_xlim((-PLOT_LIM, PLOT_LIM))
-            ax_list["pos2"].set_ylim((-PLOT_LIM, PLOT_LIM))
-
-            scatter_p2 = ax_list["pos2"].scatter(
-                self.data_dict["pos_x"], self.data_dict["pos_y"])
-
         else:
             scatter_p1.set_offsets(self.data_dict["pos_y"], self.data_dict["pos_z"])
-            scatter_p1.set_offsets(self.data_dict["pos_x"], self.data_dict["pos_y"])
+
+        if scatter_p2 == None:
+            scatter_p2 = ax_list["pos2"].scatter(
+                self.data_dict["pos_x"], self.data_dict["pos_y"])
+        else:
+            scatter_p2.set_offsets(self.data_dict["pos_x"], self.data_dict["pos_y"])
+
 
     def animate_preview(self):
         global preview_p
         if preview_p == None:
-            ax_list["preview"].set_title("preview")
+            ax_list["preview"].set_title("Camera view")
             ax_list["preview"].set_axis_off()
 
             preview_p = ax_list["preview"].imshow(self.data_dict["preview"][...,::-1])
 
-            ax_list["preview"].figure.canvas.draw_idle()
+            #ax_list["preview"].figure.canvas.draw_idle()
         else:
             preview_p.set_data(self.data_dict["preview"][...,::-1])
-            ax_list["preview"].figure.canvas.draw_idle()
+            #ax_list["preview"].figure.canvas.draw_idle()
+
+        self.fig.canvas.draw_idle()
+
+        self.save_flag = True
 
     def animate_3d_points(self):
-        global scatter_1
-        if scatter_1 == None:
-            ax_list["pos1"].set_xlim((-PLOT_LIM, PLOT_LIM))
-            ax_list["pos1"].set_ylim((-PLOT_LIM, PLOT_LIM))
+        global scatter_1, ax_list
+        x = self.data_dict["3d_pos_x"]
+        y = self.data_dict["3d_pos_y"]
+        z = self.data_dict["3d_pos_z"]
+        d = self.data_dict["3d_dist"]
 
-            scatter_1 = ax_list["pos1"].scatter(
-                self.data_dict["3d_pos_y"], self.data_dict["3d_pos_z"], c=self.data_dict["3d_pos_x"])
+        if scatter_1 == None:
+            scatter_1 = ax_list["pos1"].scatter(y, z, c=d, vmin=np.min(d), vmax=np.max(d))
+
+            self.cbar_1 = self.fig.colorbar(scatter_1, ax=ax_list["pos1"])
 
         else:
-            data_1 = np.array(self.data_dict["3d_pos_y"])
-            data_2 = np.array(self.data_dict["3d_pos_z"])
+            data_1 = np.array(y)
+            data_2 = np.array(z)
             data = np.transpose(np.vstack((data_1, data_2)))
-
             scatter_1.set_offsets(data)
-            scatter_1.set_array(np.array(self.data_dict["3d_pos_x"]))
+
+            scatter_1.set_array(np.array(d))
+            self.cbar_1.mappable.set_clim(np.min(d), np.max(d))
+
+            ax_list["pos1"].ignore_existing_data_limits = True
+            ax_list["pos1"].update_datalim(scatter_1.get_datalim(ax_list["pos1"].transData))
+            ax_list["pos1"].autoscale_view()
+
+        ax_list["pos1"].invert_xaxis()
+
+        #ax_list["pos1"].figure.canvas.draw_idle()
+
 
         global scatter_2
         if scatter_2 == None:
-            ax_list["pos2"].set_xlim((-PLOT_LIM, PLOT_LIM))
-            ax_list["pos2"].set_ylim((-PLOT_LIM, PLOT_LIM))
+            scatter_2 = ax_list["pos2"].scatter(y, x, c=d, vmin=np.min(d), vmax=np.max(d))
 
-            scatter_2 = ax_list["pos2"].scatter(
-                self.data_dict["3d_pos_x"], self.data_dict["3d_pos_y"], c=self.data_dict["3d_pos_z"])
+            self.cbar_2 = self.fig.colorbar(scatter_2, ax=ax_list["pos2"])
+
+            ax_list["pos2"].autoscale()
 
         else:
-            data_1 = np.array(self.data_dict["3d_pos_x"])
-            data_2 = np.array(self.data_dict["3d_pos_y"])
+            data_1 = np.array(y)
+            data_2 = np.array(x)
             data = np.transpose(np.vstack((data_1, data_2)))
-
             scatter_2.set_offsets(data)
-            scatter_2.set_array(np.array(self.data_dict["3d_pos_z"]))
 
-        ax_list["pos1"].figure.canvas.draw_idle()
-        ax_list["pos2"].figure.canvas.draw_idle()
+            scatter_2.set_array(np.array(d))
+            self.cbar_2.mappable.set_clim(np.min(d), np.max(d))
+
+            ax_list["pos2"].ignore_existing_data_limits = True
+            ax_list["pos2"].update_datalim(scatter_2.get_datalim(ax_list["pos2"].transData))
+            ax_list["pos2"].autoscale_view()
+
+        #ax_list["pos2"].figure.canvas.draw_idle()
 
     def draw_matches(self, img, matches):
         RADIUS = 5
-        THICKNESS = 3
+        THICKNESS = 1
+        prev = matches[0]
+        cur = matches[1]
         if matches is not None:
-            shape = matches.shape
-            for m in range(shape[2]):
-                end_point = (matches[0][0][m], matches[0][1][m])
-                start_point = (matches[1][0][m], matches[1][1][m])
-                img = cv2.circle(img, start_point, RADIUS,
-                                 (255, 0, 0), THICKNESS)
-                img = cv2.circle(img, end_point, RADIUS,
-                                 (0, 0, 255), THICKNESS)
+            shape = prev.shape
+            for m in range(shape[0]):
+                end_point = (prev[m][0], prev[m][1])
+                start_point = (cur[m][0], cur[m][1])
                 img = cv2.arrowedLine(
-                    img, start_point, end_point, (0, 255, 0), THICKNESS)
+                    img, start_point, end_point, (255, 0, 0), THICKNESS)
         return img

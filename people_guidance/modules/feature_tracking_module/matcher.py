@@ -2,11 +2,12 @@ import cv2
 import numpy as np
 from math import floor, ceil
 from random import shuffle
+from collections import namedtuple
 
 from .config import *
 
 class Matcher():
-    def __init__(self, max_num_features, logger, K, method='FAST', use_H=True, use_E=True):
+    def __init__(self, max_num_features, logger, K, distortion_coeffs, method='FAST', use_H=True, use_E=True):
         self.curr_img = None
         self.curr_kps = None
         self.curr_desc = None
@@ -14,8 +15,12 @@ class Matcher():
         self.prev_kps = None
         self.prev_desc = None
 
+        self.img_window = list() # List of images in the current window
+        self.len_cheirality = 0
+
         self.logger = logger
         self.intrinsic_matrix = K
+        self.distortion_coeffs = distortion_coeffs
         self.method = method
         self.use_H = use_H
         self.use_E = use_E
@@ -23,18 +28,43 @@ class Matcher():
         self.rotations = np.empty((0,3,4))
         self.translations = np.empty((0,3,1))
 
-        self.detector = featureDetector(max_num_features, logger, method=self.method)
+        self.detector = featureDetector(max_num_features, logger, self.intrinsic_matrix, self.distortion_coeffs, method=self.method)
         self.should_initialize = True
 
     def initialize(self, img):
+        self.curr_img = img
         self.prev_img = img
         self.prev_kps, self.prev_desc = self.detector.detect(img)
         self.should_initialize = False
 
-    def step(self):
-        self.prev_img = self.curr_img
-        self.prev_kps = self.curr_kps
-        self.prev_desc = self.curr_desc
+    def adaptive_step(self, len_prev_kps):
+        """
+        Control which images we consider currently
+        """
+
+        # Keep track of the img window
+        self.img_window.append(self.curr_img)
+
+        # Current length of the window
+        len_window = len(self.img_window)
+
+        if len_prev_kps < OF_MIN_NUM_FEATURES and len_window < MAX_FRAME_DELTA:
+            # We did not observe enough features,
+            # keep the prev img the same img
+            self.prev_img = self.prev_img
+
+        elif len_prev_kps > OF_MAX_NUM_FEATURES and len(self.img_window) > 1:
+            # We observed too many features, make
+            # window smaller again
+            self.img_window.pop(0)
+            self.prev_img = self.img_window.pop(0)
+
+        else:
+            # We observed enough features, advance normally
+            self.prev_img = self.img_window.pop(0)
+
+        #self.prev_kps = self.curr_kps
+        #self.prev_desc = self.curr_desc
 
     def match(self, img):
         raise NotImplementedError
@@ -51,12 +81,13 @@ class Matcher():
                 mp1 = mp1[mask_H]
                 mp2 = mp2[mask_H]
         if self.use_E:
-            E, mask = cv2.findEssentialMat(mp1, mp2, self.intrinsic_matrix, cv2.RANSAC, 0.999, 1.0, None)
-            _, self.rotations, self.translations, _ = cv2.recoverPose(E, mp1, mp2, self.intrinsic_matrix, mask)
+            E, mask = cv2.findEssentialMat(mp1, mp2, self.intrinsic_matrix, cv2.RANSAC, 0.99, 1.0, None)
+            _, self.rotations, self.translations, mask_cheirality = cv2.recoverPose(E, mp1, mp2, self.intrinsic_matrix, mask)
             self.nb_transform_solutions = 1
 
             if not self.use_H:
-                return mask
+                # Cheirality mask ensures that the solutions make sense
+                return mask_cheirality
             else:
                 i = 0
                 j = 0
@@ -150,7 +181,7 @@ class bruteForceMatcher(Matcher):
         prev_match_pts = prev_match_pts[mask.ravel().astype(bool)]
         curr_match_pts = curr_match_pts[mask.ravel().astype(bool)]
 
-        self.step()
+        self.adaptive_step(len(prev_match_pts))
 
         return prev_match_pts, curr_match_pts
 
@@ -165,12 +196,15 @@ class bruteForceMatcher(Matcher):
 
 class opticalFlowMatcher(Matcher):
     def match(self, img):
+        # Decide what the new prev img is
+        self.adaptive_step(self.len_cheirality)
+
+        # New curr img is always the new img
         self.curr_img = img
 
-        if self.prev_kps.shape[0] < OF_MIN_NUM_FEATURES:
-            self.prev_kps, _ = self.detector.detect(self.prev_img)
+        #if self.prev_kps.shape[0] < OF_MIN_NUM_FEATURES:
+        self.prev_kps, _ = self.detector.detect(self.prev_img)
 
-        # mp1, mp2, diff = self.KLT_featureTracking(img)
         self.prev_kps, self.curr_kps, diff = self.KLT_featureTracking()
 
         # If difference is small we skip the frame (not much movement)
@@ -178,7 +212,8 @@ class opticalFlowMatcher(Matcher):
                 self.logger.info("skipping frame")
                 return np.array([]), np.array([])
 
-        prev_mpts, curr_mpts = self.binMatches(self.prev_kps, self.curr_kps)
+        #prev_mpts, curr_mpts = self.binMatches(self.prev_kps, self.curr_kps)
+        prev_mpts, curr_mpts = self.prev_kps, self.curr_kps
         if prev_mpts.shape[0] > 0:
             mask = self.calcTransformation(prev_mpts, curr_mpts)
         else:
@@ -187,7 +222,7 @@ class opticalFlowMatcher(Matcher):
         prev_mpts = prev_mpts[mask.ravel().astype(bool)]
         curr_mpts = curr_mpts[mask.ravel().astype(bool)]
 
-        self.step()
+        self.len_cheirality = len(prev_mpts)
 
         return prev_mpts, curr_mpts
 
@@ -238,13 +273,16 @@ class opticalFlowMatcher(Matcher):
             return diff < OF_DIFF_THRESHOLD
 
 class featureDetector:
-    def __init__(self, max_num_features, logger, method='FAST'):
+    def __init__(self, max_num_features, logger, intrinsic_matrix, distortion_coeffs, method='FAST'):
         self.max_num_features = max_num_features
         self.logger = logger
         self.method = method
         self.detector = None
 
         self.regular_grid_max_pts = None
+
+        self.intrinsic_matrix = intrinsic_matrix
+        self.distortion_coeffs = distortion_coeffs
 
         if self.method == 'FAST':
             self.detector = cv2.FastFeatureDetector_create(threshold=FAST_THRESHOLD, nonmaxSuppression=True)
@@ -281,6 +319,8 @@ class featureDetector:
         self.logger.debug(f"Found {len(keypoints)} feautures")
         if not self.method == 'SHI-TOMASI':
             keypoints = np.array([x.pt for x in keypoints], dtype=np.float32).reshape((-1, 2))
+
+        keypoints = cv2.undistortPoints(keypoints, self.intrinsic_matrix, self.distortion_coeffs, R=None, P=self.intrinsic_matrix).reshape(-1, 2)
         return (keypoints, descriptors)
 
     def regular_grid_detector(self, img):

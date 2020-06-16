@@ -19,7 +19,7 @@ from .helpers import check_correct_rot_mat, normalise_rotation
 class PositionModule(Module):
     def __init__(self, log_dir: pathlib.Path, args=None):
         super().__init__(name="position_module",
-                         outputs=[("homography", 10), ("position_vis", 10)],
+                         outputs=[("homography", 1000), ("position_vis", 10)],
                          inputs=["drivers_module:accelerations",
                                  "feature_tracking_module:feature_point_pairs"],
                          log_dir=log_dir)
@@ -122,7 +122,7 @@ class PositionModule(Module):
 
                 self.publish("homography", {"homography": homog, "point_pairs": vo_result.pairs,
                                             "timestamps": (vo_result.ts0, vo_result.ts1),
-                                            "image": vo_result.image}, 100)
+                                            "image": vo_result.image}, -1)
 
                 self.publish("position_vis", {"x": 0.0, "y": 0.0, "z": 0.0,
                                               "roll": 0.0, "pitch": 0.0, "yaw": 0.}, 1000)
@@ -224,10 +224,13 @@ class PositionModule(Module):
             elif USE_SCALE == 'groundtruth':
                 scale = self.get_groundtruth_scale()
 
-            ret_homog = np.column_stack((quaternion_to_rotMat(vo_quat), scale*vo_t_vec))
+            #ret_homog = np.column_stack((quaternion_to_rotMat(vo_quat), scale*vo_t_vec))
+            vo_tran = homog[0:3, 3]
+            vo_rot = homog[0:3, 0:3]
+            ret_homog = np.hstack((vo_rot, scale*vo_tran.reshape(3,1)))
             return ret_homog
 
-    def get_abolsute_scale(imu_t_vec, vo_t_vec):
+    def get_absolute_scale(self, imu_t_vec, vo_t_vec):
         # LS fit
         sum_vo_imu = imu_t_vec[0]*vo_t_vec[0] + imu_t_vec[1]*vo_t_vec[1] + imu_t_vec[2]*vo_t_vec[2]
         sum_vo_2 = vo_t_vec[0]**2 + vo_t_vec[1]**2 + vo_t_vec[2]**2
@@ -236,9 +239,10 @@ class PositionModule(Module):
         return scale
 
     def get_relative_scale(self, vo_t_vec):
-        scale_of_scale = 0.1
         scale = 1.0 / np.linalg.norm(vo_t_vec)
-        return scale*scale_of_scale
+        scale *= 0.1
+
+        return scale
 
     def get_groundtruth_scale(self):
         # todo: extract groundtruth from dataset
