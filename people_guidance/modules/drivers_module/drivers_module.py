@@ -164,6 +164,20 @@ class DriversModule(Module):
                         img_f.write(data_dict['data'])
                         img_f.close()
                     else:
+                        # Decode image
+                        img = cv2.imdecode(np.frombuffer(data_dict['data'], dtype=np.int8), flags=cv2.IMREAD_COLOR)
+
+                        # Undistort image
+                        if UNDISTORT_IMAGE:
+                            img = cv2.undistort(img, self.intrinsic_matrix, self.distortion_coeffs)
+
+                        # Resize image
+                        if RESIZE_IMAGE:
+                            img = cv2.resize(img, RESIZED_IMAGE)
+
+                        # Update img
+                        data_dict['data'] = img
+
                         # In normal mode we just publish the image
                         self.publish("images", data_dict, IMAGES_VALIDITY_MS)
             else:
