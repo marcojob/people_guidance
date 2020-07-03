@@ -25,7 +25,7 @@ if RPI:
 class DriversModule(Module):
     def __init__(self, log_dir: Path, args=None):
         super(DriversModule, self).__init__(name="drivers_module",
-                                            outputs=[("images", 10),
+                                            outputs=[("images", 10000),
                                                      ("accelerations", 100), ("accelerations_vis", 100)],
                                             inputs=[], log_dir=log_dir)
         self.args = args
@@ -66,8 +66,6 @@ class DriversModule(Module):
             self.set_accel_range()
             self.set_gyro_range()
 
-        # TODO: handle calibration case
-
         # Get hardware configuration mode
         self.setup_hardware_configuration()
 
@@ -107,7 +105,7 @@ class DriversModule(Module):
                     else:
                         # In normal mode, we just publish the data
                         self.publish("accelerations", data_dict, IMU_VALIDITY_MS)
-                        self.publish("accelerations_vis", data_dict, IMU_VALIDITY_MS)
+                        self.publish("accelerations_vis", data_dict, -1)
             else:
 
                 # We are in replay mode
@@ -141,7 +139,7 @@ class DriversModule(Module):
 
                 if self.imu_timestamp and self.get_time_ms() - self.replay_start_timestamp > self.imu_timestamp - self.imu_first_timestamp:
                     self.publish("accelerations", self.imu_data_dict, IMU_VALIDITY_MS)
-                    self.publish("accelerations_vis", self.imu_data_dict, IMU_VALIDITY_MS)
+                    self.publish("accelerations_vis", self.imu_data_dict, -1)
 
                     # Reset the timestamp so that a new dataset is read
                     self.imu_timestamp = None
@@ -174,41 +172,37 @@ class DriversModule(Module):
                     # Read from the file that keeps track of timestamps
                     img_str = self.img_data.readline()
 
-                    # No more imgs, exit
-                    if not img_str:
-                        self.logger.warning("Replay file empty, exiting")
-                        raise SystemExit("Replay file empty: Exited with code 0")
+                    if img_str:
+                        out = re.search(r'([0-9]*): ([0-9]*)', img_str)
+                        if out:
+                            self.img_timestamp = int(out.group(2))
 
-                    out = re.search(r'([0-9]*): ([0-9]*)', img_str)
-                    if out:
-                        self.img_timestamp = int(out.group(2))
+                            if not self.img_first_timestamp:
+                                self.img_first_timestamp = self.img_timestamp
 
-                        if not self.img_first_timestamp:
-                            self.img_first_timestamp = self.img_timestamp
+                            # Read the image corresponding to the counter and timestamp
+                            img_filename = f"img_{int(out.group(1)):04d}.jpg"
+                            img_file_path = self.files_dir / 'imgs' / img_filename
 
-                        # Read the image corresponding to the counter and timestamp
-                        img_filename = f"img_{int(out.group(1)):04d}.jpg"
-                        img_file_path = self.files_dir / 'imgs' / img_filename
+                            with open(img_file_path, 'rb') as fp:
+                                img_data_file = fp.read()
 
-                        with open(img_file_path, 'rb') as fp:
-                            img_data_file = fp.read()
+                            # Decode image
+                            self.img = cv2.imdecode(np.frombuffer(img_data_file, dtype=np.int8), flags=cv2.IMREAD_COLOR)
 
-                        # Decode image
-                        self.img = cv2.imdecode(np.frombuffer(img_data_file, dtype=np.int8), flags=cv2.IMREAD_COLOR)
+                            # Undistort image
+                            if UNDISTORT_IMAGE:
+                                self.img = cv2.undistort(self.img, self.intrinsic_matrix, self.distortion_coeffs)
 
-                        # Undistort image
-                        if UNDISTORT_IMAGE:
-                            self.img = cv2.undistort(self.img, self.intrinsic_matrix, self.distortion_coeffs)
-
-                        # Resize image
-                        if RESIZE_IMAGE:
-                            self.img = cv2.resize(self.img, RESIZED_IMAGE)
+                            # Resize image
+                            if RESIZE_IMAGE:
+                                self.img = cv2.resize(self.img, RESIZED_IMAGE)
 
 
                 # If the relative time is correct, we publish the data
 
                 if self.img_timestamp and self.get_time_ms() - self.replay_start_timestamp > self.img_timestamp - self.img_first_timestamp:
-                    self.publish("images", {"data": self.img, "timestamp": self.img_timestamp}, IMAGES_VALIDITY_MS)
+                    self.publish("images", {"data": self.img, "timestamp": self.img_timestamp}, -1)
 
                     # Reset the timestamp so that a new dataset is read
                     self.img_timestamp = None
