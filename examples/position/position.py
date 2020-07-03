@@ -1,13 +1,12 @@
+from pathlib import Path
+import numpy as np
+import re
+import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use('TkAgg')
-import matplotlib.pyplot as plt
 
-import re
-import numpy as np
-
-from pathlib import Path
-
-DEFAULT_DATASET = Path("../../data/outdoor_dataset_04")
+DEFAULT_DATASET = Path("../../data/indoor_dataset_6")
+# DEFAULT_DATASET = Path("../../data/outdoor_dataset_04")
 IMU_DATA_FILE = DEFAULT_DATASET / "imu_data.txt"
 
 IMU_RE_MASK = r'([0-9]*): accel_x: ([0-9.-]*), ' + \
@@ -20,11 +19,12 @@ IMU_RE_MASK = r'([0-9]*): accel_x: ([0-9.-]*), ' + \
 ALPHA_CF = 0.5
 RAD_TO_DEG = 180.0 / np.pi
 DEG_TO_RAD = np.pi / 180.0
-FIGSIZE = (15,12)
+FIGSIZE = (15, 12)
 DPI = 100
 G = -9.80600
 N_STATES = 4
 N_MEAS = 2
+
 
 class KF():
     def __init__(self):
@@ -46,11 +46,14 @@ class KF():
         self.P_prio = np.zeros((N_STATES, N_STATES))
         self.P_post = np.zeros((N_STATES, N_STATES))
 
+        # Innovation vector
+        self.innovation = np.zeros((N_MEAS, 1))
+
         # Kalman gain
         self.K = np.zeros((N_STATES, N_MEAS))
 
         # Process variance matrix
-        self.Q = np.diag([0.05, 0.005, 0.0005, 0.08])
+        self.Q = np.diag([0.5, 0.05, 0.005, 0.8])
 
         # Measurement noise
         self.R = np.diag([0.0005, 0.08])
@@ -68,21 +71,12 @@ class KF():
         self.roll = 0.0
         self.yaw = 0.0
 
-        # For plotting
-        self.timestamp_list = list()
-        self.roll_list = list()
-        self.pitch_list = list()
-        self.yaw_list = list()
-
-        self.pos_x_list = list()
-        self.pos_vx_list = list()
-        self.pos_ax_list = list()
-        self.pos_pitch_list = list()
-
-        self.raw_list = list()
-        self.raw2_list = list()
-        self.post_list = list()
-        self.prio_list = list()
+        # Relative global position
+        self.x_global = 0.0
+        self.y_global = 0.0
+        self.x_global_list = list()
+        self.y_global_list = list()
+        self.x_last = 0.0
 
     def update(self, data):
         # Update dt
@@ -105,45 +99,35 @@ class KF():
         self.P_prio = np.dot(np.dot(self.A, self.P_post), self.A.T) + self.Q
 
         # Posterior update
-        inv = np.linalg.pinv(np.dot(np.dot(self.H, self.P_prio), self.H.T) + self.R)
-        self.K = np.dot(np.dot(self.P_prio, self.H.T), inv) # Kalman gain
+        inv = np.linalg.pinv(
+            np.dot(np.dot(self.H, self.P_prio), self.H.T) + self.R)
+        self.K = np.dot(np.dot(self.P_prio, self.H.T), inv)  # Kalman gain
 
-        innovation = self.z_meas - np.dot(self.H, self.x_prio) # Innovation matrix
+        self.innovation = self.z_meas - \
+            np.dot(self.H, self.x_prio)  # Innovation matrix
 
-        self.x_post = self.x_prio + np.dot(self.K, innovation)
+        self.x_last = self.x_post[0]
 
-        """
-        if self.x_post[1] > 1:
-            self.x_post[1] = 1
-        elif self.x_post[1] < -1:
-            self.x_post[1] = -1
-        """
+        self.x_post = self.x_prio + np.dot(self.K, self.innovation)
 
         temp = np.eye(N_STATES) - np.dot(self.K, self.H)
-        self.P_post = np.dot(np.dot(temp, self.P_prio), temp.T) + np.dot(np.dot(self.K, self.R), self.K.T)
+        self.P_post = np.dot(np.dot(temp, self.P_prio), temp.T) + \
+            np.dot(np.dot(self.K, self.R), self.K.T)
 
-        # Plotting
-        self.timestamp_list.append(self.timestamp)
-        self.roll_list.append(self.roll*RAD_TO_DEG)
-        self.pitch_list.append(self.z_meas[1]*RAD_TO_DEG)
-        self.yaw_list.append(self.yaw*RAD_TO_DEG)
+        # Global position
+        delta_pos = self.x_post[0] - self.x_last
+        self.x_global += delta_pos*np.cos(self.yaw)
+        self.y_global += delta_pos*np.sin(self.yaw)
 
-        self.pos_x_list.append(self.x_post[0])
-        self.pos_vx_list.append(self.x_post[1])
-        self.pos_ax_list.append(self.x_post[2])
-        self.pos_pitch_list.append(self.x_post[3])
-
-        #self.raw_list.append(data["accel_x"] - np.sin(self.z_meas[1])*G)
-        self.raw_list.append(np.sin(self.z_meas[1])*G)
-        self.raw2_list.append(data["accel_x"])
-        self.post_list.append(self.x_post[2])
-        self.prio_list.append(self.x_prio[2])
+        self.x_global_list.append(self.x_global[0])
+        self.y_global_list.append(self.y_global[0])
 
     def get_A(self, dt):
+        scale = 0.95
         # Actually have a time varying A matrix
         A = np.array([[1.0, dt, 0.0, 0.0],
-                      [0.0, 1.0, dt, 0.0],
-                      [0.0, 0.0, 1.0, 0.0],
+                      [0.0, 1.0, scale*dt, 0.0],
+                      [0.0, 0.0, 1.0*scale, 0.0],
                       [0.0, 0.0, 0.0, 1.0]])
         return A
 
@@ -164,22 +148,27 @@ class KF():
             gyro_y*np.sin(self.z_meas[1])*np.tan(self.roll) + \
             gyro_z*np.cos(self.z_meas[1])*np.tan(self.roll)
 
-        pitch_gyro = gyro_y*np.cos(self.z_meas[1]) - gyro_z*np.sin(self.z_meas[1])
+        pitch_gyro = gyro_y * \
+            np.cos(self.z_meas[1]) - gyro_z*np.sin(self.z_meas[1])
 
         # Yaw only from gyro
-        yaw_gyro = gyro_y*np.sin(self.z_meas[1])*1.0/np.cos(self.roll) + gyro_z*np.cos(self.z_meas[1])*1.0/np.cos(self.roll)
+        yaw_gyro = gyro_y*np.sin(self.z_meas[1])*1.0/np.cos(
+            self.roll) + gyro_z*np.cos(self.z_meas[1])*1.0/np.cos(self.roll)
 
         # Apply complementary filter
-        self.z_meas[1] = (1.0 - ALPHA_CF)*(self.z_meas[1] + pitch_gyro*self.dt) + ALPHA_CF * pitch_accel
-        self.roll = (1.0 - ALPHA_CF)*(self.roll + roll_gyro*self.dt) + ALPHA_CF * roll_accel
+        self.z_meas[1] = (1.0 - ALPHA_CF)*(self.z_meas[1] +
+                                           pitch_gyro*self.dt) + ALPHA_CF * pitch_accel
+        self.roll = (1.0 - ALPHA_CF)*(self.roll + roll_gyro *
+                                      self.dt) + ALPHA_CF * roll_accel
         self.yaw += yaw_gyro*self.dt
+
 
 if __name__ == '__main__':
     # Read data from file
     with IMU_DATA_FILE.open('r') as f:
         lines = f.readlines()
 
-    # Empty data list 
+    # Empty data list
     data_list = list()
 
     # Iterate over all lines
@@ -202,26 +191,40 @@ if __name__ == '__main__':
     # Create Kalman Filter object
     kf = KF()
 
+    # Plotting vars
+    timestamp_list = list()
+
+    raw_list = list()
+    raw2_list = list()
+    raw3_list = list()
+
+    pos_var_list = list()
+
     for i in range(len(data_list) - 1):
         # Recursively update estimator
         kf.update(data_list[i])
 
+        # Plotting
+        timestamp_list.append(kf.timestamp)
+
+        raw_list.append(np.sin(kf.z_meas[1])*G)
+        raw2_list.append(data_list[i]["accel_x"])
+        raw3_list.append(kf.innovation[0])
+
+        pos_var_list.append(np.sqrt(kf.P_prio[0][0]))
+
+
     fig = plt.figure(figsize=FIGSIZE, dpi=DPI)
     main_p = fig.add_subplot(2, 1, 1)
-    main_p.plot(kf.timestamp_list, kf.raw_list, label="expected g")
-    main_p.plot(kf.timestamp_list, kf.raw2_list, label="measured a")
-    main_p.plot(kf.timestamp_list, kf.post_list, label="post")
-    main_p.plot(kf.timestamp_list, kf.prio_list, label="prio")
+    main_p.plot(timestamp_list, raw_list, label="expected g ratio")
+    main_p.plot(timestamp_list, raw2_list, label="measured a")
+    main_p.plot(timestamp_list, raw3_list, label="innovation a")
+    # main_p.plot(timestamp_list, pos_var_list, label="pos stdev")
 
     main_p.legend()
 
     main_s = fig.add_subplot(2, 1, 2)
-    main_s.plot(kf.timestamp_list, kf.pos_x_list, label="pos x")
-    main_s.plot(kf.timestamp_list, kf.pos_vx_list, label="vel x")
-    main_s.plot(kf.timestamp_list, kf.pos_ax_list, label="acc x")
-    main_s.plot(kf.timestamp_list, kf.pos_pitch_list, label="pitch")
-
-    main_s.set_ylim((-10,10))
+    main_s.plot(kf.x_global_list, kf.y_global_list, label="Global pos")
 
     main_s.legend()
     plt.show()
