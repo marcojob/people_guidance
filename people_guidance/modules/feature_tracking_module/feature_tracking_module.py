@@ -15,7 +15,7 @@ from .config import *
 from .matcher import bruteForceMatcher, opticalFlowMatcher
 
 # Need this to get cv imshow working on Ubuntu 20.04
-if "Linux" in platform.system():
+if "Linux" in platform.system() and not platform.uname().machine == 'armv7l':
     import gi
     gi.require_version('Gtk', '2.0')
     import matplotlib
