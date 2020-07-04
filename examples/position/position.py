@@ -76,8 +76,9 @@ class KF():
         self.dt_kf = None
 
         # State vector x: [pos x, vel x, acc x, pitch]
-        self.z_prio = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]).reshape(N_STATES, 1)
-        self.z_post = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]).reshape(N_STATES, 1)
+        self.scale = 1.0
+        self.z_prio = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, self.scale]).reshape(N_STATES, 1)
+        self.z_post = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, self.scale]).reshape(N_STATES, 1)
 
         # Covariance matrices
         self.P_prio = np.zeros((N_STATES, N_STATES))
@@ -95,8 +96,6 @@ class KF():
 
         # Measurement variance matrix
         self.R = np.diag([0.25, 0.25, 0.25, 1.0, 1.0, 1.0])
-
-        self.scale = 1.0
 
     def predict_state(self):
         f1 = self.dt_kf/self.scale
@@ -138,9 +137,6 @@ class KF():
         temp = np.eye(N_STATES) - np.dot(self.K, self.H)
         self.P_post = np.dot(np.dot(temp, self.P_prio), temp.T) + \
             np.dot(np.dot(self.K, self.R), self.K.T)
-
-
-        print(self.P_post[0][0], self.P_post[1][1], self.P_post[2][2])
 
     def update(self, t_vo, dt_kf):
         # Update dt
