@@ -29,8 +29,6 @@ DEG_TO_RAD = np.pi / 180.0
 FIGSIZE = (15, 12)
 DPI = 100
 G = -9.80600
-N_STATES = 4
-N_MEAS = 2
 
 RESIZED_IMAGE = (820, 616)
 FAST_THRESHOLD = 30
@@ -58,6 +56,8 @@ cbar1, cbar2, cbar3 = None, None, None
 
 img_window = list()
 
+N_STATES = 10
+N_MEAS = 6
 
 class KF():
     def __init__(self):
@@ -67,14 +67,92 @@ class KF():
         self.yaw = 0.0
 
         self.R_iw = None
-        self.t = np.array([0.0, 0.0, 0.0])
+        self.t_imu = np.array([0.0, 0.0, 0.0])
 
         # Timestamps
         self.timestamp_last = None
         self.timestamp = None
         self.dt = None
+        self.dt_kf = None
 
-    def update(self, data):
+        # State vector x: [pos x, vel x, acc x, pitch]
+        self.z_prio = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]).reshape(N_STATES, 1)
+        self.z_post = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]).reshape(N_STATES, 1)
+
+        # Covariance matrices
+        self.P_prio = np.zeros((N_STATES, N_STATES))
+        self.P_post = np.zeros((N_STATES, N_STATES))
+
+        # Process variance matrix
+        self.Q = np.diag([0.5, 0.5, 0.5, 0.05, 0.05, 0.05, 0.005, 0.005, 0.005, 0.05])
+
+        # State space model
+        self.F = np.zeros((N_STATES, N_STATES))
+
+        # Measurement matrix
+        self.H = np.block([[np.eye(3), np.zeros((3,3)), np.zeros((3,3)), np.zeros((3, 1))],
+                           [np.zeros((3,3)), np.zeros((3,3)), np.eye(3), np.zeros((3,1))]])
+
+        # Measurement variance matrix
+        self.R = np.diag([0.25, 0.25, 0.25, 1.0, 1.0, 1.0])
+
+        self.scale = 1.0
+
+    def predict_state(self):
+        f1 = self.dt_kf/self.scale
+        f2 = self.dt_kf**2/(2.0*self.scale)
+        f3 = -self.dt_kf/self.scale**2
+        f4 = -self.dt_kf**2/(2.0*self.scale**2)
+
+        # x(k) = F*x(k)
+        self.F = np.block([[np.eye(3), f1*np.eye(3), f2*np.eye(3), f3*np.ones((3,1)) - f4*np.ones((3,1))],
+                     [np.zeros((3,3)), np.eye(3), self.dt_kf*np.eye(3), np.zeros((3,1))],
+                     [np.zeros((3,3)), np.zeros((3,3)), np.eye(3), np.zeros((3,1))],
+                     [np.zeros((1,9)), 1]])
+
+        # Predict state
+        self.z_prio = np.dot(self.F, self.z_post)
+
+        # Predict covariance
+        self.P_prio = np.dot(np.dot(self.F, self.P_post), self.F.T) + self.Q
+
+    def measurement_update(self, t_vo):
+        # Inversion helper matrix
+        inv = np.linalg.pinv(
+            np.dot(np.dot(self.H, self.P_prio), self.H.T) + self.R)
+
+        # Kalman gain
+        self.K = np.dot(np.dot(self.P_prio, self.H.T), inv)
+
+        # Innovation
+        self.y_meas = np.block([self.z_post[0:3].reshape(3,) + t_vo, self.t_imu]).reshape((N_MEAS, 1))
+        self.innovation = self.y_meas - \
+            np.dot(self.H, self.z_prio)  # Innovation matrix
+
+        # Posterior update
+        self.z_post = self.z_prio + np.dot(self.K, self.innovation)
+
+        # Update scale
+        self.scale = self.z_post[-1]
+
+        temp = np.eye(N_STATES) - np.dot(self.K, self.H)
+        self.P_post = np.dot(np.dot(temp, self.P_prio), temp.T) + \
+            np.dot(np.dot(self.K, self.R), self.K.T)
+
+
+        print(self.P_post[0][0], self.P_post[1][1], self.P_post[2][2])
+
+    def update(self, t_vo, dt_kf):
+        # Update dt
+        self.dt_kf = dt_kf
+
+        # Prediction
+        self.predict_state()
+
+        # Correct
+        self.measurement_update(t_vo)
+
+    def complementary_filter(self, data):
         # Update dt
         if self.timestamp is None:
             self.timestamp = data["timestamp"]
@@ -83,11 +161,6 @@ class KF():
         self.timestamp = data["timestamp"]
         self.dt = self.timestamp - self.timestamp_last
 
-        # Complementary Filter
-        self.complementary_filter(data)
-
-
-    def complementary_filter(self, data):
         # Extract data
         acc_x = data["accel_x"]
         acc_y = data["accel_y"]
@@ -122,10 +195,10 @@ class KF():
         self.R_iw = Rotation.from_euler('xyz', [-self.roll, -self.pitch, -self.yaw])
 
         # World translation
-        self.t += np.dot(self.R_iw.as_matrix(), [acc_x, acc_y, acc_z]) + np.array([0.0, 0.0, G])
+        self.t_imu += np.dot(self.R_iw.as_matrix(), [acc_x, acc_y, acc_z]) + np.array([0.0, 0.0, G])
 
     def reset_t(self):
-        self.t = np.array([0.0, 0.0, 0.0])
+        self.t_imu = np.array([0.0, 0.0, 0.0])
 
 
 def main(img1, img2):
@@ -558,14 +631,29 @@ if __name__ == '__main__':
         # Get homography from imgs
         len_kps, homography = main(prev_img, curr_img)
 
+        R_prev_world = None
+
         # Process IMU data
         for d in data_list:
             ts = d["timestamp"]
             if ts >= prev_ts and ts < curr_ts:
-                kf.update(d)
+                kf.complementary_filter(d)
 
-        print(kf.t)
-        print(kf.roll*RAD_TO_DEG, kf.pitch*RAD_TO_DEG, kf.yaw*RAD_TO_DEG)
+                # Get world rotation at prev img
+                if R_prev_world is None and kf.R_iw is not None:
+                    R_prev_world = kf.R_iw.as_matrix()
+
+        # Get world to camera rotation
+        R_vo = homography[:, 0:3]
+        t_vo = homography[:, 3]
+
+        R_ci = np.array([[0, 0, -1], [1, 0, 0], [0, -1, 0]])
+
+        t_vo_w = np.dot(R_prev_world, np.dot(R_ci, t_vo))
+
+        # Update KF
+        kf.update(t_vo_w, curr_ts - prev_ts)
+
         # Reset t after image pair
         kf.reset_t()
 
