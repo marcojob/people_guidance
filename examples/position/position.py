@@ -76,7 +76,7 @@ class KF():
         self.dt_kf = None
 
         # State vector x: [pos x, vel x, acc x, pitch]
-        self.scale = 1.0
+        self.scale = 0.1
         self.z_prio = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, self.scale]).reshape(N_STATES, 1)
         self.z_post = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, self.scale]).reshape(N_STATES, 1)
 
