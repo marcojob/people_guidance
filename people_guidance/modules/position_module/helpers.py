@@ -119,7 +119,6 @@ def normalise_rotation(rot, error=1e-6):
         rot = cay(skewRot(cay(rot)))
     except np.linalg.LinAlgError:
         # Not invertible. Skip this one.
-        print('not invertible, using iterative approach')
         while abs(np.linalg.det(rot) - 1.0) > error:
             rot = 3. / 2. * rot - 0.5 * rot.dot(rot.T.dot(rot))  # iterative method
     return rot
@@ -552,7 +551,6 @@ def quaternion_apply(quaternion: List, vector: List):
     q2 = np.concatenate((np.array([0.0]), np.array(vector)))
     quaternion = quaternion / norm(quaternion)
     vector = quaternion_multiply(quaternion_multiply(quaternion, q2), quaternion_conjugate(quaternion))[1:]
-    # print('quaternion apply output', vector)
     return vector
 
 

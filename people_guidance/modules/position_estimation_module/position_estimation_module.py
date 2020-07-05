@@ -66,7 +66,7 @@ class PositionEstimationModule(Module):
 
                 if self.prev_imu_frame is None:
                     # if the frame we just received is the first one we have received.
-                    self.prev_imu_frame = frame  # TODO: check where used. should use rotated elements instead?
+                    self.prev_imu_frame = frame
                 else:
                     # Calculate dt
                     dt = (frame.ts - self.prev_imu_frame.ts) / 1000.0
@@ -106,7 +106,7 @@ class PositionEstimationModule(Module):
         self.gyro_y_lp = self.low_pass(frame.gy, self.data_raw["gyro_y"], is_degrees=True)
         self.gyro_z_lp = self.low_pass(frame.gz, self.data_raw["gyro_z"], is_degrees=True)
 
-    def complementary_filter(self, frame: IMUFrame, dt: float):  # TODO: check formulas
+    def complementary_filter(self, frame: IMUFrame, dt: float):
         # Pitch and roll based on accel
         pitch_accel = atan(self.accel_y_lp / sqrt(self.accel_z_lp**2 + self.accel_x_lp**2))
         roll_accel = atan(self.accel_z_lp / sqrt(self.accel_y_lp**2 + self.accel_x_lp**2))

@@ -47,7 +47,6 @@ class PositionModule(Module):
         if len(self.imu_buffer) < 100:
             imu_payload: Dict = self.get("drivers_module:accelerations")
             if imu_payload:
-                # print('IMU input', imu_payload)
                 self.imu_buffer.append(self.imu_frame_from_payload(imu_payload))
             else:
                 time.sleep(0.001)
@@ -186,7 +185,6 @@ class PositionModule(Module):
 
     def find_integration_frames(self, ts0, ts1, i0, i1) -> List[IMUFrame]:
         integration_frames: List[IMUFrame] = []
-        # print('self.imu_buffer[i0]', self.imu_buffer[i0]) # TODO has quaternion elt????
         lower_frame_bound: IMUFrame = interpolate_frames(self.imu_buffer[i0], self.imu_buffer[i0 + 1], ts0)
         integration_frames.append(lower_frame_bound)
 
@@ -249,10 +247,7 @@ class PositionModule(Module):
     def get_approx_scale(self, imu_t_vec, vo_t_vec):
         scale = np.linalg.norm(vo_t_vec) / np.linalg.norm(imu_t_vec)
         scale *= 0.00001
-        print('scale', scale, np.linalg.norm(vo_t_vec), np.linalg.norm(imu_t_vec))
-
         return scale
 
     def get_groundtruth_scale(self):
-        # todo: extract groundtruth from dataset
         return 1.0

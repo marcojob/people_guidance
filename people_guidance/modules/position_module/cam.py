@@ -42,7 +42,6 @@ class CameraPygame:
         pygame.display.flip()
         self.frames += 1
         self.fps = round(((self.frames * 1000) / (pygame.time.get_ticks() - self.ticks)), 1)
-        # print("fps: %d" % ((frames * 1000) / (pygame.time.get_ticks() - ticks)))
 
 
     def resizewin(self, width, height):
