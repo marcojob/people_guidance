@@ -37,6 +37,15 @@ python main.py --deploy
 <center>
 <img src="https://drive.google.com/uc?export=view&id=1E4m8Vy020IXHZr6dpMHGo7GPaHATFAa5" alt="alt text" width="50%">
 </center>
+Our system is based on readily available and low cost components. Additionally to the materials listed below you will need a battery bank to power the Raspberry Pi and some cables to connect everything together. You can 3D print your own chest mount by downloading our design from XXXXXXXXXXXXXXXX.
+<br />
+
+| Component                     | Price |
+|-------------------------------|-------|
+| Raspberry Pi 3 Model B        | ~40$  |
+| MPU-6050 IMU                  | ~3$   |
+| Raspberry Pi Camera Module V2 | ~30$  |
+
 
 ## Workload
 The workload was split evenly across our team throughout the whole project. However, each module was assigned a product owner who was responsible for any major design decision and approved improvements to their modules made by the other contributors. The module owners were assigned as follows:
