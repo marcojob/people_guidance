@@ -37,3 +37,10 @@ python main.py --deploy
 <center>
 <img src="https://drive.google.com/uc?export=view&id=1E4m8Vy020IXHZr6dpMHGo7GPaHATFAa5" alt="alt text" width="50%">
 </center>
+
+## Workload
+The workload was split evenly across our team throughout the whole project. However, each module was assigned a product owner who was responsible for any major design decision and approved improvements to their modules made by the other contributors. The module owners were assigned as follows:
+- Hardware and Drivers: Marco Job
+- Inertial Position: Théophile Messin-Roizard
+- Visual Odometry: Adrian Schneebeli
+- Software Architecture and 3D Reconstruction: Lorenz Hetzel
