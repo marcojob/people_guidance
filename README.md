@@ -1,5 +1,9 @@
 # EGS: Computationally Efficient Guidance System for Visually Impaired Individuals
 
+<center>
+<img src="https://drive.google.com/uc?export=view&id=1E7igx7hbhx5tFuHK6OEQ9EvgjPHCU3xs" alt="" width="100%">
+</center>
+
 ## System Overview
 EGS is a modular system. In its current state the following modules are used by default:
 - [Drivers Module](/people_guidance/modules/drivers_module): Interfaces with the hardware
