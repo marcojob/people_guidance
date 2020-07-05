@@ -214,7 +214,7 @@ class PositionModule(Module):
             vo_quat = angleAxis_to_quaternion(vo_angle_axis)
 
             # Scale
-            USE_SCALE = 'approx'
+            USE_SCALE = 'relative'
             if USE_SCALE == 'absolute':
                 scale = self.get_absolute_scale(imu_t_vec, vo_t_vec)
             elif USE_SCALE == 'relative':
