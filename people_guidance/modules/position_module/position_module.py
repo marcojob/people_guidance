@@ -216,13 +216,15 @@ class PositionModule(Module):
             vo_quat = angleAxis_to_quaternion(vo_angle_axis)
 
             # Scale
-            USE_SCALE = 'relative'
+            USE_SCALE = 'approx'
             if USE_SCALE == 'absolute':
                 scale = self.get_absolute_scale(imu_t_vec, vo_t_vec)
             elif USE_SCALE == 'relative':
                 scale = self.get_relative_scale(vo_t_vec)
             elif USE_SCALE == 'groundtruth':
                 scale = self.get_groundtruth_scale()
+            elif USE_SCALE == 'approx':
+                scale = self.get_approx_scale(imu_t_vec, vo_t_vec)
 
             #ret_homog = np.column_stack((quaternion_to_rotMat(vo_quat), scale*vo_t_vec))
             vo_tran = homog[0:3, 3]
@@ -241,6 +243,13 @@ class PositionModule(Module):
     def get_relative_scale(self, vo_t_vec):
         scale = 1.0 / np.linalg.norm(vo_t_vec)
         scale *= 0.1
+
+        return scale
+
+    def get_approx_scale(self, imu_t_vec, vo_t_vec):
+        scale = np.linalg.norm(vo_t_vec) / np.linalg.norm(imu_t_vec)
+        scale *= 0.00001
+        print('scale', scale, np.linalg.norm(vo_t_vec), np.linalg.norm(imu_t_vec))
 
         return scale
 

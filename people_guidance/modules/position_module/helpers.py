@@ -177,99 +177,26 @@ class ComplementaryFilter:
             # complementary filter
 
             # 1. Acceleration component, in RADIAN, cannot work because of the singularity issue
-            # roll_accel = atan2(-frame.ay, sqrt(frame.ax ** 2 + frame.az ** 2))
-            # pitch_accel = atan2(frame.ax, sqrt(frame.ay ** 2 + frame.az ** 2))
-
-            # 1. Using quaternion to represent the rotation to the gravity vector
-            # A. from the -Z Axis to the 'gravity' vector
-            # # two constraints, 3 DOF
-            # q_old = self.q_from_acc0(frame.ax, frame.ay, frame.az)
-            # r_to_acc_vector = Rotation.from_quat(q_old)
-
-            # B. Quaternion estimation using paper from 2015
             q_acc = self.q_from_acc2(frame.ax, frame.ay,
                                      frame.az)  # Rotation q_AI : inertial frame represented in IMU frame
-            # r_to_acc_vector2 = Rotation.from_quat(q_acc)
-            # To recreate [0, 0, -g], apply this formula:
-            # quaternion_apply(quaternion_conjugate(q_acc), [frame.ax, frame.ay, frame.az])[1:]
 
-            # # 2. Gyroscope angular speed to quaternion state update
-            # # A. Source: Quaternion kinematics for the error-state Kalman Filter, Joan Sola, November 8, 2017. ~p.49
+            # 2. Gyroscope angular speed to quaternion state update
             gyro = np.array([frame.gx, frame.gy, frame.gz]).astype(np.float32)
             gyro_norm = float(norm(gyro))
-            # gyro /= gyro_norm
             q_gyro = np.array([1, 0, 0, 0]).astype(np.float32)
             if gyro_norm > 0.0000001:
                 q_gyro = np.concatenate((np.array([cos(gyro_norm * dt * 0.5)]),
                                          gyro / gyro_norm * sin(gyro_norm * dt * 0.5)), axis=0)
-                # q_gyro = np.concatenate((np.array([cos(gyro_norm * dt * 0.5)]),
-                #                                 gyro / gyro_norm * sin(gyro_norm * dt * 0.5)))  # (214)
-            # q_gyro = np.concatenate((np.array([0]),
-            #                                 gyro))  # (214)
             if round(norm(q_gyro), 8) != 0:
-                # print('gyro', q_gyro, norm(q_gyro), q_gyro / norm(q_gyro))
                 q_gyro /= norm(q_gyro)
 
             self.q_gyro_state = quaternion_multiply(self.q_gyro_state, q_gyro)  # (211)
 
-            # # B. Source: Keeping a Good Attitude: A Quaternion-Based Orientation Filter for IMUs and MARGs
-            # # Roberto G. Valenti et al ~p15
-            # gyro = np.array([frame.gx, frame.gy, frame.gz]) * DEGREE_TO_RAD
-            # gyro_norm = norm(gyro)
-            # q_gyro = np.array([1, 0, 0, 0])
-            # if gyro_norm > 0.0000001:
-            #     q_gyro = np.concatenate((np.array([cos(gyro_norm * dt * 0.5)]),
-            #                                     gyro * sin(gyro_norm * dt * 0.5)))
-            #
-            # # # q_gyro = np.concatenate((np.array([0]), gyro))  # (37)
-            # q_dot = 0.5 * quaternion_multiply(self.q_state, q_gyro) # (37)
-            # self.q_state += q_dot * dt # (42)
-            # self.q_state /= norm(self.q_state)
-            # # Correction step
-            # alpha_lerp = 0.999 # gain that characterizes the cut-off frequency of the filter [35]
-            # delta_q_acc_bar = (1-alpha_lerp) * np.array([1, 0, 0, 0]) + alpha_lerp * q_acc # LERP (50)
-            # delta_q_acc_hat = delta_q_acc_bar / norm(delta_q_acc_bar) # LERP (51)
-            # self.q_state = quaternion_multiply(self.q_state, delta_q_acc_hat) # (43)
-
-            # # C. Source: https://www.thepoorengineer.com/en/quaternion/
-            # gyro = np.array([frame.gx, frame.gy, frame.gz]) * DEGREE_TO_RAD
-            # q = self.q_state
-            # Sq = np.array([[-q[1], -q[2], -q[3]],
-            #                [q[0], -q[3], q[2]],
-            #                [q[3], q[0], -q[1]],
-            #                [-q[2], q[1], q[0]]])
-            # q_update = dt / 2 * np.matmul(Sq, np.array(gyro).transpose())
-            # self.q_state += q_update
-            # self.q_state /= norm(self.q_state)
-
-            # # D.
-            # # https://stackoverflow.com/questions/12053895/converting-angular-velocity-to-quaternion-in-opencv
-            # gyro = np.array([frame.gx, frame.gy, frame.gz]) * DEGREE_TO_RAD
-            # gyro_norm = norm(gyro)
-            # # gyro /= gyro_norm
-            # q_gyro_update = np.array([1, 0, 0, 0])
-            # if gyro_norm > 0.0000001:
-            #     q_gyro_update = np.concatenate((np.array([cos(gyro_norm * dt * 0.5)]),
-            #                                     gyro * sin(gyro_norm * dt * 0.5)))
-            #
-            # self.q_state = quaternion_multiply(self.q_state, q_gyro_update)  # (211)
-
             # 3. Linear interpolation
-            # # A. Using slerp interpolation
-            # # TODO: for yaw, only consider data from gyro
-            # # 3.1 extract the yaw from the gyro data
-            # [gyro_yaw, gyro_pitch, gyro_roll] = self.yaw_from_q(self.q_gyro_state)
-            # # 3.2 set the yaw in the q_acc equal to gyro_yaw
-            # # ??
-            # # equal to the first argument for t_=0, to the second for t_=1
-            # self.q_state = self.slerp(self.q_gyro_state, q_acc, t_=0)
-
-            # B. Directly interpolating the Y, P, R
             # 3.1 get the angles
             [gyro_yaw, gyro_pitch, gyro_roll] = quat_to_ypr(self.q_gyro_state)
             [accel_yaw, accel_pitch, accel_roll] = quat_to_ypr(q_acc)
             # 3.2 complementary filter considering that the gyro yaw is correct
-            # RADIAN
             [yaw, pitch, roll] = np.array([gyro_yaw, gyro_pitch, gyro_roll]) * (1 - alpha) + \
                                  np.array([gyro_yaw, accel_pitch, accel_roll]) * alpha
             # 3.3 Save to quaternion and update state
@@ -281,17 +208,9 @@ class ComplementaryFilter:
                 # self.cam(np.array([yaw, pitch, roll]) / DEGREE_TO_RAD, name=f"q_update, time = {frame.ts/1000}, dt = {dt}", useQuat=False)
                 # in case of not passing quaternion: [yaw, pitch, roll] in DEGREES
 
-            # print(f"Acceleration: {[frame.ax, frame.ay, frame.az]}"
-            #       f"first q: \n{q}, second: \n{q_second}, difference of rot: \n"
-            #       f"first : \n{r_to_acc_vector.as_matrix()}, first inv \n{r_to_acc_vector.inv().as_matrix()}, "
-            #       f"mult \n{np.dot(r_to_acc_vector.as_matrix(), r_to_acc_vector.inv().as_matrix())}"
-            #       f"second : \n{r_to_acc_vector2.as_matrix()}")
-
             # 4. Express the gravity vector in the local frame
             # To recreate [0, 0, -g], apply this formula:
             local_gravity = quaternion_apply(self.q_gyro_state, [0, 0, -1]) * 9.81
-            # print("local gravity", local_gravity)
-            # print(f"gravity compensation: {np.array([frame.ax, frame.ay, frame.az]) - local_gravity}")
 
             # Update before returning
             self.last_frame = frame
