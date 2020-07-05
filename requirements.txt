@@ -1,5 +1,6 @@
-coloredlogs
-numpy
-opencv-python
 psutil
+numpy
+coloredlogs
+opencv-python
+matplotlib
 scipy==1.4.1

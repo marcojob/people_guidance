@@ -1,61 +1,35 @@
-# people_guidance
+# EGS: Computationally Efficient Guidance System for Visually Impaired Individuals
 
-## Adding Modules
-To add a module simply create a folder in the people_guidance/modules directory. Your Module must be a class that inherits from the Module class found in people_guidance/modules/module.py. The constructor for your class *must* take just one argument: log_dir which will be passed to it by the Pipeline which creates the model. The Module Class (which your Module Class must inherit from) sets up some basic things like the logger and the input/output queues through which your module can send/receive data.
+## System Overview
+EGS is a modular system. In its current state the following modules are used by default:
+- [Drivers Module](/people_guidance/modules/drivers_module): Interfaces with the hardware
+- [Feature Tracking Module](/people_guidance/modules/feature_tracking_module): Visual Odometry
+- [Position Estimation Module](/people_guidance/modules/position_module): IMU integration and homography scaling
+- [Reprojection Module](/people_guidance/modules/reprojection_module): 3D reconstruction and collision probability
 
-To replay from the DEFAULT_DATASET path found in path_learning/utils.py:
-```shell
-python main.py
-// Make sure that you move the dataset to the correct location after downloading it. Otherwise this will fail.
+Moreover, you can enable the optional [visualization module](/people_guidance/modules/visualization_module).
+
+The modules are connected using queues and managed by the [Pipeline](/people_guidance/pipeline.py) class. Logfiles are saved in the logs directory in the project root. There are logfiles for each module and the pipeline itself.
+
+## Installation
+1. Clone this repo.
+2. Install the requirements using `pip install -r requirements.txt`. If you would like to use SIFT features you need to build opencv-python from sources with the enable-nonfree flag set (as described [here](https://github.com/skvark/opencv-python/issues/126)). If you do not need SIFT features you can install opencv-python by using the requirements file which downloads a prebuilt wheel directly from [PyPi](https://pypi.org/).
+3. Download one or multiple datasets from XXXXXXX.
+
+## Usage
+### Playback
+You can evaluate the pipeline on a pre-recorded dataset with visualization using:
+``` shell
+python main.py --playback /path/to/your/dataset --visualize
 ```
-To replay other datasets:
-```shell
-python main.py --replay data/test_dataset
+### Deployment
+If you have replicated our hardware you can deploy the pipeline in real-time. After installing all requirements simply run:
+``` shell
+python main.py --deploy
 ```
-
-**To run your Model you must add it to the Pipeline. You can do so by importing your class in main.py and simply adding:**
-```python
-from xxx import MyModule
-pipeline.add_module(MyModule)
-```
-
-### Example Module
-```python
-class ExampleModule(Module):
-
-    def __init__(self, log_dir: pathlib.Path):
-        super(ExampleModule, self).__init__(name="example_module", outputs=[("spam", 10)], 
-        input_topics=["echo_module:echo"], log_dir=log_dir)
-        """
-        this will create a model that can get data from the "echo_module:echo" (which is the "echo" output from the "echo_module"
-        output) and publishes data on the "example_module:spam" channel. The channel size is limited by the integer (10) after 
-        the output name, to avoid buffer overflows. This number should be fairly small for streams of 
-        large objects (i.e. a pointcloud) and can be larger for small objects (i.e. a single float). All Queues are FiFo.
-        
-        The init function should be as lightweight as possible as these are run sequentially for all models in the main process. The                   
-        self.start method is called in an extra process for each module. Costly initializations should therefore be made in self.start and not in 
-        self.init.
-        """
-    def start(self):
-        while True:
-            time.sleep(1)
-            self.logger.info("Spamming...")
-            spam = np.random.random((20, 20, 3))
-            # put the newly generated numpy array into the output queue with name "spam".
-            self.outputs["spam"].put(spam)
-            # get the oldest numpy array from the input queue with name "echo_module:echo"
-            data = self.get("echo_module:echo") 
-            self.logger.info(f"Received Echo with shape {data.shape} ")
-            
-   def cleanup(self):
-       # any cleanup code (i.e. closing serial connections etc.) should be put here. This function is called even if an exception occurrs.
-       pass
-       
-```
-
-## Logging
-Every time you run your pipeline a new log directory is created with todays time and date in the logs folder. There are logfiles for each module and the pipeline itself. All Modules have a self.logger member which can be used to log to the console and to a file. 
 
 
 ## Hardware
-![image](https://drive.google.com/uc?export=view&id=11cMik0i9ZNh5w1cX8dclopbUNa-1bG0d)
+<center>
+<img src="https://drive.google.com/uc?export=view&id=1E4m8Vy020IXHZr6dpMHGo7GPaHATFAa5" alt="alt text" width="50%">
+</center>
