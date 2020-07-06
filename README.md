@@ -24,7 +24,7 @@ The modules are connected using queues and managed by the [Pipeline](/people_gui
 ### Playback
 You can evaluate the pipeline on a pre-recorded dataset with visualization using:
 ``` shell
-python main.py --playback /path/to/your/dataset --visualize
+python main.py --replay /path/to/your/dataset --visualize
 ```
 ### Deployment
 If you have replicated our hardware you can deploy the pipeline in real-time. After installing all requirements simply run:
@@ -37,7 +37,7 @@ python main.py --deploy
 <center>
 <img src="https://drive.google.com/uc?export=view&id=1E4m8Vy020IXHZr6dpMHGo7GPaHATFAa5" alt="alt text" width="50%">
 </center>
-Our system is based on readily available and low cost components. Additionally to the materials listed below you will need a battery bank to power the Raspberry Pi and some cables to connect everything together. You can 3D print your own chest mount by downloading our design from XXXXXXXXXXXXXXXX.
+Our system is based on readily available and low cost components. Additionally to the materials listed below you will need a battery bank to power the Raspberry Pi and some cables to connect everything together. You can 3D print your own chest mount using our [stl file](/hardware/baseplate.stl).
 <br />
 
 | Component                     | Price |
