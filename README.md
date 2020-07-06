@@ -44,7 +44,7 @@ Our system is based on readily available and low cost components. Additionally t
 |-------------------------------|-------|
 | Raspberry Pi 3 Model B        | ~35$  |
 | MPU-6050 IMU                  | ~3$   |
-| Raspberry Pi Camera Module V2 | ~30$  |
+| Raspberry Pi Camera Module V2 | ~25$  |
 
 
 ## Workload
