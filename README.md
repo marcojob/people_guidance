@@ -42,7 +42,7 @@ Our system is based on readily available and low cost components. Additionally t
 
 | Component                     | Price |
 |-------------------------------|-------|
-| Raspberry Pi 3 Model B        | ~40$  |
+| Raspberry Pi 3 Model B        | ~35$  |
 | MPU-6050 IMU                  | ~3$   |
 | Raspberry Pi Camera Module V2 | ~30$  |
 
