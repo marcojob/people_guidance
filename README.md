@@ -1,7 +1,7 @@
 # EGS: Computationally Efficient Guidance System for Visually Impaired Individuals
 
 <center>
-<img src="https://drive.google.com/uc?export=view&id=1E7igx7hbhx5tFuHK6OEQ9EvgjPHCU3xs" alt="" width="100%">
+<img src="/hardware/demo.png " alt="" width="100%">
 </center>
 
 ## System Overview
@@ -35,8 +35,9 @@ python main.py --deploy
 
 ## Hardware
 <center>
-<img src="https://drive.google.com/uc?export=view&id=1E4m8Vy020IXHZr6dpMHGo7GPaHATFAa5" alt="alt text" width="50%">
+<img src="/hardware/mount.JPG" alt="alt text" width="50%">
 </center>
+
 Our system is based on readily available and low cost components. Additionally to the materials listed below you will need a battery bank to power the Raspberry Pi and some cables to connect everything together. You can 3D print your own chest mount using our [stl file](/hardware/baseplate.stl).
 <br />
 
