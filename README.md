@@ -5,7 +5,8 @@
 </center>
 
 ## System Overview
-EGS is a modular system. In its current state the following modules are used by default:
+EGS is a guidance system aimed at visually impaired individuals. It is meant to compliment the capabilities of the traditional white cane. It can provide earlier warnings, which allow the user to navigate more safely in potentially challenging situations. Moreover, our system can offer warnings for obstacles above waist height, which are difficult to detect using a white cane.
+The system is designed to be highly modular. In its current state the following modules are used by default:
 - [Drivers Module](/people_guidance/modules/drivers_module): Interfaces with the hardware
 - [Feature Tracking Module](/people_guidance/modules/feature_tracking_module): Visual Odometry
 - [Position Estimation Module](/people_guidance/modules/position_module): IMU integration and homography scaling
