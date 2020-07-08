@@ -5,7 +5,7 @@
 </center>
 
 ## System Overview
-EGS is a guidance system aimed at visually impaired individuals. It is meant to compliment the capabilities of the traditional white cane. It can provide earlier warnings, which allow the user to navigate more safely in potentially challenging situations. Moreover, our system can offer warnings for obstacles above waist height, which are difficult to detect using a white cane.
+EGS is a guidance system aimed at visually impaired individuals. It is meant to compliment the capabilities of the traditional white cane. It can provide earlier warnings, which allow the user to navigate more safely in potentially challenging situations. Moreover, our system can offer warnings for obstacles above waist height, which are difficult to detect using a white cane. **However, it is important to note that this system is still in early development and should only be tested in controlled environments.**
 The system is designed to be highly modular. In its current state the following modules are used by default:
 - [Drivers Module](/people_guidance/modules/drivers_module): Interfaces with the hardware
 - [Feature Tracking Module](/people_guidance/modules/feature_tracking_module): Visual Odometry
@@ -17,6 +17,7 @@ Moreover, you can enable the optional [visualization module](/people_guidance/mo
 The modules are connected using queues and managed by the [Pipeline](/people_guidance/pipeline.py) class. Logfiles are saved in the logs directory in the project root. There are logfiles for each module and the pipeline itself.
 
 ## Installation
+This repo requires Python 3.7 or higher and was tested on Windows 10, Ubuntu 18.04 and Raspbian Stretch.
 1. Clone this repo.
 2. Install the requirements using `pip install -r requirements.txt`. If you would like to use SIFT features you need to build opencv-python from sources with the enable-nonfree flag set (as described [here](https://github.com/skvark/opencv-python/issues/126)). If you do not need SIFT features you can install opencv-python by using the requirements file which downloads a prebuilt wheel directly from [PyPi](https://pypi.org/).
 3. Download one or multiple [datasets](https://drive.google.com/drive/folders/1wUy62vMHkyyuOigcdbWZYMblkrIDHQn1?usp=sharing) and unzip them.
@@ -39,7 +40,7 @@ python main.py --deploy
 <img src="/hardware/mount.JPG" alt="alt text" width="50%">
 </center>
 
-Our system is based on readily available and low cost components. Additionally to the materials listed below you will need a battery bank to power the Raspberry Pi and some cables to connect everything together. You can 3D print your own chest mount using our [stl file](/hardware/baseplate.stl).
+Our system is based on readily available and low cost components. Additionally, to the materials listed below you will need a battery bank to power the Raspberry Pi and some cables to connect everything together. You can 3D print your own chest mount using our [stl file](/hardware/baseplate.stl). We recommed a layer height of 0.3mm and an infill of 20%.
 <br />
 
 | Component                     | Price |
