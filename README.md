@@ -20,7 +20,7 @@ The modules are connected using queues and managed by the [Pipeline](/people_gui
 This repo requires Python 3.7 or higher and was tested on Windows 10, Ubuntu 18.04 and Raspbian Stretch.
 1. Clone this repo.
 2. Install the requirements using `pip install -r requirements.txt`. If you would like to use SIFT features you need to build opencv-python from sources with the enable-nonfree flag set (as described [here](https://github.com/skvark/opencv-python/issues/126)). If you do not need SIFT features you can install opencv-python by using the requirements file which downloads a prebuilt wheel directly from [PyPi](https://pypi.org/).
-3. Download one or multiple datasets (for link contact one of the contributors) and unzip them.
+3. Download one or multiple datasets (contact one of the contributors for the link) and unzip them.
 
 ## Usage
 ### Playback
