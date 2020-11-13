@@ -141,3 +141,6 @@ dmypy.json
 
 # Movie files
 *.MOV
+
+# Datasets
+examples/vo_gpu_pipeline/datasets
