@@ -25,7 +25,7 @@ class VisualOdometry:
             self.detector = cv2.cuda_FastFeatureDetector.create(
                 threshold=75, nonmaxSuppression=True)
         elif detector == 'SIFT':
-            self.detector = cv2.cuda.xfeatures2d.SIFT_create(MAX_NUM_FEATURES)
+            self.detector = cv2.cuda.xfeatures2d.SIFT_create(MAX_NUM_FEATURES) # FIX
         elif detector == 'SURF':
             self.detector = cv2.cuda.SURF_CUDA_create(300, _nOctaveLayers=2)
         elif detector == 'ORB':
@@ -63,6 +63,7 @@ class VisualOdometry:
         self.pre_g_fts = None  # Previous GPU features
 
     def init_dataset(self):
+        global RESIZED_FRAME_SIZE
         if SOURCE == 'MOV':
             # Init video capture with video
             self.cap = cv2.VideoCapture(DATASET_MOV)
@@ -70,8 +71,19 @@ class VisualOdometry:
             # Resize size
             RESIZED_FRAME_SIZE = RESIZED_FRAME_SIZE_MOV
 
+            # Intrinsic matrix, wrong one
+            self.intrinsic_matrix = np.array([[7.188560000000e+02, 0.0, 6.071928000000e+02],
+                                              [0.0, 7.188560000000e+02, 1.852157000000e+02],
+                                              [0.0, 0.0, 1.0]]);
+
+
         elif SOURCE == 'KITTI':
             self.img_cnt = 0
+
+            # Intrinsic matrix
+            self.intrinsic_matrix = np.array([[7.188560000000e+02, 0.0, 6.071928000000e+02],
+                                              [0.0, 7.188560000000e+02, 1.852157000000e+02],
+                                              [0.0, 0.0, 1.0]]);
 
             # Resize size
             RESIZED_FRAME_SIZE = RESISED_FRAME_SIZE_KITTI
@@ -111,7 +123,10 @@ class VisualOdometry:
                 frame = self.cur_c_frame
 
                 # Draw matches
-                frame = self.draw_fts(frame, self.cur_c_fts)
+                # frame = self.draw_fts(frame, self.cur_c_fts)
+
+                # Draw OF
+                frame = self.draw_of(frame, self.pre_c_fts, self.cur_c_fts)
 
                 # Draw framerate
                 frame = self.draw_framerate(frame, self.framerate)
@@ -134,7 +149,18 @@ class VisualOdometry:
         th = 1
         for f in fts:
             x, y = int(f[0]), int(f[1])
-            cv2.circle(frame, (x, y), size, col, thickness=th)
+            frame = cv2.circle(frame, (x, y), size, col, thickness=th)
+        return frame
+
+    def draw_of(self, frame, pre_fts, cur_fts):
+        size = 3
+        col = (255, 0, 0)
+        th = 1
+        for p, c in zip(pre_fts, cur_fts):
+            end_point = (int(p[0]), int(p[1]))
+            start_point = (int(c[0]), int(c[1]))
+
+            frame = cv2.arrowedLine(frame, start_point, end_point, col, th)
         return frame
 
     def draw_framerate(self, frame, framerate):
@@ -182,7 +208,7 @@ class VisualOdometry:
             self.cur_c_fts = self.convert_fts_gpu_to_cpu(self.cur_g_fts)
             self.pre_c_fts = self.convert_fts_gpu_to_cpu(self.pre_g_fts)
 
-            # Fix some shit in OpenCV
+            # The GPU keypoints need to be in this format for some reason
             tmp = cv2.cuda_GpuMat()
             tmp_re = self.pre_c_fts.reshape((1, -1, 2))
             tmp.upload(tmp_re)
@@ -197,6 +223,12 @@ class VisualOdometry:
 
         self.pre_g_fts = cv2.cuda_GpuMat()
         self.pre_g_fts = cv2.cuda_GpuMat()
+
+        # Find Essential matrix
+        E, mask = cv2.findEssentialMat(self.pre_c_fts, self.cur_c_fts, self.intrinsic_matrix, cv2.RANSAC, 0.99, 1.0, None)
+
+        # Recover pose
+        _, self.rotations, self.translations, mask_cheirality = cv2.recoverPose(E, self.pre_c_fts, self.pre_c_fts, self.intrinsic_matrix, mask)
 
         # Download frame
         self.d_frame = self.gf.download()
