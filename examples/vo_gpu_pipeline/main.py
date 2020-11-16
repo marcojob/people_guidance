@@ -4,13 +4,13 @@ import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
 
-SOURCE = 'KITTI'
+SOURCE = 'MOV'
 DATASET_MOV = 'datasets/autobahn_0.MOV'
 DATASET_KITTI = 'datasets/kitti00/kitti/00/image_1/'
 RESIZED_FRAME_SIZE_MOV = (960, 540)
 RESISED_FRAME_SIZE_KITTI = None  # (1241, 376)
 RESIZED_FRAME_SIZE = None
-DETECTOR = 'SURF'
+DETECTOR = 'REGULAR_GRID'
 MAX_NUM_FEATURES = 5000
 MIN_NUM_FEATURES = 500
 USE_CLAHE = False
@@ -273,24 +273,39 @@ class VisualOdometry:
         E, mask = cv2.findEssentialMat(self.cur_c_fts, self.pre_c_fts, self.intrinsic_matrix, cv2.RANSAC, 0.99, 1.0, None)
 
         # Recover pose
-        _, r, t, self.mask_ch = cv2.recoverPose(E, self.cur_c_fts, self.pre_c_fts, self.intrinsic_matrix, mask)
+        ret, r, t, self.mask_ch = cv2.recoverPose(E, self.cur_c_fts, self.pre_c_fts, self.intrinsic_matrix, mask)
+        if ret > 10:
+            # Continue tracking of movement
+            self.scale = 1.0
+            self.cur_t = self.cur_t + self.scale * self.cur_r.dot(t)  # Concatenate the translation vectors
+            self.cur_r = r.dot(self.cur_r)  # Concatenate the rotation matrix
 
-        # Continue tracking of movement
-        self.scale = 1.0
-        self.cur_t = self.cur_t + self.scale * self.cur_r.dot(t)  # Concatenate the translation vectors
-        self.cur_r = r.dot(self.cur_r)  # Concatenate the rotation matrix
+            # Triangulate points
+            self.cloud = self.triangulate_points(self.cur_r, self.cur_t, self.all_r[-1], self.all_t[-1])
 
-        # Triangulate points
-        self.cloud = self.triangulate_points(self.cur_r, self.cur_t, self.all_r[-1], self.all_t[-1])
-
-        # Keep track for plotting
-        self.plot_cloud(self.cur_r, self.cur_t, self.cloud, self.mask_ch, add_to_cloud)
+            # Keep track for plotting
+            self.plot_cloud(self.cur_r, self.cur_t, self.cloud, self.mask_ch, add_to_cloud)
 
         # Download frame
         self.d_frame = self.gf.download()
 
         # End timer and compute framerate
         self.framerate = round(1.0 / (time.monotonic() - process_frame_start))
+
+    def triangulate_points(self, R, t, p_R, p_t):
+        P0 = np.hstack((np.eye(3), p_t))
+        P0 = self.intrinsic_matrix.dot(P0)
+
+        P1 = np.hstack((R, t))
+        P1 = self.intrinsic_matrix.dot(P1)
+
+        point1 = self.pre_c_fts.reshape(2, -1)
+        point2 = self.cur_c_fts.reshape(2, -1)
+
+        cloud_homo = cv2.triangulatePoints(P0, P1, point1, point2)
+        cloud = cv2.convertPointsFromHomogeneous(cloud_homo.T).reshape(-1, 3)
+
+        return cloud
 
     def plot_cloud(self, cur_r, cur_t, cloud, mask, add_to_cloud=False):
         # Append r, t data
@@ -307,64 +322,49 @@ class VisualOdometry:
             p = plt.plot(self.x_data, self.z_data)
             self.pos_p = p[0]
 
+            s = plt.scatter(cloud[:, 0], cloud[:, 2])
+            self.sca_p = s
         else:
             self.pos_p.set_data(self.x_data, self.z_data)
-
-        # Append to cloud
-        # if add_to_cloud:
-        #     # First cloud
-        #     if self.cloud_all is None:
-        #         self.cloud_all = cloud
-
-            # Stack new cloud
-            # cloud = np.delete(cloud, np.where(abs(cloud[:, 0]) >= 100), axis=0)
-            # cloud = np.delete(cloud, np.where(abs(cloud[:, 1]) >= 100), axis=0)
-            # cloud = np.delete(cloud, np.where(abs(cloud[:, 2]) >= 100), axis=0)
-            # self.cloud_all = cloud #np.vstack((self.cloud_all, cloud))
-
-            # Cloud plot
-            # if self.cloud_p is None:
-            #     self.cloud_p = self.ax.scatter(self.x_data, self.y_data, self.z_data)
-            # else:
-            #     self.cloud_p._offsets3d = (self.x_data, self.y_data, self.z_data)
-            #     plt.xlim(-1000, 1000)
-            #     plt.ylim(-1000, 1000)
+            a = np.array((-cloud[:, 2], -cloud[:, 0]))
+            self.sca_p.set_offsets(a.T)
 
         # Show plt
-        plt.xlim(min(self.x_data), max(self.x_data))
-        plt.ylim(min(self.z_data), max(self.z_data))
+        # plt.xlim(min(self.x_data), max(self.x_data))
+        # plt.ylim(min(self.z_data), max(self.z_data))
+        plt.xlim(-1000, 1000)
+        plt.ylim(-1000, 1000)
         plt.draw()
         plt.pause(0.001)
 
 
     def KLT_featureTracking(self, prev_img, cur_img, prev_fts):
-        """Feature tracking using the Kanade-Lucas-Tomasi tracker.
-        """
+        # Feature tracking using the Kanade-Lucas-Tomasi tracker
 
-        # Feature Correspondence with Backtracking Check
+        # Feature correspondence with backtracking
         kp2_g, status, error = self.lk.calc(prev_img, cur_img, prev_fts, None)
         kp1_g, status, error = self.lk.calc(cur_img, prev_img, kp2_g, None)
 
-        # Get CPU kp
+        # Get CPU keypoints
         kp2 = kp2_g.download().reshape((1, -1, 2))
         kp1 = kp1_g.download().reshape((1, -1, 2))
 
-        # Verify the absolute difference between feature points
+        # Find difference
         d = abs(prev_fts.download() - kp1).reshape(-1, 2).max(-1)
-        good = d < MIN_MATCHING_DIFF
+        diff = d < MIN_MATCHING_DIFF
 
         # Error Management
         if len(d) == 0:
             print('Error: No point correspondance.')
         # If less than 5 good points, it uses the features obtain without the backtracking check
-        elif list(good).count(True) <= 5:
+        elif list(diff).count(True) <= 5:
             print('Warning: Few point correspondances')
             return kp1, kp2, MIN_MATCHING_DIFF
 
         # Create new lists with the good features
         n_kp1, n_kp2 = [], []
-        for i, good_flag in enumerate(good):
-            if good_flag:
+        for i, f in enumerate(diff):
+            if f:
                 n_kp1.append(kp1[0][i])
                 n_kp2.append(kp2[0][i])
 
@@ -417,8 +417,7 @@ class VisualOdometry:
         self.pre_g_fts = tmp
 
     def detect_new_features(self, img):
-        """ Detect features using selected detector
-        """
+        # Detect features using selected detector
         if self.DETECTOR == 'FAST' or self.DETECTOR == 'ORB':
             g_kps = self.detector.detectAsync(img, None)
         elif self.DETECTOR == 'SURF':
@@ -460,28 +459,6 @@ class VisualOdometry:
         gpu_f.upload(cpu_f)
 
         return gpu_f
-
-    def triangulate_points(self, R, t, p_R, p_t):
-        """Triangulates the feature correspondence points with
-        the camera intrinsic matrix, rotation matrix, and translation vector.
-        It creates projection matrices for the triangulation process."""
-
-        # The canonical matrix (set as the origin)
-        P0 = np.hstack((p_R, p_t))
-        P0 = self.intrinsic_matrix.dot(P0)
-
-        # Rotated and translated using P0 as the reference point
-        P1 = np.hstack((R, t))
-        P1 = self.intrinsic_matrix.dot(P1)
-
-        # Reshaped the point correspondence arrays to cv2.triangulatePoints's format
-        point1 = self.pre_c_fts.reshape(2, -1)
-        point2 = self.cur_c_fts.reshape(2, -1)
-
-        cloud_homo = cv2.triangulatePoints(P0, P1, point1, point2)
-        cloud = cv2.convertPointsFromHomogeneous(cloud_homo.T).reshape(-1, 3)
-
-        return cloud
 
     def convert_fts_gpu_to_cpu(self, g_fts):
         if self.DETECTOR == 'FAST' or self.DETECTOR == 'ORB':
