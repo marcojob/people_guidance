@@ -1,18 +1,21 @@
 import cv2
 import time
 import numpy as np
+from mpl_toolkits.mplot3d import Axes3D
+import matplotlib.pyplot as plt
 
 SOURCE = 'KITTI'
-DATASET_MOV = 'datasets/drone_0.MP4'
+DATASET_MOV = 'datasets/autobahn_0.MOV'
 DATASET_KITTI = 'datasets/kitti00/kitti/00/image_1/'
 RESIZED_FRAME_SIZE_MOV = (960, 540)
 RESISED_FRAME_SIZE_KITTI = None  # (1241, 376)
 RESIZED_FRAME_SIZE = None
 DETECTOR = 'SURF'
 MAX_NUM_FEATURES = 5000
-MIN_NUM_FEATURES = 100
+MIN_NUM_FEATURES = 500
 USE_CLAHE = False
 MIN_MATCHING_DIFF = 1
+PLOT_LIM = 5000
 
 
 class VisualOdometry:
@@ -62,8 +65,26 @@ class VisualOdometry:
         self.cur_g_fts = None  # Current GPU features
         self.pre_g_fts = None  # Previous GPU features
 
+        # Rotation, translation
+        self.cur_r = np.eye(3) # Current rotation
+        self.cur_t = np.zeros((3, 1)) # Current translation
+        self.all_r = [self.cur_r]
+        self.all_t = [self.cur_t]
+
+        # Global pos data
+        self.x_data = list()
+        self.y_data = list()
+        self.z_data = list()
+
+        # Plots
+        self.pos_p = None
+        self.cloud_p = None
+
         # Masks
         self.mask_ch = None
+
+        # Cloud
+        self.cloud_all = None
 
     def init_dataset(self):
         global RESIZED_FRAME_SIZE
@@ -146,7 +167,7 @@ class VisualOdometry:
                 cv2.imshow("Video", frame)
 
             if cv2.waitKey(1) == 27:
-                break
+                breaka
 
         # Release the capture
         cap.release()
@@ -211,8 +232,11 @@ class VisualOdometry:
         self.pre_g_frame = self.cur_g_frame
         self.cur_g_frame = self.gf
 
+        # Add to cloud
+        add_to_cloud = False
+
         # Detect new features if we don't have enough
-        if len(self.pre_c_fts) < MIN_NUM_FEATURES or True:
+        if len(self.pre_c_fts) < MIN_NUM_FEATURES:
             self.cur_g_fts = self.detect_new_features(self.cur_g_frame)
             self.pre_g_fts = self.detect_new_features(self.pre_g_frame)
 
@@ -226,27 +250,92 @@ class VisualOdometry:
             tmp.upload(tmp_re)
             self.pre_g_fts = tmp
 
+            # The GPU keypoints need to be in this format for some reason
+            tmp = cv2.cuda_GpuMat()
+            tmp_re = self.cur_c_fts.reshape((1, -1, 2))
+            tmp.upload(tmp_re)
+            self.cur_g_fts = tmp
+
+            # Redected points, add to cloud
+            add_to_cloud = True
+
+        # Track g fts
+        self.pre_g_fts = self.cur_g_fts
+
         # Sparse OF
-        self.pre_c_fts, self.cur_c_fts, diff = self.KLT_featureTracking(self.pre_g_frame, self.cur_g_frame, self.pre_g_fts)
+        self.pre_c_fts, self.cur_c_fts, _ = self.KLT_featureTracking(self.pre_g_frame, self.cur_g_frame, self.pre_g_fts)
 
-        #Reupload to GPU
-        self.cur_g_fts = cv2.cuda_GpuMat()
-        self.cur_g_fts.upload(self.cur_c_fts)
-
-        self.pre_g_fts = cv2.cuda_GpuMat()
-        self.pre_g_fts = cv2.cuda_GpuMat()
+        # Upload to GPU also
+        self.pre_g_fts.upload(self.pre_c_fts.reshape((1, -1, 2)))
+        self.cur_g_fts.upload(self.cur_c_fts.reshape((1, -1, 2)))
 
         # Find Essential matrix
-        E, mask = cv2.findEssentialMat(self.pre_c_fts, self.cur_c_fts, self.intrinsic_matrix, cv2.RANSAC, 0.99, 1.0, None)
+        E, mask = cv2.findEssentialMat(self.cur_c_fts, self.pre_c_fts, self.intrinsic_matrix, cv2.RANSAC, 0.99, 1.0, None)
 
         # Recover pose
-        _, self.rotations, self.translations, self.mask_ch = cv2.recoverPose(E, self.pre_c_fts, self.pre_c_fts, self.intrinsic_matrix, mask)
+        _, r, t, self.mask_ch = cv2.recoverPose(E, self.cur_c_fts, self.pre_c_fts, self.intrinsic_matrix, mask)
+
+        # Continue tracking of movement
+        self.scale = 1.0
+        self.cur_t = self.cur_t + self.scale * self.cur_r.dot(t)  # Concatenate the translation vectors
+        self.cur_r = r.dot(self.cur_r)  # Concatenate the rotation matrix
+
+        # Triangulate points
+        self.cloud = self.triangulate_points(self.cur_r, self.cur_t, self.all_r[-1], self.all_t[-1])
+
+        # Keep track for plotting
+        self.plot_cloud(self.cur_r, self.cur_t, self.cloud, self.mask_ch, add_to_cloud)
 
         # Download frame
         self.d_frame = self.gf.download()
 
         # End timer and compute framerate
         self.framerate = round(1.0 / (time.monotonic() - process_frame_start))
+
+    def plot_cloud(self, cur_r, cur_t, cloud, mask, add_to_cloud=False):
+        # Append r, t data
+        self.all_r.append(cur_r)
+        self.all_t.append(cur_t)
+
+        # Append global position data
+        self.x_data.append(cur_t[0])
+        self.y_data.append(cur_t[1])
+        self.z_data.append(cur_t[2])
+
+        # Pos plot
+        if self.pos_p is None:
+            p = plt.plot(self.x_data, self.z_data)
+            self.pos_p = p[0]
+
+        else:
+            self.pos_p.set_data(self.x_data, self.z_data)
+
+        # Append to cloud
+        # if add_to_cloud:
+        #     # First cloud
+        #     if self.cloud_all is None:
+        #         self.cloud_all = cloud
+
+            # Stack new cloud
+            # cloud = np.delete(cloud, np.where(abs(cloud[:, 0]) >= 100), axis=0)
+            # cloud = np.delete(cloud, np.where(abs(cloud[:, 1]) >= 100), axis=0)
+            # cloud = np.delete(cloud, np.where(abs(cloud[:, 2]) >= 100), axis=0)
+            # self.cloud_all = cloud #np.vstack((self.cloud_all, cloud))
+
+            # Cloud plot
+            # if self.cloud_p is None:
+            #     self.cloud_p = self.ax.scatter(self.x_data, self.y_data, self.z_data)
+            # else:
+            #     self.cloud_p._offsets3d = (self.x_data, self.y_data, self.z_data)
+            #     plt.xlim(-1000, 1000)
+            #     plt.ylim(-1000, 1000)
+
+        # Show plt
+        plt.xlim(min(self.x_data), max(self.x_data))
+        plt.ylim(min(self.z_data), max(self.z_data))
+        plt.draw()
+        plt.pause(0.001)
+
 
     def KLT_featureTracking(self, prev_img, cur_img, prev_fts):
         """Feature tracking using the Kanade-Lucas-Tomasi tracker.
@@ -257,13 +346,11 @@ class VisualOdometry:
         kp1_g, status, error = self.lk.calc(cur_img, prev_img, kp2_g, None)
 
         # Get CPU kp
-        kp2 = kp2_g.download()[0]
-        kp1 = kp1_g.download()[0]
-
-        # import pdb; pdb.set_trace()
+        kp2 = kp2_g.download().reshape((1, -1, 2))
+        kp1 = kp1_g.download().reshape((1, -1, 2))
 
         # Verify the absolute difference between feature points
-        d = abs(self.pre_c_fts - kp1).reshape(-1, 2).max(-1)
+        d = abs(prev_fts.download() - kp1).reshape(-1, 2).max(-1)
         good = d < MIN_MATCHING_DIFF
 
         # Error Management
@@ -278,8 +365,8 @@ class VisualOdometry:
         n_kp1, n_kp2 = [], []
         for i, good_flag in enumerate(good):
             if good_flag:
-                n_kp1.append(kp1[i])
-                n_kp2.append(kp2[i])
+                n_kp1.append(kp1[0][i])
+                n_kp2.append(kp2[0][i])
 
         # Format the features into float32 numpy arrays
         n_kp1, n_kp2 = np.array(n_kp1, dtype=np.float32), np.array(
@@ -317,11 +404,17 @@ class VisualOdometry:
 
         # Detect initial features
         self.cur_g_fts = self.detect_new_features(self.cur_g_frame)
-        self.pre_g_fts = self.cur_g_fts
 
         # Convert keypoints to CPU
         self.cur_c_fts = self.convert_fts_gpu_to_cpu(self.cur_g_fts)
         self.pre_c_fts = self.cur_c_fts
+
+        # Reshape
+        tmp = cv2.cuda_GpuMat()
+        tmp_re = self.cur_c_fts.reshape((1, -1, 2))
+        tmp.upload(tmp_re)
+        self.cur_g_fts = tmp
+        self.pre_g_fts = tmp
 
     def detect_new_features(self, img):
         """ Detect features using selected detector
@@ -367,6 +460,28 @@ class VisualOdometry:
         gpu_f.upload(cpu_f)
 
         return gpu_f
+
+    def triangulate_points(self, R, t, p_R, p_t):
+        """Triangulates the feature correspondence points with
+        the camera intrinsic matrix, rotation matrix, and translation vector.
+        It creates projection matrices for the triangulation process."""
+
+        # The canonical matrix (set as the origin)
+        P0 = np.hstack((p_R, p_t))
+        P0 = self.intrinsic_matrix.dot(P0)
+
+        # Rotated and translated using P0 as the reference point
+        P1 = np.hstack((R, t))
+        P1 = self.intrinsic_matrix.dot(P1)
+
+        # Reshaped the point correspondence arrays to cv2.triangulatePoints's format
+        point1 = self.pre_c_fts.reshape(2, -1)
+        point2 = self.cur_c_fts.reshape(2, -1)
+
+        cloud_homo = cv2.triangulatePoints(P0, P1, point1, point2)
+        cloud = cv2.convertPointsFromHomogeneous(cloud_homo.T).reshape(-1, 3)
+
+        return cloud
 
     def convert_fts_gpu_to_cpu(self, g_fts):
         if self.DETECTOR == 'FAST' or self.DETECTOR == 'ORB':
