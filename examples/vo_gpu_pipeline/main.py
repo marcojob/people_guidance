@@ -3,13 +3,13 @@ import time
 import numpy as np
 
 SOURCE = 'KITTI'
-DATASET_MOV = 'datasets/test.MOV'
-DATASET_KITTI = 'datasets/kitti00/kitti/00/image_0/'
+DATASET_MOV = 'datasets/drone_0.MP4'
+DATASET_KITTI = 'datasets/kitti00/kitti/00/image_1/'
 RESIZED_FRAME_SIZE_MOV = (960, 540)
 RESISED_FRAME_SIZE_KITTI = None  # (1241, 376)
 RESIZED_FRAME_SIZE = None
 DETECTOR = 'SURF'
-MAX_NUM_FEATURES = 1000
+MAX_NUM_FEATURES = 5000
 MIN_NUM_FEATURES = 100
 USE_CLAHE = False
 MIN_MATCHING_DIFF = 1
@@ -62,6 +62,9 @@ class VisualOdometry:
         self.cur_g_fts = None  # Current GPU features
         self.pre_g_fts = None  # Previous GPU features
 
+        # Masks
+        self.mask_ch = None
+
     def init_dataset(self):
         global RESIZED_FRAME_SIZE
         if SOURCE == 'MOV':
@@ -76,7 +79,6 @@ class VisualOdometry:
                                               [0.0, 7.188560000000e+02, 1.852157000000e+02],
                                               [0.0, 0.0, 1.0]]);
 
-
         elif SOURCE == 'KITTI':
             self.img_cnt = 0
 
@@ -88,14 +90,23 @@ class VisualOdometry:
             # Resize size
             RESIZED_FRAME_SIZE = RESISED_FRAME_SIZE_KITTI
 
-    def get_frame(self):
+    def get_frame(self, skip_frames=0):
         if SOURCE == 'MOV':
+            # Skip some frames
+            for s in range(skip_frames):
+                self.cap.read()
+
             # Read from capture
             ret, frame = self.cap.read()
+
         elif SOURCE == 'KITTI':
+            # Skip some frames
+            for s in range(skip_frames):
+                cv2.imread(DATASET_KITTI + "{:06d}.png".format(self.img_cnt))
+                self.img_cnt += 1
+
             # Read img
-            ret, frame = 1, cv2.imread(
-                DATASET_KITTI + "{:06d}.png".format(self.img_cnt))
+            ret, frame = 1, cv2.imread(DATASET_KITTI + "{:06d}.png".format(self.img_cnt))
 
             # Increase counter
             self.img_cnt += 1
@@ -114,7 +125,7 @@ class VisualOdometry:
 
         while True:
             # Read the frames
-            ret, frame = self.get_frame()
+            ret, frame = self.get_frame(skip_frames=0)
             if ret:
                 # Main frame processing
                 self.process_frame(frame)
@@ -126,7 +137,7 @@ class VisualOdometry:
                 # frame = self.draw_fts(frame, self.cur_c_fts)
 
                 # Draw OF
-                frame = self.draw_of(frame, self.pre_c_fts, self.cur_c_fts)
+                frame = self.draw_of(frame, self.pre_c_fts, self.cur_c_fts, self.mask_ch)
 
                 # Draw framerate
                 frame = self.draw_framerate(frame, self.framerate)
@@ -152,15 +163,16 @@ class VisualOdometry:
             frame = cv2.circle(frame, (x, y), size, col, thickness=th)
         return frame
 
-    def draw_of(self, frame, pre_fts, cur_fts):
+    def draw_of(self, frame, pre_fts, cur_fts, mask):
         size = 3
         col = (255, 0, 0)
         th = 1
-        for p, c in zip(pre_fts, cur_fts):
-            end_point = (int(p[0]), int(p[1]))
-            start_point = (int(c[0]), int(c[1]))
+        for m, p, c in zip(mask, pre_fts, cur_fts):
+            if m:
+                end_point = (int(p[0]), int(p[1]))
+                start_point = (int(c[0]), int(c[1]))
 
-            frame = cv2.arrowedLine(frame, start_point, end_point, col, th)
+                frame = cv2.arrowedLine(frame, start_point, end_point, col, th)
         return frame
 
     def draw_framerate(self, frame, framerate):
@@ -228,7 +240,7 @@ class VisualOdometry:
         E, mask = cv2.findEssentialMat(self.pre_c_fts, self.cur_c_fts, self.intrinsic_matrix, cv2.RANSAC, 0.99, 1.0, None)
 
         # Recover pose
-        _, self.rotations, self.translations, mask_cheirality = cv2.recoverPose(E, self.pre_c_fts, self.pre_c_fts, self.intrinsic_matrix, mask)
+        _, self.rotations, self.translations, self.mask_ch = cv2.recoverPose(E, self.pre_c_fts, self.pre_c_fts, self.intrinsic_matrix, mask)
 
         # Download frame
         self.d_frame = self.gf.download()
@@ -320,8 +332,41 @@ class VisualOdometry:
             g_kps = self.detector.detect(img, None)
         elif self.DETECTOR == 'SHI-TOMASI':
             g_kps = self.detector.detect(img)
+        elif self.DETECTOR == 'REGULAR_GRID':
+            # Not very efficient, but regular grid comp. is low
+            img_c = img.download()
+            g_kps = self.regular_grid_detector(img_c)
 
         return g_kps
+
+    def regular_grid_detector(self, img):
+        """
+        Very basic method of just sampling point from a regular grid;
+        not very efficient, but regular grid comp. is low
+        """
+        # Fix at 1000
+        self.regular_grid_max_pts = MAX_NUM_FEATURES
+
+        features = list()
+        height = float(img.shape[0])
+        width = float(img.shape[1])
+        k = height/width
+
+        n_col = int(np.sqrt(self.regular_grid_max_pts/k))
+        n_rows = int(n_col*k)
+
+        h_cols = int(width/n_col)
+        h_rows = int(height/n_rows)
+
+        for c in range(n_col):
+            for r in range(n_rows):
+                features.append(np.array((c*h_cols, r*h_rows), dtype=np.float32))
+
+        gpu_f = cv2.cuda_GpuMat()
+        cpu_f = np.array(features, dtype=np.float32).reshape((1, -1, 2))
+        gpu_f.upload(cpu_f)
+
+        return gpu_f
 
     def convert_fts_gpu_to_cpu(self, g_fts):
         if self.DETECTOR == 'FAST' or self.DETECTOR == 'ORB':
@@ -330,10 +375,9 @@ class VisualOdometry:
         elif self.DETECTOR == 'SURF':
             c_fts = cv2.cuda_SURF_CUDA.downloadKeypoints(self.detector, g_fts)
             c_fts = np.array([x.pt for x in c_fts], dtype=np.float32)
-        elif self.DETECTOR == 'SHI-TOMASI':
+        elif self.DETECTOR == 'SHI-TOMASI' or self.DETECTOR == 'REGULAR_GRID':
+            # Not very efficient, but regular grid comp. is low
             c_fts = g_fts.download()
-            c_fts = c_fts[0]
-
 
         return c_fts
 
