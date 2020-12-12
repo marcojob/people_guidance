@@ -4,13 +4,14 @@ import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
 
-SOURCE = 'MOV'
+SOURCE = 'KITTI'
 DATASET_MOV = 'datasets/autobahn_0.MOV'
 DATASET_KITTI = 'datasets/kitti00/kitti/00/image_1/'
+FRAME_SIZE = (1241, 376)
 RESIZED_FRAME_SIZE_MOV = (960, 540)
 RESISED_FRAME_SIZE_KITTI = None  # (1241, 376)
 RESIZED_FRAME_SIZE = None
-DETECTOR = 'REGULAR_GRID'
+DETECTOR = 'SURF'
 MAX_NUM_FEATURES = 5000
 MIN_NUM_FEATURES = 500
 USE_CLAHE = False
@@ -41,6 +42,8 @@ class VisualOdometry:
             self.detector = cv2.cuda.createGoodFeaturesToTrackDetector(cv2.CV_8UC1, feature_params['maxCorners'], \
                                            feature_params['qualityLevel'], feature_params['minDistance'], \
                                            feature_params['blockSize'])
+        elif detector == 'REGULAR_GRID':
+            self.init_regular_grid_detector()
 
         # Initialize clahe filter
         self.clahe = cv2.cuda.createCLAHE(clipLimit=5.0)
@@ -78,7 +81,11 @@ class VisualOdometry:
 
         # Plots
         self.pos_p = None
+        self.sca_p = None
         self.cloud_p = None
+
+        fig = plt.figure()
+        self.ax = Axes3D(fig)
 
         # Masks
         self.mask_ch = None
@@ -144,6 +151,9 @@ class VisualOdometry:
         # Process frame
         self.process_first_frame(frame)
 
+        # Frame counter
+        frame_counter = 0
+
         while True:
             # Read the frames
             ret, frame = self.get_frame(skip_frames=0)
@@ -154,20 +164,22 @@ class VisualOdometry:
                 # Create copy for plotting
                 frame = self.cur_c_frame
 
-                # Draw matches
-                # frame = self.draw_fts(frame, self.cur_c_fts)
-
                 # Draw OF
                 frame = self.draw_of(frame, self.pre_c_fts, self.cur_c_fts, self.mask_ch)
 
                 # Draw framerate
                 frame = self.draw_framerate(frame, self.framerate)
 
+                # Increment frame counter
+                frame_counter += 1
+                if frame_counter == 300:
+                    exit()
+
                 # Show img
                 cv2.imshow("Video", frame)
 
             if cv2.waitKey(1) == 27:
-                breaka
+                break
 
         # Release the capture
         cap.release()
@@ -275,13 +287,28 @@ class VisualOdometry:
         # Recover pose
         ret, r, t, self.mask_ch = cv2.recoverPose(E, self.cur_c_fts, self.pre_c_fts, self.intrinsic_matrix, mask)
         if ret > 10:
+        #     # Only keep mask of features
+        #     tmp_cur_fts = list()
+        #     tmp_pre_fts = list()
+        #     discard = 0
+        #     use = 0
+        #     for i, m in enumerate(self.mask_ch):
+        #         if m[0]:
+        #             tmp_cur_fts.append(self.cur_c_fts[i])
+        #             tmp_pre_fts.append(self.pre_c_fts[i])
+        #             use += 1
+        #         else:
+        #             discard += 1
+        #     self.cur_c_fts = np.array(tmp_cur_fts)
+        #     self.pre_c_fts = np.array(tmp_pre_fts)
+
             # Continue tracking of movement
-            self.scale = 1.0
-            self.cur_t = self.cur_t + self.scale * self.cur_r.dot(t)  # Concatenate the translation vectors
+            self.scale = 1.0 / np.linalg.norm(t)
             self.cur_r = r.dot(self.cur_r)  # Concatenate the rotation matrix
+            self.cur_t = self.cur_t + self.scale * self.cur_r.dot(t)  # Concatenate the translation vectors
 
             # Triangulate points
-            self.cloud = self.triangulate_points(self.cur_r, self.cur_t, self.all_r[-1], self.all_t[-1])
+            self.cloud = self.triangulate_points(self.cur_r, self.cur_t, r, t)
 
             # Keep track for plotting
             self.plot_cloud(self.cur_r, self.cur_t, self.cloud, self.mask_ch, add_to_cloud)
@@ -292,17 +319,13 @@ class VisualOdometry:
         # End timer and compute framerate
         self.framerate = round(1.0 / (time.monotonic() - process_frame_start))
 
-    def triangulate_points(self, R, t, p_R, p_t):
-        P0 = np.hstack((np.eye(3), p_t))
-        P0 = self.intrinsic_matrix.dot(P0)
+    def triangulate_points(self, R, t, delta_R, delta_t):
+        P0 = np.dot(self.intrinsic_matrix, np.eye(3, 4))
 
-        P1 = np.hstack((R, t))
+        P1 = np.hstack((delta_R, -delta_t))
         P1 = self.intrinsic_matrix.dot(P1)
 
-        point1 = self.pre_c_fts.reshape(2, -1)
-        point2 = self.cur_c_fts.reshape(2, -1)
-
-        cloud_homo = cv2.triangulatePoints(P0, P1, point1, point2)
+        cloud_homo = cv2.triangulatePoints(P0, P1, self.pre_c_fts.T, self.cur_c_fts.T)
         cloud = cv2.convertPointsFromHomogeneous(cloud_homo.T).reshape(-1, 3)
 
         return cloud
@@ -317,23 +340,36 @@ class VisualOdometry:
         self.y_data.append(cur_t[1])
         self.z_data.append(cur_t[2])
 
-        # Pos plot
-        if self.pos_p is None:
-            p = plt.plot(self.x_data, self.z_data)
-            self.pos_p = p[0]
+        # Cloud
+        cloud = np.dot(cloud, cur_r)
+        cloud[:, 0] += self.cur_t[0]
+        cloud[:, 1] += self.cur_t[1]
+        cloud[:, 2] += self.cur_t[2]
 
-            s = plt.scatter(cloud[:, 0], cloud[:, 2])
+        # Track all cloud
+        self.cloud_all = cloud
+
+        # Pos plot
+        if self.sca_p is None:
+        # if self.pos_p is None:
+            plt.plot(self.x_data, self.z_data)
+
+            s = self.ax.scatter(cloud[:, 0], cloud[:, 2], -cloud[:, 1])
             self.sca_p = s
         else:
-            self.pos_p.set_data(self.x_data, self.z_data)
-            a = np.array((-cloud[:, 2], -cloud[:, 0]))
-            self.sca_p.set_offsets(a.T)
+            # Set data
+            plt.plot(self.x_data, self.z_data)
+
+            # Offset data
+            self.sca_p._offsets3d = (self.cloud_all[:, 0], self.cloud_all[:, 2], -self.cloud_all[:, 1])
 
         # Show plt
-        # plt.xlim(min(self.x_data), max(self.x_data))
-        # plt.ylim(min(self.z_data), max(self.z_data))
-        plt.xlim(-1000, 1000)
-        plt.ylim(-1000, 1000)
+        BORDER = 100
+        plt.xlim(min(self.x_data) - BORDER, max(self.x_data) + BORDER)
+        plt.ylim(min(self.z_data) - BORDER, max(self.z_data) + BORDER)
+        self.ax.set_zlim(min(self.y_data) - BORDER, max(self.y_data) + BORDER)
+        # plt.xlim(-100, 100)
+        # plt.ylim(-100, 100)
         plt.draw()
         plt.pause(0.001)
 
@@ -432,16 +468,15 @@ class VisualOdometry:
         return g_kps
 
     def regular_grid_detector(self, img):
-        """
-        Very basic method of just sampling point from a regular grid;
-        not very efficient, but regular grid comp. is low
-        """
-        # Fix at 1000
+        return self.gpu_rg
+
+    def init_regular_grid_detector(self):
+        # Init regular grid
         self.regular_grid_max_pts = MAX_NUM_FEATURES
 
         features = list()
-        height = float(img.shape[0])
-        width = float(img.shape[1])
+        height = float(FRAME_SIZE[1])
+        width = float(FRAME_SIZE[0])
         k = height/width
 
         n_col = int(np.sqrt(self.regular_grid_max_pts/k))
@@ -457,8 +492,7 @@ class VisualOdometry:
         gpu_f = cv2.cuda_GpuMat()
         cpu_f = np.array(features, dtype=np.float32).reshape((1, -1, 2))
         gpu_f.upload(cpu_f)
-
-        return gpu_f
+        self.gpu_rg = gpu_f
 
     def convert_fts_gpu_to_cpu(self, g_fts):
         if self.DETECTOR == 'FAST' or self.DETECTOR == 'ORB':
